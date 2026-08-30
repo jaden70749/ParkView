@@ -79,7 +79,7 @@ function loadKakaoMapSdk() {
   return state.kakaoSdkPromise;
 }
 
-const MAP_MARKER_MIN_ZOOM = 14.5;
+const MAP_MARKER_MIN_ZOOM = 13.5;
 const MAP_MARKER_DETAIL_ZOOM = 16;
 const COMPACT_MARKER_CELL_SIZE = 88;
 const MAIN_MAP_MIN_ZOOM = 6;
