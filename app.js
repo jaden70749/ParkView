@@ -145,6 +145,7 @@ const state = {
   mainMap: null,
   mainMarkerOverlays: [],
   currentLocationMarker: null,
+  userLocation: null,
   registrationMapInstance: null,
   registrationMarker: null,
   registrationLocation: null,
@@ -195,20 +196,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadKakaoMapSdk().catch((error) => {
     console.warn("Kakao Maps SDK unavailable; using fallback map.", error);
   });
-  const initialLocation = await initialLocationPromise;
-  initializeMainMap(initialLocation);
-  if (initialLocation) {
-    updateCurrentLocationMarker(initialLocation.latitude, initialLocation.longitude);
-    setSearchFeedback("현재 위치 주변 주차장을 표시합니다.");
-  } else {
-    setSearchFeedback("위치 권한을 허용하면 내 주변 주차장을 볼 수 있습니다.", true);
-  }
-  setLocateLoading(false);
+  initializeMainMap();
   renderList();
   renderAdminFloor();
   renderRegisteredLots();
   setRegistrationStep(0);
   registerServiceWorker();
+  initialLocationPromise.then((location) => {
+    setLocateLoading(false);
+    if (!location) {
+      setSearchFeedback("위치 권한을 허용하면 내 주변 주차장을 볼 수 있습니다.", true);
+      return;
+    }
+    applyUserLocation(location, true);
+    setSearchFeedback("현재 위치 주변 주차장을 표시합니다.");
+  });
 });
 
 function bindElements() {
@@ -513,9 +515,23 @@ function getCurrentCoordinates() {
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => resolve({ latitude: coords.latitude, longitude: coords.longitude }),
       () => resolve(null),
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+      { enableHighAccuracy: true, timeout: 60000, maximumAge: 30000 }
     );
   });
+}
+
+function applyUserLocation(location, focusMap = false) {
+  state.userLocation = {
+    latitude: Number(location.latitude),
+    longitude: Number(location.longitude)
+  };
+  updateCurrentLocationMarker(state.userLocation.latitude, state.userLocation.longitude);
+  if (focusMap) focusMapOn(state.userLocation.latitude, state.userLocation.longitude, 16);
+  refreshNearbyList();
+  renderList();
+  if (els.detailView.classList.contains("active") && state.selectedLot) {
+    renderLotDetail(state.selectedLot);
+  }
 }
 
 async function focusOnCurrentLocation() {
@@ -532,8 +548,7 @@ async function focusOnCurrentLocation() {
     setSearchFeedback("위치 권한을 허용하면 내 주변 주차장을 볼 수 있습니다.", true);
     return;
   }
-  updateCurrentLocationMarker(location.latitude, location.longitude);
-  focusMapOn(location.latitude, location.longitude, 16);
+  applyUserLocation(location, true);
   setSearchFeedback("현재 위치 주변 주차장으로 이동했습니다.");
 }
 
@@ -1943,9 +1958,6 @@ function refreshNearbyList() {
       haversineKm(centerLat, centerLng, b.latitude, b.longitude)
     ))
     .slice(0, 700);
-  state.filteredLots.slice(0, 30).forEach((lot) => {
-    lot.distanceMeters = Math.round(haversineKm(centerLat, centerLng, lot.latitude, lot.longitude) * 1000);
-  });
   if (hasActiveLotFilters()) renderMapMarkers();
   renderList();
 }
@@ -2083,7 +2095,7 @@ function lotCard(lot) {
   button.innerHTML = `
     <span class="lot-main">
       <h2>${escapeHtml(lot.name)}</h2>
-      <p>${formatDistance(lot.distanceMeters)}</p>
+      <p>${formatLotDistance(lot)}</p>
       <span class="open-dot">${lot.isOpen ? "운영중" : "운영종료"}</span>
     </span>
     <span class="lot-side">
@@ -2165,7 +2177,7 @@ function renderLotDetail(lot) {
         <span class="detail-type">${escapeHtml(lot.parkingType)}</span>
         <span class="detail-heading-copy">
           <h2 class="detail-title">${escapeHtml(lot.name)}</h2>
-          <span class="detail-sub">${formatDistance(lot.distanceMeters)} · ${lot.isOpen ? "운영 중" : "운영 종료"}</span>
+          <span class="detail-sub">${formatLotDistance(lot)} · ${lot.isOpen ? "운영 중" : "운영 종료"}</span>
         </span>
       </div>
       <div class="detail-actions" aria-label="주차장 작업">
@@ -2232,6 +2244,17 @@ function formatDistance(value) {
   const meters = Math.max(0, number);
   if (meters < 1000) return `${Math.round(meters)}m`;
   return `${(meters / 1000).toFixed(meters >= 10000 ? 0 : 1)}km`;
+}
+
+function formatLotDistance(lot) {
+  if (!state.userLocation) return "거리 정보 없음";
+  const distanceMeters = haversineKm(
+    state.userLocation.latitude,
+    state.userLocation.longitude,
+    lot.latitude,
+    lot.longitude
+  ) * 1000;
+  return formatDistance(distanceMeters);
 }
 
 async function shareLot(lot) {
