@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-title" content="ParkView">
   <title>ParkView</title>
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=87">
+  <link rel="stylesheet" href="./styles.css?v=88">
 </head>
 <body>
   <main id="app" class="app-shell">
@@ -39,12 +39,13 @@
               <i data-lucide="menu" aria-hidden="true"></i>
             </button>
             <label class="search-box">
-              <input id="searchInput" type="search" placeholder="목적지 또는 주소 검색" autocomplete="off">
+              <input id="searchInput" type="search" placeholder="장소·건물·주소 검색" autocomplete="off" aria-autocomplete="list" aria-controls="searchSuggestions" aria-expanded="false">
             </label>
             <button id="voiceSearchButton" class="search-tool-button" type="button" aria-label="음성으로 검색">
               <i data-lucide="mic" aria-hidden="true"></i>
             </button>
           </div>
+          <div id="searchSuggestions" class="search-suggestions" role="listbox" aria-label="장소 검색 결과" hidden></div>
           <div class="quick-filter-row" aria-label="빠른 검색 조건">
             <button id="filterButton" class="filter-tool-button" type="button" aria-label="상세 필터 열기" aria-expanded="false">
               <i data-lucide="sliders-horizontal" aria-hidden="true"></i>
@@ -406,6 +407,6 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" crossorigin="anonymous"></script>
   <script src="./config.js?v=2"></script>
-  <script src="./app.js?v=85"></script>
+  <script src="./app.js?v=88"></script>
 </body>
 </html>

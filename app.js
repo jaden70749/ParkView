@@ -146,6 +146,7 @@ const state = {
   mainMarkerOverlays: [],
   currentLocationMarker: null,
   userLocation: null,
+  searchLocationMarker: null,
   registrationMapInstance: null,
   registrationMarker: null,
   registrationLocation: null,
@@ -157,6 +158,10 @@ const state = {
   kakaoPlaceSearchToken: 0,
   kakaoLastPlaceSearchKey: "",
   mapSearchKeyword: "",
+  searchSuggestionTimer: null,
+  searchSuggestionToken: 0,
+  searchSuggestions: [],
+  searchSuggestionIndex: -1,
   filters: {
     openOnly: false,
     availableOnly: false,
@@ -225,7 +230,9 @@ function bindElements() {
     mapWorld: document.querySelector("#mapWorld"),
     markerLayer: document.querySelector("#markerLayer"),
     topControls: document.querySelector("#topControls"),
+    searchPanel: document.querySelector(".search-panel"),
     searchInput: document.querySelector("#searchInput"),
+    searchSuggestions: document.querySelector("#searchSuggestions"),
     searchFeedback: document.querySelector("#searchFeedback"),
     mapZoomNotice: document.querySelector("#mapZoomNotice"),
     mapZoomInButton: document.querySelector("#mapZoomInButton"),
@@ -351,8 +358,12 @@ function bindEvents() {
   });
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
-    if (els.filterPanel.classList.contains("is-open")) closeFilterPanel();
+    if (!els.searchSuggestions.hidden) hideSearchSuggestions();
+    else if (els.filterPanel.classList.contains("is-open")) closeFilterPanel();
     else if (els.mainMenu.classList.contains("is-open")) closeMainMenu();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (!event.target.closest(".search-panel")) hideSearchSuggestions();
   });
   els.userButton?.addEventListener("click", () => showScreen("user"));
   els.prevSetupButton?.addEventListener("click", () => moveSetupStep(-1));
@@ -379,12 +390,11 @@ function bindEvents() {
   });
   els.registerFeeInfo?.addEventListener("change", syncRegistrationFeeFields);
 
-  els.searchInput.addEventListener("input", filterLotsFromSearch);
-  els.searchInput.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    searchMapLocation();
+  els.searchInput.addEventListener("input", handleSearchInput);
+  els.searchInput.addEventListener("focus", () => {
+    if (state.searchSuggestions.length && els.searchInput.value.trim()) renderSearchSuggestions();
   });
+  els.searchInput.addEventListener("keydown", onSearchInputKeyDown);
   els.searchInput.addEventListener("search", () => {
     if (!els.searchInput.value.trim()) resetMapSearch();
   });
@@ -636,7 +646,7 @@ function startVoiceSearch() {
     const transcript = event.results?.[0]?.[0]?.transcript?.trim();
     if (!transcript) return;
     els.searchInput.value = transcript;
-    filterLotsFromSearch();
+    handleSearchInput();
     searchMapLocation();
   };
   recognition.onerror = () => setSearchFeedback("음성을 인식하지 못했습니다. 다시 시도해 주세요.", true);
@@ -1906,8 +1916,227 @@ function getMarkerCardMetrics(lot) {
   };
 }
 
-function filterLotsFromSearch() {
-  applyCurrentFilters();
+function normalizeSearchText(value) {
+  return String(value || "").toLowerCase().replace(/\s+/g, "").replace(/[^0-9a-z가-힣]/g, "");
+}
+
+function localSearchSuggestions(query) {
+  const keyword = normalizeSearchText(query);
+  if (!keyword) return [];
+  return state.lots
+    .map((lot) => {
+      const name = normalizeSearchText(lot.name);
+      const address = normalizeSearchText(lot.address);
+      let score = 99;
+      if (name === keyword) score = 0;
+      else if (name.startsWith(keyword)) score = 1;
+      else if (name.includes(keyword)) score = 2;
+      else if (address.includes(keyword)) score = 3;
+      return { lot, score };
+    })
+    .filter(({ score }) => score < 99)
+    .sort((a, b) => a.score - b.score || a.lot.name.localeCompare(b.lot.name, "ko"))
+    .slice(0, 4)
+    .map(({ lot }) => ({
+      id: `lot:${lot.id}`,
+      name: lot.name,
+      address: lot.address,
+      category: `${lot.parkingType} 주차장`,
+      latitude: lot.latitude,
+      longitude: lot.longitude,
+      source: "parkview",
+      lot
+    }));
+}
+
+async function kakaoKeywordSuggestions(query) {
+  if (!shouldUseKakaoServices()) return [];
+  await loadKakaoMapSdk();
+  if (!window.kakao?.maps?.services?.Places) return [];
+  const places = state.kakaoPlaces || new window.kakao.maps.services.Places(state.mainMap || undefined);
+  state.kakaoPlaces = places;
+  const options = { size: 10 };
+  if (state.userLocation) {
+    options.location = new window.kakao.maps.LatLng(
+      state.userLocation.latitude,
+      state.userLocation.longitude
+    );
+    options.sort = window.kakao.maps.services.SortBy.DISTANCE;
+  }
+  const results = await new Promise((resolve, reject) => {
+    places.keywordSearch(query, (documents, status) => {
+      if (status === window.kakao.maps.services.Status.OK) resolve(documents);
+      else if (status === window.kakao.maps.services.Status.ZERO_RESULT) resolve([]);
+      else reject(new Error(`Kakao place search failed: ${status}`));
+    }, options);
+  });
+  return results.map((place) => ({
+    id: `place:${place.id}`,
+    name: place.place_name,
+    address: place.road_address_name || place.address_name,
+    category: place.category_group_name || String(place.category_name || "장소").split(" > ").pop(),
+    latitude: Number(place.y),
+    longitude: Number(place.x),
+    distanceMeters: optionalNumber(place.distance),
+    source: "kakao-place",
+    placeUrl: place.place_url
+  })).filter((place) => Number.isFinite(place.latitude) && Number.isFinite(place.longitude));
+}
+
+function mergeSearchSuggestions(local, remote) {
+  const merged = [...local];
+  remote.forEach((candidate) => {
+    const duplicate = merged.some((existing) => {
+      const sameName = normalizeSearchText(existing.name) === normalizeSearchText(candidate.name);
+      const distance = haversineKm(
+        existing.latitude,
+        existing.longitude,
+        candidate.latitude,
+        candidate.longitude
+      ) * 1000;
+      return sameName && distance < 50;
+    });
+    if (!duplicate) merged.push(candidate);
+  });
+  return merged.slice(0, 10);
+}
+
+function handleSearchInput() {
+  const query = els.searchInput.value.trim();
+  window.clearTimeout(state.searchSuggestionTimer);
+  state.searchSuggestionToken += 1;
+  state.searchSuggestionIndex = -1;
+  if (!query) {
+    resetMapSearch();
+    return;
+  }
+
+  const local = localSearchSuggestions(query);
+  state.searchSuggestions = local;
+  renderSearchSuggestions();
+  if (query.length < 2) return;
+
+  const token = state.searchSuggestionToken;
+  state.searchSuggestionTimer = window.setTimeout(async () => {
+    try {
+      const remote = await kakaoKeywordSuggestions(query);
+      if (token !== state.searchSuggestionToken || query !== els.searchInput.value.trim()) return;
+      state.searchSuggestions = mergeSearchSuggestions(local, remote);
+      renderSearchSuggestions();
+      if (!state.searchSuggestions.length) setSearchFeedback("검색 결과가 없습니다.", true);
+    } catch (error) {
+      console.warn("[ParkView] place suggestions unavailable", error);
+      if (!local.length) setSearchFeedback("장소 검색에 연결하지 못했습니다.", true);
+    }
+  }, 240);
+}
+
+function renderSearchSuggestions() {
+  els.searchSuggestions.replaceChildren();
+  if (!state.searchSuggestions.length || !els.searchInput.value.trim()) {
+    hideSearchSuggestions();
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  state.searchSuggestions.forEach((suggestion, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "search-suggestion";
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-selected", String(index === state.searchSuggestionIndex));
+    button.innerHTML = `
+      <i data-lucide="map-pin" aria-hidden="true"></i>
+      <span><strong>${escapeHtml(suggestion.name)}</strong><small>${escapeHtml(suggestion.address || suggestion.category)}</small></span>
+      <em>${escapeHtml(suggestion.category)}</em>
+    `;
+    button.addEventListener("click", () => selectSearchSuggestion(suggestion));
+    fragment.appendChild(button);
+  });
+  els.searchSuggestions.appendChild(fragment);
+  els.searchSuggestions.hidden = false;
+  els.searchPanel.classList.add("has-suggestions");
+  els.searchInput.setAttribute("aria-expanded", "true");
+  refreshIcons();
+}
+
+function hideSearchSuggestions() {
+  els.searchSuggestions.hidden = true;
+  els.searchPanel.classList.remove("has-suggestions");
+  els.searchInput.setAttribute("aria-expanded", "false");
+  state.searchSuggestionIndex = -1;
+}
+
+function setSearchSuggestionIndex(index) {
+  const count = state.searchSuggestions.length;
+  if (!count) return;
+  state.searchSuggestionIndex = (index + count) % count;
+  [...els.searchSuggestions.querySelectorAll(".search-suggestion")].forEach((button, buttonIndex) => {
+    const selected = buttonIndex === state.searchSuggestionIndex;
+    button.classList.toggle("is-active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    if (selected) button.scrollIntoView({ block: "nearest" });
+  });
+}
+
+function onSearchInputKeyDown(event) {
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    if (!state.searchSuggestions.length) return;
+    event.preventDefault();
+    setSearchSuggestionIndex(state.searchSuggestionIndex + (event.key === "ArrowDown" ? 1 : -1));
+    return;
+  }
+  if (event.key === "Escape") {
+    hideSearchSuggestions();
+    return;
+  }
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  const suggestion = state.searchSuggestions[state.searchSuggestionIndex] || state.searchSuggestions[0];
+  if (suggestion) selectSearchSuggestion(suggestion);
+  else searchMapLocation();
+}
+
+function updateSearchLocationMarker(suggestion) {
+  if (state.mapMode !== "kakao" || !state.mainMap || !window.kakao?.maps) return;
+  const position = new window.kakao.maps.LatLng(suggestion.latitude, suggestion.longitude);
+  if (state.searchLocationMarker) {
+    state.searchLocationMarker.setPosition(position);
+    return;
+  }
+  const content = document.createElement("span");
+  content.className = "search-location-pin";
+  content.innerHTML = '<i data-lucide="map-pin" aria-hidden="true"></i>';
+  state.searchLocationMarker = new window.kakao.maps.CustomOverlay({
+    map: state.mainMap,
+    position,
+    content,
+    xAnchor: 0.5,
+    yAnchor: 1,
+    zIndex: 21
+  });
+  refreshIcons();
+}
+
+function clearSearchLocationMarker() {
+  state.searchLocationMarker?.setMap?.(null);
+  state.searchLocationMarker = null;
+}
+
+function selectSearchSuggestion(suggestion) {
+  window.clearTimeout(state.searchSuggestionTimer);
+  state.searchSuggestionToken += 1;
+  els.searchInput.value = suggestion.name;
+  hideSearchSuggestions();
+  state.mapSearchKeyword = "";
+  state.filteredLots = filterLotCollection(state.lots, "");
+  if (suggestion.lot) state.selectedLot = suggestion.lot;
+  showListView();
+  updateSearchLocationMarker(suggestion);
+  focusMapOn(suggestion.latitude, suggestion.longitude, 16);
+  renderMapMarkers();
+  renderList();
+  window.setTimeout(refreshNearbyList, 320);
+  setSearchFeedback(`${suggestion.name} 주변 주차장을 표시합니다.`);
 }
 
 async function searchMapLocation() {
@@ -1916,25 +2145,41 @@ async function searchMapLocation() {
     resetMapSearch();
     return;
   }
-  const matchedLot = state.filteredLots[0];
-  if (matchedLot) {
-    state.selectedLot = matchedLot;
-    focusMapOn(matchedLot.latitude, matchedLot.longitude, 16);
-    renderMapMarkers();
-    renderList();
-    return;
-  }
+  setSearchFeedback("장소를 검색하고 있습니다.", false, 6000);
   try {
+    const local = localSearchSuggestions(query);
+    let remote = [];
+    try {
+      remote = await kakaoKeywordSuggestions(query);
+    } catch (error) {
+      console.warn("[ParkView] keyword search unavailable; trying address search", error);
+    }
+    const suggestion = mergeSearchSuggestions(local, remote)[0];
+    if (suggestion) {
+      selectSearchSuggestion(suggestion);
+      return;
+    }
     const location = await geocodeAddress(query);
-    focusMapOn(location.latitude, location.longitude, 15);
+    selectSearchSuggestion({
+      id: `address:${location.latitude}:${location.longitude}`,
+      name: location.address || query,
+      address: location.address || query,
+      category: "주소",
+      latitude: location.latitude,
+      longitude: location.longitude,
+      source: location.source
+    });
   } catch {
-    els.searchInput.setCustomValidity("주소를 찾지 못했습니다.");
-    els.searchInput.reportValidity();
-    window.setTimeout(() => els.searchInput.setCustomValidity(""), 1800);
+    setSearchFeedback("장소나 주소를 찾지 못했습니다.", true);
   }
 }
 
 function resetMapSearch() {
+  window.clearTimeout(state.searchSuggestionTimer);
+  state.searchSuggestionToken += 1;
+  state.searchSuggestions = [];
+  hideSearchSuggestions();
+  clearSearchLocationMarker();
   els.searchInput.value = "";
   state.mapSearchKeyword = "";
   state.filteredLots = filterLotCollection(state.lots, "");
