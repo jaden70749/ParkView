@@ -411,7 +411,7 @@ textarea {
   position: absolute;
   z-index: 24;
   right: 12px;
-  bottom: calc(var(--sheet-height, 0px) + 16px + env(safe-area-inset-bottom));
+  bottom: calc(var(--sheet-height, 0px) + 20px + env(safe-area-inset-bottom));
   display: grid;
   justify-items: center;
   gap: 10px;
@@ -3211,7 +3211,10 @@ textarea {
   .app-shell {
     position: relative;
     width: 390px;
-    height: 844px;
+    height: min(844px, 100vh);
+    height: min(844px, 100dvh);
+    max-height: 100vh;
+    max-height: 100dvh;
     overflow: hidden;
     border-radius: 34px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.32);
@@ -3223,6 +3226,14 @@ textarea {
 
   .setup-actions {
     position: absolute;
+  }
+}
+
+@media (max-width: 759px) {
+  .app-shell,
+  .screen {
+    height: 100vh;
+    height: 100dvh;
   }
 }
 
