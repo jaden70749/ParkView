@@ -1,0 +1,24 @@
+[Unit]
+Description=ParkView edge CCTV analysis
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=parkview
+Group=parkview
+WorkingDirectory=/opt/parkview
+EnvironmentFile=/opt/parkview/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=YOLO_CONFIG_DIR=/var/lib/parkview/ultralytics
+ExecStart=/opt/parkview/.venv/bin/python /opt/parkview/server.py --host 0.0.0.0 --port 5180
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/parkview
+
+[Install]
+WantedBy=multi-user.target

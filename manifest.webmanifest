@@ -1,0 +1,16 @@
+{
+  "name": "ParkView",
+  "short_name": "ParkView",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#f8c400",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='42' fill='%23f8c400'/%3E%3Cpath d='M48 116h96v26H48zM58 74h76l16 42H42z' fill='%23171717'/%3E%3Ccircle cx='67' cy='142' r='10' fill='%23ffffff'/%3E%3Ccircle cx='125' cy='142' r='10' fill='%23ffffff'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    }
+  ]
+}

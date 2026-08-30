@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f8c400">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="ParkView">
+  <title>ParkView</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./styles.css?v=74">
+</head>
+<body>
+  <main id="app" class="app-shell">
+    <section id="userScreen" class="screen active">
+      <div id="mapStage" class="map-stage">
+        <div id="realMap" class="real-map" aria-label="전국 주차장 지도"></div>
+        <div id="mapWorld" class="map-world fallback-map" aria-hidden="true">
+          <div class="map-land"></div>
+          <div class="road road-a"></div>
+          <div class="road road-b"></div>
+          <div class="road road-c"></div>
+          <div class="river river-a"></div>
+          <div class="river river-b"></div>
+          <div class="map-label district">강남구</div>
+          <div class="map-label road-label r1">테헤란로</div>
+          <div class="map-label road-label r2">봉은사로</div>
+          <div class="map-label road-label r3">영동대로</div>
+          <div class="route-shield s1">88</div>
+          <div class="route-shield s2">61</div>
+          <div id="markerLayer" class="marker-layer"></div>
+        </div>
+      </div>
+
+      <div id="topControls" class="top-controls">
+        <section class="search-panel" aria-label="주차장 검색과 필터">
+          <div class="search-primary-row">
+            <button id="menuButton" class="search-tool-button" type="button" aria-label="메뉴 열기" aria-expanded="false">
+              <i data-lucide="menu" aria-hidden="true"></i>
+            </button>
+            <label class="search-box">
+              <input id="searchInput" type="search" placeholder="목적지 또는 주소 검색" autocomplete="off">
+            </label>
+            <button id="voiceSearchButton" class="search-tool-button" type="button" aria-label="음성으로 검색">
+              <i data-lucide="mic" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div class="quick-filter-row" aria-label="빠른 검색 조건">
+            <button id="filterButton" class="filter-tool-button" type="button" aria-label="상세 필터 열기" aria-expanded="false">
+              <i data-lucide="sliders-horizontal" aria-hidden="true"></i>
+            </button>
+            <button class="quick-filter-pill" type="button" data-quick-filter="open" aria-pressed="false">지금 · 운영 중</button>
+            <button class="quick-filter-pill" type="button" data-quick-filter="available" aria-pressed="false">빈자리</button>
+            <button class="quick-filter-pill" type="button" data-quick-filter="free" aria-pressed="false">무료</button>
+          </div>
+        </section>
+        <p id="searchFeedback" class="search-feedback" role="status" hidden></p>
+        <p id="mapZoomNotice" class="map-zoom-notice" role="status" hidden>
+          보고 있는 지역이 넓습니다. 지도를 확대해 주세요.
+        </p>
+      </div>
+
+      <nav class="map-navigation-controls" aria-label="지도 조작">
+        <div class="map-zoom-controls">
+          <button id="mapZoomInButton" type="button" aria-label="지도 확대">
+            <i data-lucide="plus" aria-hidden="true"></i>
+          </button>
+          <button id="mapZoomOutButton" type="button" aria-label="지도 축소">
+            <i data-lucide="minus" aria-hidden="true"></i>
+          </button>
+        </div>
+        <button id="mapNorthButton" class="map-round-control map-north-control" type="button" aria-label="지도를 북쪽으로 정렬">
+          <i data-lucide="navigation-2" aria-hidden="true"></i>
+          <span aria-hidden="true">N</span>
+        </button>
+        <button id="mapLocateButton" class="map-round-control" type="button" aria-label="현재 위치로 이동">
+          <i data-lucide="locate-fixed" aria-hidden="true"></i>
+        </button>
+      </nav>
+
+      <div id="menuScrim" class="panel-scrim" aria-hidden="true"></div>
+      <aside id="mainMenu" class="main-menu" role="dialog" aria-modal="true" aria-labelledby="mainMenuTitle" aria-hidden="true">
+        <header class="main-menu-header">
+          <span class="menu-brand-mark" aria-hidden="true">P</span>
+          <span>
+            <small>ParkView</small>
+            <strong id="mainMenuTitle">메뉴</strong>
+          </span>
+          <button id="menuCloseButton" class="panel-close-button" type="button" aria-label="메뉴 닫기">
+            <i data-lucide="x" aria-hidden="true"></i>
+          </button>
+        </header>
+        <nav class="main-menu-list" aria-label="주요 메뉴">
+          <button id="menuAllLots" type="button"><i data-lucide="map" aria-hidden="true"></i><span><strong>전체 주차장</strong><small>지도에서 모든 주차장 보기</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+          <button id="menuFavorites" type="button"><i data-lucide="star" aria-hidden="true"></i><span><strong>즐겨찾기</strong><small id="menuFavoriteCount">저장한 주차장 0개</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+          <button id="menuCurrentLocation" type="button"><i data-lucide="locate-fixed" aria-hidden="true"></i><span><strong>현재 위치</strong><small>내 주변 주차장으로 이동</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+          <button id="adminButton" type="button"><i data-lucide="building-2" aria-hidden="true"></i><span><strong>주차장 관리</strong><small>등록 및 운영 현황 관리</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+        </nav>
+        <p class="menu-version">ParkView MVP</p>
+      </aside>
+
+      <section id="filterPanel" class="filter-panel" role="dialog" aria-modal="true" aria-labelledby="filterPanelTitle" aria-hidden="true">
+        <header class="filter-panel-header">
+          <button id="filterCloseButton" class="panel-close-button" type="button" aria-label="필터 닫기">
+            <i data-lucide="x" aria-hidden="true"></i>
+          </button>
+          <h2 id="filterPanelTitle">검색 조건</h2>
+          <button id="filterResetButton" class="filter-reset-button" type="button">초기화</button>
+        </header>
+        <div class="filter-panel-body">
+          <p class="filter-intro">지도에 표시할 주차장 조건을 선택하세요.</p>
+
+          <section class="filter-section" aria-labelledby="availabilityFilterTitle">
+            <h3 id="availabilityFilterTitle">현재 이용 가능</h3>
+            <label class="filter-switch-row">
+              <span><strong>운영 중인 주차장만</strong><small>현재 운영 종료된 주차장을 숨깁니다.</small></span>
+              <input id="filterOpenOnly" type="checkbox">
+              <i aria-hidden="true"></i>
+            </label>
+            <label class="filter-switch-row">
+              <span><strong>빈자리 있는 곳만</strong><small>이용 가능한 면이 1개 이상인 곳만 표시합니다.</small></span>
+              <input id="filterAvailableOnly" type="checkbox">
+              <i aria-hidden="true"></i>
+            </label>
+          </section>
+
+          <fieldset class="filter-section">
+            <legend>주차 요금</legend>
+            <div class="filter-choice-grid fee-choice-grid">
+              <label><input type="radio" name="feeFilter" value="all" checked><span>전체</span></label>
+              <label><input type="radio" name="feeFilter" value="free"><span>무료</span></label>
+              <label><input type="radio" name="feeFilter" value="3000"><span>3천원 이하</span></label>
+              <label><input type="radio" name="feeFilter" value="5000"><span>5천원 이하</span></label>
+            </div>
+          </fieldset>
+
+          <fieldset class="filter-section">
+            <legend>주차장 유형</legend>
+            <div class="filter-choice-grid type-choice-grid">
+              <label><input type="checkbox" name="parkingTypeFilter" value="노상"><span>노상</span></label>
+              <label><input type="checkbox" name="parkingTypeFilter" value="노외"><span>노외</span></label>
+              <label><input type="checkbox" name="parkingTypeFilter" value="부설"><span>부설</span></label>
+            </div>
+          </fieldset>
+        </div>
+        <footer class="filter-panel-footer">
+          <button id="applyFilterButton" type="button">전체 주차장 보기</button>
+        </footer>
+      </section>
+
+      <section id="bottomSheet" class="bottom-sheet is-hidden" aria-hidden="true">
+        <button id="sheetHandle" class="sheet-handle" role="slider" aria-label="주변 주차장 목록 높이 조절" aria-valuemin="22" aria-valuemax="91" aria-valuenow="56"></button>
+        <div id="listView" class="sheet-view active">
+          <h1 id="sheetTitle">주변 주차장</h1>
+          <div id="lotList" class="lot-list"></div>
+        </div>
+        <div id="detailView" class="sheet-view">
+          <button id="backToList" class="back-button" aria-label="목록으로">‹</button>
+          <div id="lotDetail"></div>
+        </div>
+      </section>
+    </section>
+
+    <section id="adminScreen" class="screen admin-screen">
+      <header class="admin-header">
+        <button id="userButton" class="icon-button admin-back" aria-label="사용자 화면">P</button>
+        <div>
+          <p id="adminEyebrow">ParkView Control</p>
+          <h2 id="adminTitle">주차장 관리</h2>
+        </div>
+      </header>
+
+      <section id="adminHomeView" class="admin-view active">
+        <div class="admin-section-head">
+          <div>
+            <strong>등록된 주차장</strong>
+            <p>지도에 등록한 주차장을 선택해 관리하세요.</p>
+          </div>
+          <button id="newLotButton" class="new-lot-button"><span aria-hidden="true">＋</span> 새 주차장</button>
+        </div>
+        <div id="registeredLotList" class="registered-lot-list"></div>
+      </section>
+
+      <section id="registrationView" class="admin-view registration-view">
+        <div class="registration-progress">
+          <div>
+            <span id="registrationStepCount">1 / 4</span>
+            <strong id="registrationStepTitle">기본 정보</strong>
+          </div>
+          <button id="registrationCancelButton" class="plain-icon-button" aria-label="주차장 등록 취소">×</button>
+          <div class="progress-track"><i id="registrationProgressBar"></i></div>
+        </div>
+
+        <article class="registration-panel active" data-registration-step="info">
+          <div class="registration-copy">
+            <h3>어떤 주차장인가요?</h3>
+            <p>사용자 화면과 지도에 표시될 기본 정보입니다.</p>
+          </div>
+          <label class="form-field">
+            주차장 이름
+            <input id="registerName" type="text" placeholder="예: ParkView 시연 주차장" autocomplete="off">
+          </label>
+          <label class="form-field">
+            주소
+            <input id="registerAddress" type="text" placeholder="예: 서울 강남구 테헤란로 123" autocomplete="off">
+          </label>
+          <div class="form-grid two-columns">
+            <label class="form-field">
+              주차장 구분
+              <select id="registerParkingType">
+                <option value="공영">공영</option>
+                <option value="민영">민영</option>
+                <option value="부설">부설</option>
+                <option value="노상">노상</option>
+                <option value="노외">노외</option>
+              </select>
+            </label>
+            <label class="form-field">
+              운영 상태
+              <select id="registerOpenStatus">
+                <option value="open">운영 중</option>
+                <option value="closed">운영 종료</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-grid two-columns">
+            <label class="form-field">
+              요금 유형
+              <select id="registerFeeInfo">
+                <option value="유료">유료</option>
+                <option value="무료">무료</option>
+              </select>
+            </label>
+            <label class="form-field">
+              1시간 요금
+              <input id="registerHourlyPrice" type="number" min="0" step="500" value="5000" inputmode="numeric">
+            </label>
+          </div>
+          <div class="form-grid two-columns">
+            <label class="form-field">
+              운영 시작
+              <input id="registerWeekdayStart" type="time" value="06:00">
+            </label>
+            <label class="form-field">
+              운영 종료
+              <input id="registerWeekdayEnd" type="time" value="22:00">
+            </label>
+          </div>
+          <div class="form-grid two-columns">
+            <label class="form-field">
+              앱 결제
+              <select id="registerPaymentSupport">
+                <option value="false">지원하지 않음</option>
+                <option value="true">지원함</option>
+              </select>
+            </label>
+            <label class="form-field">
+              전화번호 <span class="optional-label">선택</span>
+              <input id="registerPhone" type="tel" placeholder="예: 02-1234-5678" autocomplete="tel">
+            </label>
+          </div>
+          <p id="registrationInfoError" class="form-error"></p>
+        </article>
+
+        <article class="registration-panel" data-registration-step="location">
+          <div class="registration-copy">
+            <h3>주소 위치를 확인하세요</h3>
+            <p>입력한 주소를 자동으로 찾아 표시합니다. 필요할 때만 핀을 움직여 조정하세요.</p>
+          </div>
+          <div id="registrationMap" class="registration-map" aria-label="등록할 주차장 위치"></div>
+          <p id="registrationLocationLabel" class="selected-location is-loading">주소를 확인하는 중입니다.</p>
+          <input id="registerLatitude" type="hidden">
+          <input id="registerLongitude" type="hidden">
+        </article>
+
+        <article class="registration-panel" data-registration-step="plan">
+          <div class="registration-copy">
+            <h3>사진으로 층별 도면을 만드세요</h3>
+            <p>주차장 전체가 보이는 사진을 올리면 실제 비율의 평면도로 변환합니다.</p>
+          </div>
+          <div class="form-grid three-columns">
+            <label class="form-field">
+              시작층
+              <input id="floorStart" type="text" value="B1">
+            </label>
+            <label class="form-field">
+              끝층
+              <input id="floorEnd" type="text" value="B1">
+            </label>
+            <label class="form-field">
+              예상 주차면 <span class="optional-label">선택</span>
+              <input id="registerTotalSpaces" type="number" min="1" max="500" placeholder="사진에서 자동 확인" inputmode="numeric">
+            </label>
+          </div>
+          <div class="form-grid two-columns special-counts">
+            <label class="form-field">
+              장애인 주차면
+              <input id="registerDisabledSpaces" type="number" min="0" max="50" value="0" inputmode="numeric">
+            </label>
+            <label class="form-field">
+              임산부 주차면
+              <input id="registerPregnantSpaces" type="number" min="0" max="50" value="0" inputmode="numeric">
+            </label>
+          </div>
+          <div class="photo-upload">
+            <label id="planUploadBox" class="upload-dropzone" for="planImages">
+              <span class="upload-icon">＋</span>
+              <span class="upload-copy">
+                <strong>주차장 사진 추가</strong>
+                <em>여러 방향에서 찍은 사진을 최대 6장 선택</em>
+              </span>
+            </label>
+            <input id="planImages" class="sr-only" type="file" accept="image/*" multiple>
+            <p id="planImageCount" class="upload-count">선택된 사진 0장</p>
+          </div>
+          <div id="planImagePreview" class="image-preview"></div>
+          <input id="planPrompt" type="hidden" value="사진의 실제 벽, 차로, 출입구, 기둥과 주차면 배치를 CAD 평면도처럼 복원해줘.">
+          <button id="generatePlanButton" class="primary-button full-width-button">AI 도면 생성</button>
+          <p id="geminiStatus" class="hint">사진과 입력한 주차면 수를 대조해 층별 도면을 생성합니다.</p>
+        </article>
+
+        <article class="registration-panel" data-registration-step="review">
+          <div class="registration-copy">
+            <h3>등록 정보를 확인하세요</h3>
+            <p>추가하면 사용자 지도와 관리자 목록에 바로 반영됩니다.</p>
+          </div>
+          <div id="lotRegistrationSummary" class="registration-summary"></div>
+          <div class="floor-head registration-floor-head">
+            <button id="prevFloor" class="floor-nav" aria-label="이전 층">‹</button>
+            <strong id="adminFloorName">B1</strong>
+            <button id="nextFloor" class="floor-nav" aria-label="다음 층">›</button>
+          </div>
+          <div id="adminFloorPlan" class="floor-plan blueprint-plan"></div>
+          <div class="legend">
+            <span><i class="slot-normal"></i> 주차중</span>
+            <span><i class="slot-available"></i> 가능</span>
+            <span><i class="slot-disabled"></i> 장애인</span>
+            <span><i class="slot-pregnant"></i> 임산부</span>
+          </div>
+        </article>
+
+        <div class="registration-actions">
+          <button id="registrationBackButton" class="secondary-button" aria-label="이전 단계">이전</button>
+          <button id="registrationNextButton" class="primary-button">위치 지정</button>
+        </div>
+      </section>
+
+      <section id="managementView" class="admin-view management-view">
+        <div class="management-toolbar">
+          <button id="managementBackButton" class="plain-icon-button" aria-label="등록된 주차장 목록으로">‹</button>
+          <div>
+            <strong id="managementLotName">주차장</strong>
+            <span id="managementLotAddress"></span>
+          </div>
+          <i class="management-status">운영</i>
+        </div>
+        <div id="managementSummary" class="management-summary"></div>
+
+        <section class="management-section plan-management-section">
+          <div class="section-title-row">
+            <h3>주차장 도면</h3>
+          </div>
+          <div class="floor-head">
+            <button id="managePrevFloor" class="floor-nav" aria-label="이전 층">‹</button>
+            <strong id="managementFloorName">B1</strong>
+            <button id="manageNextFloor" class="floor-nav" aria-label="다음 층">›</button>
+          </div>
+          <div id="managementFloorPlan" class="floor-plan blueprint-plan"></div>
+          <div class="legend">
+            <span><i class="slot-normal"></i> 주차중</span>
+            <span><i class="slot-available"></i> 가능</span>
+            <span><i class="slot-disabled"></i> 장애인</span>
+            <span><i class="slot-pregnant"></i> 임산부</span>
+          </div>
+        </section>
+
+        <section class="management-section edge-management-section">
+          <div class="section-title-row">
+            <h3>현장 분석</h3>
+            <span id="cameraConnectionChip" class="connection-chip">연결 확인 중</span>
+          </div>
+          <div class="edge-status-grid">
+            <div>
+              <span>카메라 상태</span>
+              <strong id="cameraStatus">확인 중</strong>
+            </div>
+            <div>
+              <span>분석 주기</span>
+              <strong>30초</strong>
+            </div>
+            <div>
+              <span>최근 분석</span>
+              <strong id="analysisStatus">대기 중</strong>
+            </div>
+          </div>
+          <p id="objectStatus" class="edge-system-message">분석 서비스를 확인하고 있습니다.</p>
+        </section>
+
+        <div class="management-delete-area">
+          <button id="deleteLotButton" class="delete-lot-button" type="button">주차장 삭제</button>
+        </div>
+      </section>
+
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" crossorigin="anonymous"></script>
+  <script src="./config.js?v=1"></script>
+  <script src="./app.js?v=74"></script>
+</body>
+</html>

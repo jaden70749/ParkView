@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f8c400">
+  <title>ParkView CCTV 주차면 등록</title>
+  <link rel="stylesheet" href="./calibrate.css?v=1">
+</head>
+<body>
+  <main class="calibration-shell">
+    <header>
+      <span class="brand-mark" aria-hidden="true">P</span>
+      <div><p>ParkView Setup</p><h1>CCTV 주차면 등록</h1></div>
+      <span class="setup-badge">설치 전용</span>
+    </header>
+
+    <section class="source-section">
+      <label class="token-field">관리자 토큰<input id="adminToken" type="password" autocomplete="off"></label>
+      <div class="source-actions">
+        <label class="file-button" for="frameFile">사진 선택</label>
+        <input id="frameFile" type="file" accept="image/*">
+        <button id="cameraFrameButton" class="camera-button" type="button">CCTV 프레임 불러오기</button>
+      </div>
+      <p id="sourceStatus">프레임을 불러오면 등록을 시작합니다.</p>
+    </section>
+
+    <section class="canvas-section">
+      <div class="canvas-wrap">
+        <canvas id="calibrationCanvas" width="1280" height="720"></canvas>
+        <p id="canvasPlaceholder">CCTV 사진을 선택하세요</p>
+      </div>
+      <div class="point-status">
+        <strong id="slotProgress">B1-001</strong>
+        <span id="pointProgress">모서리 0 / 4</span>
+      </div>
+    </section>
+
+    <section class="slot-settings">
+      <div class="field-row">
+        <label>층<input id="floorId" value="B1" maxlength="8"></label>
+        <label>다음 번호<input id="slotNumber" type="number" min="1" value="1"></label>
+      </div>
+      <div class="kind-control" aria-label="주차면 종류">
+        <button class="active" data-kind="normal" type="button">일반</button>
+        <button data-kind="disabled" type="button">장애인</button>
+        <button data-kind="pregnant" type="button">임산부</button>
+      </div>
+      <div class="edit-actions">
+        <button id="undoButton" type="button">되돌리기</button>
+        <button id="saveButton" class="save-button" type="button">주차면 저장</button>
+      </div>
+      <p id="saveStatus">각 주차면의 모서리를 시계 방향으로 4번 누르세요.</p>
+    </section>
+
+    <section class="registered-section">
+      <div class="section-title"><h2>등록된 주차면</h2><strong id="slotCount">0면</strong></div>
+      <div id="slotList" class="slot-list"></div>
+    </section>
+  </main>
+  <script src="./calibrate.js?v=1"></script>
+</body>
+</html>
+
