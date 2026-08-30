@@ -86,8 +86,8 @@ const KAKAO_PLACE_SEARCH_DEBOUNCE_MS = 320;
 const MAIN_MAP_MIN_ZOOM = 6;
 const MAIN_MAP_MAX_ZOOM = 18;
 const KAKAO_ZOOM_LEVEL_OFFSET = 19;
-const DEFAULT_MAP_CENTER = [37.5665, 126.9780];
-const DEFAULT_MAP_ZOOM = 10;
+const DEFAULT_MAP_CENTER = [36.25, 127.8];
+const DEFAULT_MAP_ZOOM = 7;
 const FALLBACK_MAP_MIN_SCALE = 0.55;
 const DEFAULT_FALLBACK_SCALE = 1.35;
 const VERIFIED_ADDRESS_LOCATIONS = [
@@ -180,6 +180,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindElements();
   bindEvents();
   refreshIcons();
+  setLocateLoading(true);
+  setSearchFeedback("현재 위치를 확인하고 있습니다.", false, 9000);
+  const initialLocationPromise = getCurrentCoordinates();
   state.favoriteLotIds = loadFavoriteLotIds();
   state.publicLots = await loadLots();
   state.registeredLots = loadRegisteredLots();
@@ -192,7 +195,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadKakaoMapSdk().catch((error) => {
     console.warn("Kakao Maps SDK unavailable; using fallback map.", error);
   });
-  initializeMainMap();
+  const initialLocation = await initialLocationPromise;
+  initializeMainMap(initialLocation);
+  if (initialLocation) {
+    updateCurrentLocationMarker(initialLocation.latitude, initialLocation.longitude);
+    setSearchFeedback("현재 위치 주변 주차장을 표시합니다.");
+  } else {
+    setSearchFeedback("위치 권한을 허용하면 내 주변 주차장을 볼 수 있습니다.", true);
+  }
+  setLocateLoading(false);
   renderList();
   renderAdminFloor();
   renderRegisteredLots();
@@ -496,7 +507,18 @@ function showFavoriteLotsFromMenu() {
   setSearchFeedback(state.filteredLots.length ? "즐겨찾는 주차장만 표시합니다." : "아직 즐겨찾는 주차장이 없습니다.", !state.filteredLots.length);
 }
 
-function focusOnCurrentLocation() {
+function getCurrentCoordinates() {
+  if (!navigator.geolocation) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => resolve({ latitude: coords.latitude, longitude: coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+    );
+  });
+}
+
+async function focusOnCurrentLocation() {
   closeMainMenu();
   if (!navigator.geolocation) {
     setSearchFeedback("이 기기에서는 현재 위치를 확인할 수 없습니다.", true);
@@ -504,19 +526,15 @@ function focusOnCurrentLocation() {
   }
   setLocateLoading(true);
   setSearchFeedback("현재 위치를 확인하고 있습니다.", false, 9000);
-  navigator.geolocation.getCurrentPosition(
-    ({ coords }) => {
-      updateCurrentLocationMarker(coords.latitude, coords.longitude);
-      focusMapOn(coords.latitude, coords.longitude, 16);
-      setLocateLoading(false);
-      setSearchFeedback("현재 위치 주변 주차장으로 이동했습니다.");
-    },
-    () => {
-      setLocateLoading(false);
-      setSearchFeedback("위치 권한을 허용하면 내 주변 주차장을 볼 수 있습니다.", true);
-    },
-    { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
-  );
+  const location = await getCurrentCoordinates();
+  setLocateLoading(false);
+  if (!location) {
+    setSearchFeedback("위치 권한을 허용하면 내 주변 주차장을 볼 수 있습니다.", true);
+    return;
+  }
+  updateCurrentLocationMarker(location.latitude, location.longitude);
+  focusMapOn(location.latitude, location.longitude, 16);
+  setSearchFeedback("현재 위치 주변 주차장으로 이동했습니다.");
 }
 
 function setLocateLoading(loading) {
@@ -831,7 +849,13 @@ function availabilityLabel(lot) {
 }
 
 function priceLabel(lot, compact = false) {
-  if (!Number.isFinite(lot?.hourlyPrice)) return compact ? "요금 미확인" : "요금 정보 없음";
+  if (!Number.isFinite(lot?.hourlyPrice)) {
+    const feeType = String(lot?.feeInfo || "").trim();
+    if (feeType && feeType !== "정보 없음") {
+      return compact ? feeType : `${feeType} · 상세 요금 미확인`;
+    }
+    return compact ? "요금 미확인" : "요금 정보 없음";
+  }
   if (lot.hourlyPrice === 0) return "무료";
   const amount = lot.hourlyPrice.toLocaleString("ko-KR");
   return compact ? `₩${amount}` : `1시간 ₩${amount}`;
@@ -1259,12 +1283,19 @@ function mainMapZoom() {
   return KAKAO_ZOOM_LEVEL_OFFSET - state.mainMap.getLevel();
 }
 
-function initializeMainMap() {
+function initializeMainMap(initialLocation = null) {
+  const initialLatitude = initialLocation?.latitude ?? DEFAULT_MAP_CENTER[0];
+  const initialLongitude = initialLocation?.longitude ?? DEFAULT_MAP_CENTER[1];
+  const initialZoom = initialLocation ? 16 : DEFAULT_MAP_ZOOM;
   if (!window.kakao?.maps?.Map || !els.realMap) {
     state.mapMode = "fallback";
     els.realMap?.classList.add("unavailable");
     els.mapWorld?.classList.remove("fallback-map");
-    centerMapOn(DEFAULT_MAP_CENTER[0], DEFAULT_MAP_CENTER[1], DEFAULT_FALLBACK_SCALE);
+    centerMapOn(
+      initialLatitude,
+      initialLongitude,
+      initialLocation ? 4.2 : DEFAULT_FALLBACK_SCALE
+    );
     positionMainMapControls();
     updateMapNavigationControls();
     renderMarkers();
@@ -1275,8 +1306,8 @@ function initializeMainMap() {
   els.realMap.classList.remove("unavailable");
   els.mapWorld?.classList.add("fallback-map");
   state.mainMap = new window.kakao.maps.Map(els.realMap, {
-    center: new window.kakao.maps.LatLng(DEFAULT_MAP_CENTER[0], DEFAULT_MAP_CENTER[1]),
-    level: kakaoLevelFromZoom(DEFAULT_MAP_ZOOM),
+    center: new window.kakao.maps.LatLng(initialLatitude, initialLongitude),
+    level: kakaoLevelFromZoom(initialZoom),
     keyboardShortcuts: true
   });
   state.mainMap.setMinLevel(kakaoLevelFromZoom(MAIN_MAP_MAX_ZOOM));
@@ -2116,6 +2147,7 @@ function renderLotDetail(lot) {
   const isFavorite = state.favoriteLotIds.has(String(lot.id));
   const feeLabel = priceLabel(lot);
   const hasRealtime = hasLiveAvailability(lot);
+  const hasTotalSpaces = Number.isFinite(lot.totalSpaces);
   const operatingHours = `${lot.weekdayStart} ~ ${lot.weekdayEnd}`;
   const floor = lot.floors[state.floorIndex];
   const floorPlanMarkup = floor ? `
@@ -2160,8 +2192,12 @@ function renderLotDetail(lot) {
     <section id="detailVacancySection" class="detail-content-section">
       <p class="detail-section-label">실시간 주차 현황</p>
       <div class="vacancy-card">
-        <span>${hasRealtime ? "현재 이용 가능한 자리 <em>LIVE</em>" : "ParkView 실시간 정보"}</span>
-        <strong>${hasRealtime ? `${lot.availableSpaces}<small> / ${lot.totalSpaces}면</small>` : "정보 없음"}</strong>
+        <span>${hasRealtime
+          ? "현재 이용 가능한 자리 <em>LIVE</em>"
+          : hasTotalSpaces ? "전체 주차면 · 실시간 잔여 미제공" : "주차면 정보"}</span>
+        <strong>${hasRealtime
+          ? `${lot.availableSpaces}<small> / ${lot.totalSpaces}면</small>`
+          : hasTotalSpaces ? `총 ${lot.totalSpaces}<small>면</small>` : "면수 정보 없음"}</strong>
       </div>
     </section>
     ${floorPlanMarkup}
