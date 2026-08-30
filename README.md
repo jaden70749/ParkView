@@ -33,6 +33,16 @@ python3 server.py --host 0.0.0.0 --port 5180
 
 브라우저에서 `http://localhost:5180/?v=74`를 엽니다. 단순 정적 서버를 사용하면 `/api/public-config`와 AI 프록시가 없으므로 반드시 `server.py`로 실행해야 합니다.
 
+## GitHub Pages
+
+1. 저장소의 `Settings > Secrets and variables > Actions`에
+   `KAKAO_JAVASCRIPT_KEY`를 추가합니다.
+2. `Settings > Pages > Source`를 `GitHub Actions`로 변경합니다.
+3. `main`에 push하면 `.github/workflows/pages.yml`이 정적 앱을 배포합니다.
+
+Pages에서는 카카오 지도와 정적 UI만 동작합니다. Python 분석 API와
+Gemini 프록시는 별도 HTTPS 백엔드 주소를 `edgeApiBaseUrl`에 지정해야 합니다.
+
 ## 테스트
 
 ```bash

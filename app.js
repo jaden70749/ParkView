@@ -15,19 +15,42 @@ function edgeApiUrl(path) {
 }
 
 async function loadRuntimeConfig() {
+  const staticKey = String(
+    window.PARKVIEW_CONFIG?.kakaoJavaScriptKey || ""
+  ).trim();
+  const staticConfig = {
+    mapProvider: staticKey ? "kakao" : "fallback",
+    kakaoJavaScriptKey: staticKey,
+    kakaoConfigured: Boolean(staticKey),
+    geminiConfigured: false
+  };
+
+  // GitHub Pages has no Python API. Its deployment workflow injects only the
+  // public Kakao JavaScript key into config.js.
+  if (staticConfig.kakaoConfigured && !EDGE_API_BASE_URL) {
+    state.runtimeConfig = staticConfig;
+    return state.runtimeConfig;
+  }
+
   try {
     const response = await fetch(edgeApiUrl("/api/public-config"), {
       cache: "no-store",
       headers: { Accept: "application/json" }
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    state.runtimeConfig = await response.json();
-  } catch (error) {
+    const serverConfig = await response.json();
+    const kakaoJavaScriptKey = String(
+      serverConfig.kakaoJavaScriptKey || staticConfig.kakaoJavaScriptKey
+    ).trim();
     state.runtimeConfig = {
-      mapProvider: "fallback",
-      kakaoConfigured: false,
-      geminiConfigured: false
+      ...staticConfig,
+      ...serverConfig,
+      mapProvider: kakaoJavaScriptKey ? "kakao" : "fallback",
+      kakaoJavaScriptKey,
+      kakaoConfigured: Boolean(kakaoJavaScriptKey)
     };
+  } catch (error) {
+    state.runtimeConfig = staticConfig;
     console.warn("Runtime configuration unavailable.", error);
   }
   return state.runtimeConfig;
