@@ -82,6 +82,7 @@ function loadKakaoMapSdk() {
 const MAP_MARKER_MIN_ZOOM = 13.5;
 const MAP_MARKER_DETAIL_ZOOM = 16;
 const COMPACT_MARKER_CELL_SIZE = 88;
+const KAKAO_PLACE_SEARCH_DEBOUNCE_MS = 320;
 const MAIN_MAP_MIN_ZOOM = 6;
 const MAIN_MAP_MAX_ZOOM = 18;
 const KAKAO_ZOOM_LEVEL_OFFSET = 19;
@@ -121,7 +122,9 @@ const SAMPLE_LOTS = [
 
 const state = {
   lots: [],
+  publicLots: [],
   registeredLots: [],
+  kakaoLots: [],
   filteredLots: [],
   selectedLot: null,
   floorIndex: 0,
@@ -148,6 +151,10 @@ const state = {
   registrationGeocodeToken: 0,
   kakaoSdkPromise: null,
   kakaoGeocoder: null,
+  kakaoPlaces: null,
+  kakaoPlaceSearchTimer: null,
+  kakaoPlaceSearchToken: 0,
+  kakaoLastPlaceSearchKey: "",
   mapSearchKeyword: "",
   filters: {
     openOnly: false,
@@ -174,13 +181,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
   refreshIcons();
   state.favoriteLotIds = loadFavoriteLotIds();
-  const publicLots = await loadLots();
+  state.publicLots = await loadLots();
   state.registeredLots = loadRegisteredLots();
-  state.lots = [
-    ...state.registeredLots,
-    ...publicLots.filter((lot) => !state.registeredLots.some((registered) => registered.id === lot.id))
-  ];
-  state.filteredLots = state.lots;
+  mergeParkingLotSources();
   state.selectedLot = state.lots[0] || SAMPLE_LOTS[0];
   state.floors = state.selectedLot.floors;
   syncFilterControls();
@@ -728,11 +731,11 @@ function filterLotCollection(lots, keyword, filters = state.filters) {
   return lots.filter((lot) => {
     if (normalizedKeyword && !`${lot.name} ${lot.address}`.toLowerCase().includes(normalizedKeyword)) return false;
     if (filters.openOnly && !lot.isOpen) return false;
-    if (filters.availableOnly && lot.availableSpaces < 1) return false;
+    if (filters.availableOnly && (!hasLiveAvailability(lot) || lot.availableSpaces < 1)) return false;
     if (filters.favoritesOnly && !state.favoriteLotIds.has(String(lot.id))) return false;
     if (filters.fee === "free" && lot.hourlyPrice !== 0) return false;
-    if (filters.fee === "3000" && lot.hourlyPrice > 3000) return false;
-    if (filters.fee === "5000" && lot.hourlyPrice > 5000) return false;
+    if (filters.fee === "3000" && (!Number.isFinite(lot.hourlyPrice) || lot.hourlyPrice > 3000)) return false;
+    if (filters.fee === "5000" && (!Number.isFinite(lot.hourlyPrice) || lot.hourlyPrice > 5000)) return false;
     if (filters.types.size > 0 && !filters.types.has(lot.parkingType)) return false;
     return true;
   });
@@ -768,25 +771,36 @@ async function loadLots() {
   }
 }
 
+function optionalNumber(value) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function normalizeLot(lot, index = 0) {
-  const total = Number(lot.totalSpaces ?? lot.reportedTotalSpaces ?? 40) || 40;
-  const available = Math.max(0, Math.min(total, Number(lot.availableSpaces ?? lot.reportedAvailableSpaces ?? Math.round(total * 0.25)) || 0));
-  const rawPrice = Number(lot.hourlyPrice);
-  const price = Number.isFinite(rawPrice) ? Math.max(0, rawPrice) : 4800;
-  const baseName = String(lot.name || lot.address || `주차장 ${index + 1}`).trim();
+  const rawTotal = optionalNumber(lot.totalSpaces ?? lot.reportedTotalSpaces);
+  const total = Number.isFinite(rawTotal) && rawTotal > 0 ? Math.round(rawTotal) : null;
+  const rawAvailable = optionalNumber(lot.availableSpaces ?? lot.reportedAvailableSpaces);
   const isRegistered = lot.isRegistered === true;
+  const hasRealtime = lot.hasRealtime === true || (isRegistered && Number.isFinite(rawAvailable));
+  const available = hasRealtime && Number.isFinite(rawAvailable)
+    ? Math.max(0, total === null ? Math.round(rawAvailable) : Math.min(total, Math.round(rawAvailable)))
+    : null;
+  const rawPrice = optionalNumber(lot.hourlyPrice);
+  const price = Number.isFinite(rawPrice) && rawPrice >= 0 ? Math.round(rawPrice) : null;
+  const baseName = String(lot.name || lot.address || `주차장 ${index + 1}`).trim();
   const verifiedLocation = findVerifiedAddressLocation(lot.address);
   const floors = Array.isArray(lot.floors) && lot.floors.length > 0
     ? lot.floors.map(normalizeStoredFloor)
-    : makeFloors(index + 1);
+    : isRegistered ? makeFloors(index + 1) : [];
   return {
     id: String(lot.id ?? index),
     name: isRegistered ? baseName : displayName(baseName),
     address: String(lot.address || ""),
-    distanceMeters: Number(lot.distanceMeters) || 120 + (index % 480),
+    distanceMeters: optionalNumber(lot.distanceMeters),
     hourlyPrice: price,
     parkingType: String(lot.parkingType || (isRegistered ? "민영" : "공영")),
-    feeInfo: String(lot.feeInfo || (price > 0 ? "유료" : "무료")),
+    feeInfo: String(lot.feeInfo || (price === 0 ? "무료" : price === null ? "정보 없음" : "유료")),
     weekdayStart: normalizeTimeValue(lot.weekdayStart, "00:00"),
     weekdayEnd: normalizeTimeValue(lot.weekdayEnd, "23:59"),
     phone: String(lot.phone || "").trim(),
@@ -796,9 +810,68 @@ function normalizeLot(lot, index = 0) {
     longitude: verifiedLocation?.longitude ?? Number(lot.longitude),
     totalSpaces: total,
     availableSpaces: available,
+    hasRealtime,
+    source: String(lot.source || (isRegistered ? "parkview" : "public-data")),
+    placeUrl: String(lot.placeUrl || ""),
     floors,
     isRegistered
   };
+}
+
+function hasLiveAvailability(lot) {
+  return lot?.hasRealtime === true &&
+    Number.isFinite(lot.availableSpaces) &&
+    Number.isFinite(lot.totalSpaces);
+}
+
+function availabilityLabel(lot) {
+  if (hasLiveAvailability(lot)) return `${lot.availableSpaces}/${lot.totalSpaces}면`;
+  if (Number.isFinite(lot?.totalSpaces)) return `총 ${lot.totalSpaces}면`;
+  return "면수 정보 없음";
+}
+
+function priceLabel(lot, compact = false) {
+  if (!Number.isFinite(lot?.hourlyPrice)) return compact ? "요금 미확인" : "요금 정보 없음";
+  if (lot.hourlyPrice === 0) return "무료";
+  const amount = lot.hourlyPrice.toLocaleString("ko-KR");
+  return compact ? `₩${amount}` : `1시간 ₩${amount}`;
+}
+
+function mergeParkingLotSources() {
+  const registeredIds = new Set(state.registeredLots.map((lot) => String(lot.id)));
+  const baseLots = [
+    ...state.registeredLots,
+    ...state.publicLots.filter((lot) => !registeredIds.has(String(lot.id)))
+  ];
+  const nearbyKakaoLots = state.kakaoLots.filter((lot) => (
+    !baseLots.some((baseLot) => sameParkingLot(baseLot, lot))
+  ));
+
+  state.lots = [...baseLots, ...nearbyKakaoLots];
+  state.filteredLots = filterLotCollection(state.lots, state.mapSearchKeyword);
+  window.PARKVIEW_DATA_STATS = {
+    publicData: state.publicLots.length,
+    registered: state.registeredLots.length,
+    kakaoNearby: nearbyKakaoLots.length,
+    currentTotal: state.lots.length
+  };
+  console.info("[ParkView] parking data", window.PARKVIEW_DATA_STATS);
+}
+
+function sameParkingLot(a, b) {
+  if (Math.abs(a.latitude - b.latitude) > 0.00035 || Math.abs(a.longitude - b.longitude) > 0.00045) {
+    return false;
+  }
+  const distanceMeters = haversineKm(a.latitude, a.longitude, b.latitude, b.longitude) * 1000;
+  if (distanceMeters > 30) return false;
+  const normalizeName = (value) => String(value || "")
+    .toLowerCase()
+    .replace(/주차장|공영|민영/g, "")
+    .replace(/[^0-9a-z가-힣]/g, "");
+  const aName = normalizeName(a.name);
+  const bName = normalizeName(b.name);
+  if (aName && bName && (aName === bName || aName.includes(bName) || bName.includes(aName))) return true;
+  return Boolean(a.address && b.address && a.address === b.address);
 }
 
 function normalizeStoredFloor(floor, floorIndex = 0) {
@@ -1212,6 +1285,7 @@ function initializeMainMap() {
     updateMapNavigationControls();
     renderMapMarkers();
     refreshNearbyList();
+    scheduleKakaoParkingSearch();
   });
   window.kakao.maps.event.addListener(state.mainMap, "click", hideBottomSheet);
   if (window.ResizeObserver && els.bottomSheet) {
@@ -1224,7 +1298,109 @@ function initializeMainMap() {
     updateMapNavigationControls();
     renderMapMarkers();
     refreshNearbyList();
+    scheduleKakaoParkingSearch();
   }, 0);
+}
+
+function scheduleKakaoParkingSearch() {
+  window.clearTimeout(state.kakaoPlaceSearchTimer);
+  if (state.mapMode !== "kakao" || !state.mainMap || mainMapZoom() < MAP_MARKER_MIN_ZOOM) {
+    if (state.kakaoLots.length) {
+      state.kakaoLots = [];
+      state.kakaoLastPlaceSearchKey = "";
+      mergeParkingLotSources();
+      renderMapMarkers();
+      refreshNearbyList();
+    }
+    return;
+  }
+  state.kakaoPlaceSearchTimer = window.setTimeout(
+    searchVisibleKakaoParkingPlaces,
+    KAKAO_PLACE_SEARCH_DEBOUNCE_MS
+  );
+}
+
+function kakaoPlaceSearchKey() {
+  const bounds = state.mainMap.getBounds();
+  const sw = bounds.getSouthWest();
+  const ne = bounds.getNorthEast();
+  return [
+    state.mainMap.getLevel(),
+    sw.getLat().toFixed(4),
+    sw.getLng().toFixed(4),
+    ne.getLat().toFixed(4),
+    ne.getLng().toFixed(4)
+  ].join(":");
+}
+
+function searchVisibleKakaoParkingPlaces() {
+  if (!window.kakao?.maps?.services?.Places || !state.mainMap) return;
+  const searchKey = kakaoPlaceSearchKey();
+  if (searchKey === state.kakaoLastPlaceSearchKey) return;
+  state.kakaoLastPlaceSearchKey = searchKey;
+  const token = ++state.kakaoPlaceSearchToken;
+  const places = state.kakaoPlaces || new window.kakao.maps.services.Places(state.mainMap);
+  const results = [];
+  state.kakaoPlaces = places;
+
+  const finish = () => {
+    if (token !== state.kakaoPlaceSearchToken) return;
+    const seenIds = new Set();
+    state.kakaoLots = results
+      .map(kakaoPlaceToLot)
+      .filter((lot) => {
+        if (!lot || seenIds.has(lot.id)) return false;
+        seenIds.add(lot.id);
+        return true;
+      });
+    mergeParkingLotSources();
+    renderMapMarkers();
+    refreshNearbyList();
+  };
+
+  const callback = (data, status, pagination) => {
+    if (token !== state.kakaoPlaceSearchToken) return;
+    if (status === window.kakao.maps.services.Status.ZERO_RESULT) {
+      finish();
+      return;
+    }
+    if (status !== window.kakao.maps.services.Status.OK) {
+      state.kakaoLastPlaceSearchKey = "";
+      console.warn("[ParkView] Kakao parking search failed", status);
+      return;
+    }
+    results.push(...data);
+    if (pagination?.hasNextPage) {
+      pagination.nextPage();
+      return;
+    }
+    finish();
+  };
+
+  places.categorySearch("PK6", callback, {
+    useMapBounds: true,
+    size: 15
+  });
+}
+
+function kakaoPlaceToLot(place, index) {
+  const latitude = Number(place.y);
+  const longitude = Number(place.x);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return normalizeLot({
+    id: `kakao:${place.id || `${longitude}:${latitude}`}`,
+    name: place.place_name,
+    address: place.road_address_name || place.address_name,
+    phone: place.phone,
+    latitude,
+    longitude,
+    parkingType: "주차장",
+    feeInfo: "정보 없음",
+    source: "kakao",
+    placeUrl: place.place_url,
+    hasRealtime: false,
+    isOpen: true
+  }, index);
 }
 
 function fitNationwideMap() {
@@ -1548,7 +1724,7 @@ function renderKakaoMarkers() {
       content.type = "button";
       content.className = `compact-parking-marker ${markerKind}`;
       content.innerHTML = `<b>${label}</b>`;
-      content.setAttribute("aria-label", `${group.lots.length}개 주차장, 빈자리 ${group.availableSpaces}면`);
+      content.setAttribute("aria-label", `${group.lots.length}개 주차장`);
       content.addEventListener("click", (event) => {
         event.stopPropagation();
         if (group.lots.length === 1) {
@@ -1582,7 +1758,7 @@ function renderKakaoMarkers() {
     const content = wrapper.firstElementChild;
     content.setAttribute("role", "button");
     content.setAttribute("tabindex", "0");
-    content.setAttribute("aria-label", `${lot.name}, 빈자리 ${lot.availableSpaces}면`);
+    content.setAttribute("aria-label", `${lot.name}, ${availabilityLabel(lot)}`);
     const select = (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -1644,11 +1820,10 @@ function makeCompactKakaoGroups(lots) {
     );
     if (point.x < 22 || point.x > (mapRect?.width || window.innerWidth) - 22 || point.y < visibleTop || point.y > visibleBottom - 22) return;
     const key = `${Math.floor(point.x / COMPACT_MARKER_CELL_SIZE)}:${Math.floor(point.y / COMPACT_MARKER_CELL_SIZE)}`;
-    const group = buckets.get(key) || { lots: [], latitude: 0, longitude: 0, availableSpaces: 0 };
+    const group = buckets.get(key) || { lots: [], latitude: 0, longitude: 0 };
     group.lots.push(lot);
     group.latitude += lot.latitude;
     group.longitude += lot.longitude;
-    group.availableSpaces += lot.availableSpaces;
     buckets.set(key, group);
   });
 
@@ -1668,17 +1843,17 @@ function parkingMarkerMarkup(lot, metrics = getMarkerCardMetrics(lot)) {
   return `
     <span class="parking-marker map-overlay${lot.isOpen ? "" : " closed"}" style="--marker-width:${metrics.width}px">
       <span class="top">
-        <span class="count">${lot.availableSpaces}/${lot.totalSpaces}</span>
+        <span class="count">${availabilityLabel(lot)}</span>
         <span class="badge">${lot.isOpen ? "운영" : "마감"}</span>
       </span>
-      <span class="price">${lot.hourlyPrice.toLocaleString("ko-KR")}</span>
+      <span class="price">${priceLabel(lot, true)}</span>
     </span>
   `;
 }
 
 function getMarkerCardMetrics(lot) {
-  const countText = `${lot.availableSpaces}/${lot.totalSpaces}`;
-  const priceText = Number(lot.hourlyPrice || 0).toLocaleString("ko-KR");
+  const countText = availabilityLabel(lot);
+  const priceText = priceLabel(lot, true);
   const countRowWidth = countText.length * 5.5 + 49;
   const priceRowWidth = priceText.length * 9.2 + 16;
   return {
@@ -1786,7 +1961,7 @@ function renderMarkers() {
       marker.style.left = `${point.x}px`;
       marker.style.top = `${point.y}px`;
       marker.textContent = compactMarkerValue(group.lots);
-      marker.setAttribute("aria-label", `${group.lots.length}개 주차장, 빈자리 ${group.availableSpaces}면`);
+      marker.setAttribute("aria-label", `${group.lots.length}개 주차장`);
       marker.addEventListener("click", (event) => {
         event.stopPropagation();
         if (group.lots.length === 1) selectLot(group.lots[0], true);
@@ -1808,10 +1983,10 @@ function renderMarkers() {
       marker.style.top = `${y}px`;
       marker.innerHTML = `
         <span class="top">
-          <span class="count">${lot.availableSpaces}/${lot.totalSpaces}</span>
+          <span class="count">${availabilityLabel(lot)}</span>
           <span class="badge">${lot.isOpen ? "운영" : "마감"}</span>
         </span>
-        <span class="price">${lot.hourlyPrice.toLocaleString("ko-KR")}</span>
+        <span class="price">${priceLabel(lot, true)}</span>
       `;
       marker.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -1844,11 +2019,10 @@ function makeCompactFallbackGroups(lots) {
     const screenX = point.x * state.transform.scale + state.transform.x;
     const screenY = point.y * state.transform.scale + state.transform.y;
     const key = `${Math.floor(screenX / COMPACT_MARKER_CELL_SIZE)}:${Math.floor(screenY / COMPACT_MARKER_CELL_SIZE)}`;
-    const group = buckets.get(key) || { lots: [], latitude: 0, longitude: 0, availableSpaces: 0 };
+    const group = buckets.get(key) || { lots: [], latitude: 0, longitude: 0 };
     group.lots.push(lot);
     group.latitude += lot.latitude;
     group.longitude += lot.longitude;
-    group.availableSpaces += lot.availableSpaces;
     buckets.set(key, group);
   });
 
@@ -1881,12 +2055,12 @@ function lotCard(lot) {
   button.innerHTML = `
     <span class="lot-main">
       <h2>${escapeHtml(lot.name)}</h2>
-      <p>${lot.distanceMeters}m</p>
+      <p>${formatDistance(lot.distanceMeters)}</p>
       <span class="open-dot">${lot.isOpen ? "운영중" : "운영종료"}</span>
     </span>
     <span class="lot-side">
-      <span><span class="lot-status${lot.isOpen ? "" : " closed"}">${lot.isOpen ? "운영" : "마감"}</span> ${lot.availableSpaces}/${lot.totalSpaces}면</span>
-      <span>1시간 ₩${lot.hourlyPrice.toLocaleString("ko-KR")}</span>
+      <span><span class="lot-status${lot.isOpen ? "" : " closed"}">${lot.isOpen ? "운영" : "마감"}</span> ${availabilityLabel(lot)}</span>
+      <span>${priceLabel(lot)}</span>
     </span>
   `;
   button.addEventListener("click", () => selectLot(lot, true));
@@ -1943,11 +2117,19 @@ function hideBottomSheet() {
 
 function renderLotDetail(lot) {
   const isFavorite = state.favoriteLotIds.has(String(lot.id));
-  const feeLabel = lot.feeInfo === "무료" || lot.hourlyPrice === 0
-    ? "무료"
-    : `1시간 ${formatWon(lot.hourlyPrice)}`;
+  const feeLabel = priceLabel(lot);
+  const hasRealtime = hasLiveAvailability(lot);
   const operatingHours = `${lot.weekdayStart} ~ ${lot.weekdayEnd}`;
   const floor = lot.floors[state.floorIndex];
+  const floorPlanMarkup = floor ? `
+    <p class="detail-section-label">층별 위치 안내</p>
+    <div class="floor-head">
+      <button class="floor-nav" id="detailPrev" aria-label="이전 층" ${state.floorIndex === 0 ? "disabled" : ""}>‹</button>
+      <strong>${escapeHtml(floor.name)}</strong>
+      <button class="floor-nav" id="detailNext" aria-label="다음 층" ${state.floorIndex === lot.floors.length - 1 ? "disabled" : ""}>›</button>
+    </div>
+    <div id="detailFloorPlan" class="floor-plan blueprint-plan"></div>
+  ` : "";
   els.lotDetail.innerHTML = `
     <header class="detail-hero">
       <div class="detail-heading-row">
@@ -1968,7 +2150,7 @@ function renderLotDetail(lot) {
     <section class="parking-info-panel" aria-label="주차장 이용 정보">
       <div class="parking-info-row"><span>주차요금</span><strong>${escapeHtml(feeLabel)}</strong></div>
       <div class="parking-info-row"><span>운영시간</span><strong>${escapeHtml(operatingHours)}</strong></div>
-      <button id="detailVacancyButton" class="detail-vacancy-button" type="button">실시간 빈자리 확인</button>
+      ${hasRealtime ? '<button id="detailVacancyButton" class="detail-vacancy-button" type="button">실시간 빈자리 확인</button>' : ""}
     </section>
 
     <section class="detail-contact-list" aria-label="주차장 연락처와 주소">
@@ -1981,36 +2163,30 @@ function renderLotDetail(lot) {
     <section id="detailVacancySection" class="detail-content-section">
       <p class="detail-section-label">실시간 주차 현황</p>
       <div class="vacancy-card">
-        <span>현재 이용 가능한 자리 <em>LIVE</em></span>
-        <strong>${lot.availableSpaces}<small> / ${lot.totalSpaces}면</small></strong>
+        <span>${hasRealtime ? "현재 이용 가능한 자리 <em>LIVE</em>" : "ParkView 실시간 정보"}</span>
+        <strong>${hasRealtime ? `${lot.availableSpaces}<small> / ${lot.totalSpaces}면</small>` : "정보 없음"}</strong>
       </div>
-      <p class="detail-section-label">층별 위치 안내</p>
     </section>
-    <div class="floor-head">
-      <button class="floor-nav" id="detailPrev" aria-label="이전 층" ${state.floorIndex === 0 ? "disabled" : ""}>‹</button>
-      <strong>${escapeHtml(floor.name)}</strong>
-      <button class="floor-nav" id="detailNext" aria-label="다음 층" ${state.floorIndex === lot.floors.length - 1 ? "disabled" : ""}>›</button>
-    </div>
-    <div id="detailFloorPlan" class="floor-plan blueprint-plan"></div>
+    ${floorPlanMarkup}
   `;
   els.lotDetail.querySelector("#detailShare").addEventListener("click", () => shareLot(lot));
   els.lotDetail.querySelector("#detailFavorite").addEventListener("click", () => toggleFavoriteLot(lot));
   els.lotDetail.querySelector("#detailNavigate").addEventListener("click", () => navigateToLot(lot));
-  els.lotDetail.querySelector("#detailVacancyButton").addEventListener("click", () => {
+  els.lotDetail.querySelector("#detailVacancyButton")?.addEventListener("click", () => {
     expandBottomSheetToFull();
     window.setTimeout(() => {
       els.lotDetail.querySelector("#detailVacancySection")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 260);
   });
-  els.lotDetail.querySelector("#detailPrev").addEventListener("click", () => {
+  els.lotDetail.querySelector("#detailPrev")?.addEventListener("click", () => {
     state.floorIndex = Math.max(0, state.floorIndex - 1);
     renderLotDetail(lot);
   });
-  els.lotDetail.querySelector("#detailNext").addEventListener("click", () => {
+  els.lotDetail.querySelector("#detailNext")?.addEventListener("click", () => {
     state.floorIndex = Math.min(lot.floors.length - 1, state.floorIndex + 1);
     renderLotDetail(lot);
   });
-  renderFloorPlan(els.lotDetail.querySelector("#detailFloorPlan"), floor, false);
+  if (floor) renderFloorPlan(els.lotDetail.querySelector("#detailFloorPlan"), floor, false);
 }
 
 function formatWon(value) {
@@ -2018,7 +2194,9 @@ function formatWon(value) {
 }
 
 function formatDistance(value) {
-  const meters = Math.max(0, Number(value) || 0);
+  const number = optionalNumber(value);
+  if (number === null) return "거리 정보 없음";
+  const meters = Math.max(0, number);
   if (meters < 1000) return `${Math.round(meters)}m`;
   return `${(meters / 1000).toFixed(meters >= 10000 ? 0 : 1)}km`;
 }
@@ -2026,7 +2204,7 @@ function formatDistance(value) {
 async function shareLot(lot) {
   const shareData = {
     title: lot.name,
-    text: `${lot.name}\n${lot.address}\n실시간 빈자리 ${lot.availableSpaces}/${lot.totalSpaces}면`,
+    text: `${lot.name}\n${lot.address}\n${availabilityLabel(lot)}`,
     url: window.location.href
   };
   try {
