@@ -79,9 +79,9 @@ function loadKakaoMapSdk() {
   return state.kakaoSdkPromise;
 }
 
-const MAP_MARKER_MIN_ZOOM = 13.5;
+const MAP_MARKER_MIN_ZOOM = 13;
 const MAP_MARKER_DETAIL_ZOOM = 16;
-const COMPACT_MARKER_CELL_SIZE = 88;
+const COMPACT_MARKER_CELL_SIZE = 110;
 const KAKAO_PLACE_SEARCH_DEBOUNCE_MS = 320;
 const MAIN_MAP_MIN_ZOOM = 6;
 const MAIN_MAP_MAX_ZOOM = 18;
@@ -1727,13 +1727,11 @@ function renderKakaoMarkers() {
       content.setAttribute("aria-label", `${group.lots.length}개 주차장`);
       content.addEventListener("click", (event) => {
         event.stopPropagation();
-        if (group.lots.length === 1) {
-          selectLot(group.lots[0], true);
-          return;
-        }
+        const target = group.lots.length === 1 ? group.lots[0] : group;
+        if (group.lots.length === 1) state.selectedLot = group.lots[0];
         map.jump(
-          new window.kakao.maps.LatLng(group.latitude, group.longitude),
-          kakaoLevelFromZoom(Math.min(MAP_MARKER_DETAIL_ZOOM, zoom + 2)),
+          new window.kakao.maps.LatLng(target.latitude, target.longitude),
+          kakaoLevelFromZoom(MAP_MARKER_DETAIL_ZOOM),
           { animate: true }
         );
       });
@@ -1964,11 +1962,10 @@ function renderMarkers() {
       marker.setAttribute("aria-label", `${group.lots.length}개 주차장`);
       marker.addEventListener("click", (event) => {
         event.stopPropagation();
-        if (group.lots.length === 1) selectLot(group.lots[0], true);
-        else {
-          centerMapOn(group.latitude, group.longitude, Math.max(4.2, scale * 1.8));
-          renderMarkers();
-        }
+        const target = group.lots.length === 1 ? group.lots[0] : group;
+        if (group.lots.length === 1) state.selectedLot = group.lots[0];
+        centerMapOn(target.latitude, target.longitude, Math.max(4.2, scale * 1.8));
+        renderMarkers();
       });
       fragment.appendChild(marker);
     });
