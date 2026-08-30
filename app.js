@@ -79,9 +79,9 @@ function loadKakaoMapSdk() {
   return state.kakaoSdkPromise;
 }
 
-const MAP_MARKER_MIN_ZOOM = 13;
+const MAP_MARKER_MIN_ZOOM = 14;
 const MAP_MARKER_DETAIL_ZOOM = 15;
-const COMPACT_MARKER_CELL_SIZE = 48;
+const COMPACT_MARKER_CELL_SIZE = 88;
 const MAIN_MAP_MIN_ZOOM = 6;
 const MAIN_MAP_MAX_ZOOM = 18;
 const KAKAO_ZOOM_LEVEL_OFFSET = 19;
@@ -1770,7 +1770,7 @@ function constrainTransform() {
 function renderMarkers() {
   const lots = state.filteredLots;
   const scale = state.transform.scale;
-  const markerMode = scale < 1.8 ? "hidden" : scale < 4.2 ? "compact" : "detail";
+  const markerMode = scale < 2.5 ? "hidden" : scale < 4.2 ? "compact" : "detail";
   const fragment = document.createDocumentFragment();
   els.markerLayer.replaceChildren();
   setMapZoomNotice(markerMode === "hidden");
