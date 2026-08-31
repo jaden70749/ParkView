@@ -558,13 +558,14 @@ textarea {
   display: flex;
   align-items: center;
   padding: 8px 13px;
-  border: 1px solid rgba(199, 157, 18, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
-  background: rgba(255, 248, 211, 0.96);
-  box-shadow: 0 3px 10px rgba(52, 42, 10, 0.14);
-  color: #604a00;
+  background: rgba(38, 39, 43, 0.76);
+  box-shadow: 0 2px 8px rgba(18, 19, 22, 0.14);
+  backdrop-filter: blur(5px);
+  color: rgba(255, 255, 255, 0.94);
   font-size: 12px;
-  font-weight: 850;
+  font-weight: 750;
   line-height: 1.35;
   text-align: center;
 }
