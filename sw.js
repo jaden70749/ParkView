@@ -1,10 +1,10 @@
-const CACHE_NAME = "parkview-v94";
+const CACHE_NAME = "parkview-v95";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=94",
+  "./styles.css?v=95",
   "./config.js?v=2",
-  "./app.js?v=94",
+  "./app.js?v=95",
   "./manifest.webmanifest"
 ];
 

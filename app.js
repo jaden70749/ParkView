@@ -104,10 +104,6 @@ const VERIFIED_ADDRESS_LOCATIONS = [
 ];
 const REGISTERED_LOTS_STORAGE = "parkview.registeredLots.v1";
 const FAVORITE_LOTS_STORAGE = "parkview.favoriteLots.v1";
-const PERMISSION_PROMPT_SESSION_KEYS = {
-  location: "parkview.locationPromptDismissed",
-  microphone: "parkview.microphonePromptDismissed"
-};
 const LOCATION_PERMISSION_MESSAGE = "현재 위치는 거리 계산과 주변 주차장 검색에만 사용됩니다.";
 const MICROPHONE_PERMISSION_MESSAGE = "마이크는 장소를 음성으로 검색할 때만 사용됩니다.";
 const DEFAULT_PLAN_INSTRUCTION = "아크릴 주차장 사진을 보고 일반 주차면, 장애인 주차면, 임산부 주차면, 중앙 통로가 보이도록 깨끗한 2D 도면을 만들어줘.";
@@ -553,17 +549,15 @@ function getCurrentCoordinates() {
   });
 }
 
-function permissionPromptWasDismissed(kind) {
-  try {
-    return sessionStorage.getItem(PERMISSION_PROMPT_SESSION_KEYS[kind]) === "true";
-  } catch (_error) {
-    return false;
-  }
-}
-
 function isIOSDevice() {
   return /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
     (/Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+}
+
+function usesIOSKeyboardDictationFallback() {
+  if (!isIOSDevice()) return false;
+  return /CriOS|FxiOS|EdgiOS|OPiOS/i.test(navigator.userAgent) ||
+    !/Safari/i.test(navigator.userAgent);
 }
 
 function permissionRecoverySteps(kind) {
@@ -641,11 +635,6 @@ function hidePermissionPanel() {
 }
 
 function dismissPermissionPanel() {
-  try {
-    sessionStorage.setItem(PERMISSION_PROMPT_SESSION_KEYS[state.permissionKind], "true");
-  } catch (_error) {
-    // The panel can still be dismissed when storage is unavailable.
-  }
   hidePermissionPanel();
 }
 
@@ -695,20 +684,18 @@ async function initializeLocationAccess() {
     console.info("Geolocation permission state is unavailable.", error);
   }
 
-  if (!permissionPromptWasDismissed("location")) {
-    if (permissionState === "denied") {
-      showPermissionPanel("location", {
-          blocked: true,
-          message: "위치 권한이 꺼져 있습니다. 아래 순서대로 권한을 켜 주세요."
-      });
-    } else if (permissionState === "granted") {
-      showPermissionPanel("location", {
-        message: "위치 권한이 허용되어 있습니다. 버튼을 눌러 현재 위치로 이동하세요.",
-        actionLabel: "현재 위치로 이동"
-      });
-    } else {
-      showPermissionPanel("location");
-    }
+  if (permissionState === "denied") {
+    showPermissionPanel("location", {
+      blocked: true,
+      message: "위치 권한이 꺼져 있습니다. 아래 순서대로 권한을 켜 주세요."
+    });
+  } else if (permissionState === "granted") {
+    showPermissionPanel("location", {
+      message: "위치 권한이 허용되어 있습니다. 버튼을 눌러 현재 위치로 이동하세요.",
+      actionLabel: "현재 위치로 이동"
+    });
+  } else {
+    showPermissionPanel("location");
   }
 }
 
@@ -860,6 +847,11 @@ function updateMapNavigationControls() {
 }
 
 async function startVoiceSearch() {
+  if (usesIOSKeyboardDictationFallback()) {
+    openIOSKeyboardDictation();
+    return;
+  }
+
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     els.searchInput.focus();
@@ -887,6 +879,12 @@ async function startVoiceSearch() {
   }
 
   beginVoiceRecognition();
+}
+
+function openIOSKeyboardDictation() {
+  hidePermissionPanel();
+  els.searchInput.focus({ preventScroll: true });
+  setSearchFeedback("iPhone 키보드의 마이크를 눌러 목적지를 말해 주세요.", false, 6000);
 }
 
 async function requestMicrophonePermissionFromPanel() {
@@ -939,11 +937,20 @@ function beginVoiceRecognition() {
     searchMapLocation();
   };
   recognition.onerror = (event) => {
-    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+    if (event.error === "service-not-allowed") {
+      state.microphonePermissionGranted = false;
+      if (isIOSDevice()) {
+        openIOSKeyboardDictation();
+      } else {
+        setSearchFeedback("이 브라우저의 음성 인식 서비스를 사용할 수 없습니다.", true, 5000);
+      }
+      return;
+    }
+    if (event.error === "not-allowed") {
       state.microphonePermissionGranted = false;
       showPermissionPanel("microphone", {
         blocked: true,
-        message: "마이크 또는 음성 인식 권한이 꺼져 있습니다. 아래 순서대로 권한을 켜 주세요."
+        message: "마이크 권한이 꺼져 있습니다. 아래 순서대로 권한을 켜 주세요."
       });
       return;
     }
