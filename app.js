@@ -104,6 +104,8 @@ const VERIFIED_ADDRESS_LOCATIONS = [
 ];
 const REGISTERED_LOTS_STORAGE = "parkview.registeredLots.v1";
 const FAVORITE_LOTS_STORAGE = "parkview.favoriteLots.v1";
+const LOCATION_PROMPT_SESSION_KEY = "parkview.locationPromptDismissed";
+const LOCATION_PERMISSION_MESSAGE = "현재 위치는 거리 계산과 주변 주차장 검색에만 사용됩니다.";
 const DEFAULT_PLAN_INSTRUCTION = "아크릴 주차장 사진을 보고 일반 주차면, 장애인 주차면, 임산부 주차면, 중앙 통로가 보이도록 깨끗한 2D 도면을 만들어줘.";
 const SETUP_STEPS = ["plan", "detect", "review"];
 const REGISTRATION_STEPS = [
@@ -188,9 +190,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindElements();
   bindEvents();
   refreshIcons();
-  setLocateLoading(true);
-  setSearchFeedback("현재 위치를 확인하고 있습니다.", false, 9000);
-  const initialLocationPromise = getCurrentCoordinates();
   state.favoriteLotIds = loadFavoriteLotIds();
   state.publicLots = await loadLots();
   state.registeredLots = loadRegisteredLots();
@@ -209,15 +208,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderRegisteredLots();
   setRegistrationStep(0);
   registerServiceWorker();
-  initialLocationPromise.then((location) => {
-    setLocateLoading(false);
-    if (!location) {
-      setSearchFeedback("위치 권한을 허용하면 내 주변 주차장을 볼 수 있습니다.", true);
-      return;
-    }
-    applyUserLocation(location, true);
-    setSearchFeedback("현재 위치 주변 주차장을 표시합니다.");
-  });
+  initializeLocationAccess();
 });
 
 function bindElements() {
@@ -305,6 +296,10 @@ function bindElements() {
     managePrevFloor: document.querySelector("#managePrevFloor"),
     manageNextFloor: document.querySelector("#manageNextFloor"),
     cameraConnectionChip: document.querySelector("#cameraConnectionChip"),
+    locationPermissionOverlay: document.querySelector("#locationPermissionOverlay"),
+    locationPermissionMessage: document.querySelector("#locationPermissionMessage"),
+    locationPermissionButton: document.querySelector("#locationPermissionButton"),
+    locationPermissionLater: document.querySelector("#locationPermissionLater"),
     bottomSheet: document.querySelector("#bottomSheet"),
     sheetHandle: document.querySelector("#sheetHandle"),
     sheetTitle: document.querySelector("#sheetTitle"),
@@ -349,6 +344,8 @@ function bindEvents() {
   els.mapZoomOutButton?.addEventListener("click", () => changeMapZoom(-1));
   els.mapNorthButton?.addEventListener("click", resetMapNorth);
   els.mapLocateButton?.addEventListener("click", focusOnCurrentLocation);
+  els.locationPermissionButton?.addEventListener("click", requestLocationFromPermissionPanel);
+  els.locationPermissionLater?.addEventListener("click", dismissLocationPermissionPanel);
   els.filterButton.addEventListener("click", openFilterPanel);
   els.filterCloseButton.addEventListener("click", closeFilterPanel);
   els.filterResetButton.addEventListener("click", resetFilterControls);
@@ -360,7 +357,8 @@ function bindEvents() {
   });
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
-    if (!els.searchSuggestions.hidden) hideSearchSuggestions();
+    if (!els.locationPermissionOverlay.hidden) dismissLocationPermissionPanel();
+    else if (!els.searchSuggestions.hidden) hideSearchSuggestions();
     else if (els.filterPanel.classList.contains("is-open")) closeFilterPanel();
     else if (els.mainMenu.classList.contains("is-open")) closeMainMenu();
   });
@@ -540,6 +538,103 @@ function getCurrentCoordinates() {
   });
 }
 
+function locationPromptWasDismissed() {
+  try {
+    return sessionStorage.getItem(LOCATION_PROMPT_SESSION_KEY) === "true";
+  } catch (_error) {
+    return false;
+  }
+}
+
+function showLocationPermissionPanel(message = LOCATION_PERMISSION_MESSAGE) {
+  if (!els.locationPermissionOverlay) return;
+  els.locationPermissionMessage.textContent = message;
+  els.locationPermissionOverlay.hidden = false;
+  els.locationPermissionOverlay.setAttribute("aria-hidden", "false");
+}
+
+function hideLocationPermissionPanel() {
+  if (!els.locationPermissionOverlay) return;
+  els.locationPermissionOverlay.hidden = true;
+  els.locationPermissionOverlay.setAttribute("aria-hidden", "true");
+}
+
+function dismissLocationPermissionPanel() {
+  try {
+    sessionStorage.setItem(LOCATION_PROMPT_SESSION_KEY, "true");
+  } catch (_error) {
+    // The panel can still be dismissed when storage is unavailable.
+  }
+  hideLocationPermissionPanel();
+}
+
+async function initializeLocationAccess() {
+  if (!navigator.geolocation) {
+    setSearchFeedback("이 기기에서는 현재 위치를 확인할 수 없습니다.", true);
+    return;
+  }
+
+  try {
+    if (navigator.permissions?.query) {
+      const permission = await navigator.permissions.query({ name: "geolocation" });
+      if (permission.state === "granted") {
+        await locateFromGrantedPermission();
+      } else if (!locationPromptWasDismissed()) {
+        showLocationPermissionPanel(
+          permission.state === "denied"
+            ? "위치 권한이 차단되어 있습니다. 브라우저의 사이트 설정에서 위치 권한을 허용해 주세요."
+            : LOCATION_PERMISSION_MESSAGE
+        );
+      }
+      permission.addEventListener?.("change", () => {
+        if (permission.state === "granted" && !els.locationPermissionButton?.disabled) {
+          locateFromGrantedPermission();
+        }
+      });
+      return;
+    }
+  } catch (error) {
+    console.info("Geolocation permission state is unavailable.", error);
+  }
+
+  if (!locationPromptWasDismissed()) showLocationPermissionPanel();
+}
+
+async function locateFromGrantedPermission() {
+  setLocateLoading(true);
+  const location = await getCurrentCoordinates();
+  setLocateLoading(false);
+  if (!location) return;
+  hideLocationPermissionPanel();
+  applyUserLocation(location, true);
+  setSearchFeedback("현재 위치 주변 주차장을 표시합니다.");
+}
+
+async function requestLocationFromPermissionPanel() {
+  if (!navigator.geolocation) {
+    els.locationPermissionMessage.textContent = "이 기기에서는 현재 위치를 확인할 수 없습니다.";
+    return;
+  }
+
+  const button = els.locationPermissionButton;
+  button.disabled = true;
+  button.textContent = "위치 확인 중...";
+  setLocateLoading(true);
+  const location = await getCurrentCoordinates();
+  setLocateLoading(false);
+  button.disabled = false;
+  button.textContent = "현재 위치 사용";
+
+  if (!location) {
+    els.locationPermissionMessage.textContent = "위치 권한이 차단되어 있습니다. 브라우저의 사이트 설정에서 위치 권한을 허용해 주세요.";
+    return;
+  }
+
+  hideLocationPermissionPanel();
+  applyUserLocation(location, true);
+  setSearchFeedback("현재 위치 주변 주차장으로 이동했습니다.");
+}
+
 function applyUserLocation(location, focusMap = false) {
   state.userLocation = {
     latitude: Number(location.latitude),
@@ -566,6 +661,7 @@ async function focusOnCurrentLocation() {
   setLocateLoading(false);
   if (!location) {
     setSearchFeedback("위치 권한을 허용하면 내 주변 주차장을 볼 수 있습니다.", true);
+    showLocationPermissionPanel("위치 권한이 차단되어 있습니다. 브라우저의 사이트 설정에서 위치 권한을 허용해 주세요.");
     return;
   }
   applyUserLocation(location, true);
