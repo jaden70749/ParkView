@@ -304,7 +304,6 @@ function bindElements() {
     permissionIcon: document.querySelector("#permissionIcon"),
     permissionTitle: document.querySelector("#permissionTitle"),
     permissionMessage: document.querySelector("#permissionMessage"),
-    permissionRecoverySteps: document.querySelector("#permissionRecoverySteps"),
     permissionPrimaryButton: document.querySelector("#permissionPrimaryButton"),
     permissionLaterButton: document.querySelector("#permissionLaterButton"),
     bottomSheet: document.querySelector("#bottomSheet"),
@@ -549,59 +548,9 @@ function getCurrentCoordinates() {
   });
 }
 
-function isIOSDevice() {
-  return /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
-    (/Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
-}
-
-function usesIOSKeyboardDictationFallback() {
-  if (!isIOSDevice()) return false;
-  return /CriOS|FxiOS|EdgiOS|OPiOS/i.test(navigator.userAgent) ||
-    !/Safari/i.test(navigator.userAgent);
-}
-
-function permissionRecoverySteps(kind) {
-  const isMicrophone = kind === "microphone";
-  if (isIOSDevice() && /CriOS/i.test(navigator.userAgent)) {
-    return isMicrophone
-      ? [
-        "iPhone의 설정 앱에서 Chrome을 선택하세요.",
-        "마이크와 음성 인식을 모두 켜세요.",
-        "주소창에 마이크 아이콘이 보이면 사이트 권한도 켜세요.",
-        "Chrome으로 돌아와 아래 버튼을 다시 누르세요."
-      ]
-      : [
-        "iPhone 설정의 개인정보 보호 및 보안에서 위치 서비스를 여세요.",
-        "Chrome을 선택하고 '앱을 사용하는 동안'과 정확한 위치를 켜세요.",
-        "주소창의 사이트 정보에서 위치가 차단돼 있다면 허용으로 바꾸세요.",
-        "Chrome으로 돌아와 아래 버튼을 다시 누르세요."
-      ];
-  }
-  if (isIOSDevice()) {
-    return [
-      "주소창 왼쪽의 페이지 메뉴에서 웹사이트 설정을 여세요.",
-      `${isMicrophone ? "마이크" : "위치"}를 '허용'으로 변경하세요.`,
-      "이 페이지로 돌아와 아래 버튼을 다시 누르세요."
-    ];
-  }
-  if (/Android/i.test(navigator.userAgent)) {
-    return [
-      "Chrome 주소창 왼쪽의 사이트 정보에서 권한을 여세요.",
-      `${isMicrophone ? "마이크" : "위치"} 권한을 '허용'으로 변경하세요.`,
-      "이 페이지로 돌아와 아래 버튼을 다시 누르세요."
-    ];
-  }
-  return [
-    "브라우저 주소창의 사이트 정보 또는 사이트 설정을 여세요.",
-    `${isMicrophone ? "마이크" : "위치"} 권한을 '허용'으로 변경하세요.`,
-    "이 페이지로 돌아와 아래 버튼을 다시 누르세요."
-  ];
-}
-
 function showPermissionPanel(kind, options = {}) {
   if (!els.permissionOverlay) return;
   const isMicrophone = kind === "microphone";
-  const blocked = Boolean(options.blocked);
   state.permissionKind = kind;
   els.permissionTitle.textContent = isMicrophone
     ? "음성으로 장소를 검색할까요?"
@@ -609,20 +558,11 @@ function showPermissionPanel(kind, options = {}) {
   els.permissionMessage.textContent = options.message || (isMicrophone
     ? MICROPHONE_PERMISSION_MESSAGE
     : LOCATION_PERMISSION_MESSAGE);
-  els.permissionPrimaryButton.textContent = options.actionLabel || (blocked
-    ? "설정 후 다시 확인"
-    : isMicrophone ? "마이크 사용" : "현재 위치 사용");
+  els.permissionPrimaryButton.textContent = options.actionLabel || (isMicrophone
+    ? "마이크 활성화"
+    : "현재 위치 활성화");
   els.permissionPrimaryButton.disabled = false;
   els.permissionIcon.innerHTML = `<i data-lucide="${isMicrophone ? "mic" : "locate-fixed"}"></i>`;
-  els.permissionRecoverySteps.replaceChildren();
-  if (blocked) {
-    permissionRecoverySteps(kind).forEach((step) => {
-      const item = document.createElement("li");
-      item.textContent = step;
-      els.permissionRecoverySteps.appendChild(item);
-    });
-  }
-  els.permissionRecoverySteps.hidden = !blocked;
   els.permissionOverlay.hidden = false;
   els.permissionOverlay.setAttribute("aria-hidden", "false");
   refreshIcons();
@@ -647,7 +587,7 @@ function locationFailureMessage() {
     return "현재 위치는 HTTPS 보안 주소에서만 사용할 수 있습니다. 배포된 ParkView 주소로 접속해 주세요.";
   }
   if (state.lastLocationError?.code === 1) {
-    return "위치 권한이 꺼져 있습니다. 아래 순서대로 권한을 켜 주세요.";
+    return "현재 위치 요청이 허용되지 않았습니다. 활성화 버튼을 눌러 다시 요청해 주세요.";
   }
   if (state.lastLocationError?.code === 2) {
     return "기기의 위치 서비스를 확인할 수 없습니다. 위치 서비스를 켠 뒤 다시 시도해 주세요.";
@@ -687,7 +627,7 @@ async function initializeLocationAccess() {
   if (permissionState === "denied") {
     showPermissionPanel("location", {
       blocked: true,
-      message: "위치 권한이 꺼져 있습니다. 아래 순서대로 권한을 켜 주세요."
+      message: "현재 위치 활성화 버튼을 누르면 브라우저에 위치 권한을 요청합니다."
     });
   } else if (permissionState === "granted") {
     showPermissionPanel("location", {
@@ -714,13 +654,13 @@ async function showLocationRequestFailure() {
   await refreshLocationPermissionState();
   const blocked = locationPermissionIsBlocked();
   const message = blocked && state.locationPermissionState === "granted"
-    ? "Chrome의 위치 권한은 켜져 있지만 ParkView 사이트 권한이 차단되어 있습니다. 아래 사이트 권한도 확인해 주세요."
+    ? "현재 위치를 가져오지 못했습니다. 활성화 버튼을 눌러 다시 요청해 주세요."
     : locationFailureMessage();
   setSearchFeedback(message, true, 5000);
   showPermissionPanel("location", {
     blocked,
     message,
-    actionLabel: blocked ? "설정 후 다시 확인" : "다시 시도"
+    actionLabel: blocked ? "현재 위치 활성화" : "다시 시도"
   });
 }
 
@@ -847,56 +787,31 @@ function updateMapNavigationControls() {
 }
 
 async function startVoiceSearch() {
-  if (usesIOSKeyboardDictationFallback()) {
-    openIOSKeyboardDictation();
-    return;
-  }
-
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     els.searchInput.focus();
     setSearchFeedback("이 브라우저에서는 음성 검색을 지원하지 않습니다.", true);
     return;
   }
-
-  if (!state.microphonePermissionGranted) {
-    let permissionState = "prompt";
-    try {
-      if (navigator.permissions?.query) {
-        permissionState = (await navigator.permissions.query({ name: "microphone" })).state;
-      }
-    } catch (_error) {
-      // Safari does not expose microphone permission state before requesting it.
-    }
-    if (permissionState !== "granted") {
-      showPermissionPanel("microphone", permissionState === "denied" ? {
-        blocked: true,
-        message: "마이크 권한이 꺼져 있습니다. 아래 순서대로 권한을 켜 주세요."
-      } : {});
-      return;
-    }
-    state.microphonePermissionGranted = true;
-  }
-
-  beginVoiceRecognition();
-}
-
-function openIOSKeyboardDictation() {
-  hidePermissionPanel();
-  els.searchInput.focus({ preventScroll: true });
-  setSearchFeedback("iPhone 키보드의 마이크를 눌러 목적지를 말해 주세요.", false, 6000);
+  await activateMicrophoneAndStart();
 }
 
 async function requestMicrophonePermissionFromPanel() {
+  await activateMicrophoneAndStart(true);
+}
+
+async function activateMicrophoneAndStart(fromPanel = false) {
   if (!navigator.mediaDevices?.getUserMedia) {
     hidePermissionPanel();
     setSearchFeedback("이 브라우저에서는 마이크 권한을 요청할 수 없습니다.", true, 5000);
     return;
   }
 
-  const button = els.permissionPrimaryButton;
-  button.disabled = true;
-  button.textContent = "마이크 확인 중...";
+  const button = fromPanel ? els.permissionPrimaryButton : null;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "마이크 활성화 중...";
+  }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     stream.getTracks().forEach((track) => track.stop());
@@ -908,9 +823,9 @@ async function requestMicrophonePermissionFromPanel() {
     showPermissionPanel("microphone", {
       blocked,
       message: blocked
-        ? "마이크 또는 음성 인식 권한이 꺼져 있습니다. 아래 순서대로 권한을 켜 주세요."
+        ? "마이크 요청이 허용되지 않았습니다. 활성화 버튼을 눌러 다시 요청해 주세요."
         : "마이크를 사용할 수 없습니다. 다른 앱에서 마이크를 사용 중인지 확인해 주세요.",
-      actionLabel: blocked ? "설정 후 다시 확인" : "다시 시도"
+      actionLabel: blocked ? "마이크 활성화" : "다시 시도"
     });
   }
 }
@@ -938,19 +853,14 @@ function beginVoiceRecognition() {
   };
   recognition.onerror = (event) => {
     if (event.error === "service-not-allowed") {
-      state.microphonePermissionGranted = false;
-      if (isIOSDevice()) {
-        openIOSKeyboardDictation();
-      } else {
-        setSearchFeedback("이 브라우저의 음성 인식 서비스를 사용할 수 없습니다.", true, 5000);
-      }
+      setSearchFeedback("마이크 권한은 활성화됐지만 이 브라우저가 음성 인식 서비스를 지원하지 않습니다.", true, 6000);
       return;
     }
     if (event.error === "not-allowed") {
       state.microphonePermissionGranted = false;
       showPermissionPanel("microphone", {
         blocked: true,
-        message: "마이크 권한이 꺼져 있습니다. 아래 순서대로 권한을 켜 주세요."
+        message: "마이크 요청이 허용되지 않았습니다. 활성화 버튼을 눌러 다시 요청해 주세요."
       });
       return;
     }
