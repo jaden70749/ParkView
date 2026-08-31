@@ -1975,14 +1975,10 @@ async function kakaoKeywordSuggestions(query) {
   if (!window.kakao?.maps?.services?.Places) return [];
   const places = state.kakaoPlaces || new window.kakao.maps.services.Places(state.mainMap || undefined);
   state.kakaoPlaces = places;
-  const options = { size: 10 };
-  if (state.userLocation) {
-    options.location = new window.kakao.maps.LatLng(
-      state.userLocation.latitude,
-      state.userLocation.longitude
-    );
-    options.sort = window.kakao.maps.services.SortBy.DISTANCE;
-  }
+  const options = {
+    size: 10,
+    sort: window.kakao.maps.services.SortBy.ACCURACY
+  };
   const results = await new Promise((resolve, reject) => {
     places.keywordSearch(query, (documents, status) => {
       if (status === window.kakao.maps.services.Status.OK) resolve(documents);
@@ -2001,14 +1997,12 @@ async function kakaoKeywordSuggestions(query) {
     distanceMeters: optionalNumber(place.distance),
     source: "kakao-place",
     placeUrl: place.place_url
-  }))
-    .filter((place) => Number.isFinite(place.latitude) && Number.isFinite(place.longitude))
-    .sort((a, b) => Number(a.categoryGroupCode === "PK6") - Number(b.categoryGroupCode === "PK6"));
+  })).filter((place) => Number.isFinite(place.latitude) && Number.isFinite(place.longitude));
 }
 
-function mergeSearchSuggestions(local, remote) {
-  const merged = [...local];
-  remote.forEach((candidate) => {
+function mergeSearchSuggestions(primary, secondary) {
+  const merged = [...primary];
+  secondary.forEach((candidate) => {
     const duplicate = merged.some((existing) => {
       const sameName = normalizeSearchText(existing.name) === normalizeSearchText(candidate.name);
       const distance = haversineKm(
@@ -2044,7 +2038,7 @@ function handleSearchInput() {
     try {
       const remote = await kakaoKeywordSuggestions(query);
       if (token !== state.searchSuggestionToken || query !== els.searchInput.value.trim()) return;
-      state.searchSuggestions = mergeSearchSuggestions(local, remote);
+      state.searchSuggestions = mergeSearchSuggestions(remote, local);
       renderSearchSuggestions();
       if (!state.searchSuggestions.length) setSearchFeedback("검색 결과가 없습니다.", true);
     } catch (error) {
@@ -2182,7 +2176,7 @@ async function searchMapLocation() {
     } catch (error) {
       console.warn("[ParkView] keyword search unavailable; trying address search", error);
     }
-    const suggestion = mergeSearchSuggestions(local, remote)[0];
+    const suggestion = mergeSearchSuggestions(remote, local)[0];
     if (suggestion) {
       selectSearchSuggestion(suggestion);
       return;
