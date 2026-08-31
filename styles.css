@@ -861,6 +861,26 @@ textarea {
   line-height: 1.5;
 }
 
+.permission-recovery-steps {
+  margin: 0 0 16px;
+  padding: 14px 14px 14px 36px;
+  border-radius: 8px;
+  background: #f2f3f5;
+  color: #44464c;
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 1.55;
+  text-align: left;
+}
+
+.permission-recovery-steps[hidden] {
+  display: none;
+}
+
+.permission-recovery-steps li + li {
+  margin-top: 5px;
+}
+
 .location-permission-primary,
 .location-permission-later {
   width: 100%;

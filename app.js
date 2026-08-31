@@ -104,8 +104,12 @@ const VERIFIED_ADDRESS_LOCATIONS = [
 ];
 const REGISTERED_LOTS_STORAGE = "parkview.registeredLots.v1";
 const FAVORITE_LOTS_STORAGE = "parkview.favoriteLots.v1";
-const LOCATION_PROMPT_SESSION_KEY = "parkview.locationPromptDismissed";
+const PERMISSION_PROMPT_SESSION_KEYS = {
+  location: "parkview.locationPromptDismissed",
+  microphone: "parkview.microphonePromptDismissed"
+};
 const LOCATION_PERMISSION_MESSAGE = "현재 위치는 거리 계산과 주변 주차장 검색에만 사용됩니다.";
+const MICROPHONE_PERMISSION_MESSAGE = "마이크는 장소를 음성으로 검색할 때만 사용됩니다.";
 const DEFAULT_PLAN_INSTRUCTION = "아크릴 주차장 사진을 보고 일반 주차면, 장애인 주차면, 임산부 주차면, 중앙 통로가 보이도록 깨끗한 2D 도면을 만들어줘.";
 const SETUP_STEPS = ["plan", "detect", "review"];
 const REGISTRATION_STEPS = [
@@ -175,6 +179,9 @@ const state = {
   },
   searchFeedbackTimer: null,
   voiceRecognition: null,
+  permissionKind: "location",
+  microphonePermissionGranted: false,
+  lastLocationError: null,
   transform: { x: 0, y: 0, scale: 1 },
   dragging: null,
   pinch: null,
@@ -296,10 +303,13 @@ function bindElements() {
     managePrevFloor: document.querySelector("#managePrevFloor"),
     manageNextFloor: document.querySelector("#manageNextFloor"),
     cameraConnectionChip: document.querySelector("#cameraConnectionChip"),
-    locationPermissionOverlay: document.querySelector("#locationPermissionOverlay"),
-    locationPermissionMessage: document.querySelector("#locationPermissionMessage"),
-    locationPermissionButton: document.querySelector("#locationPermissionButton"),
-    locationPermissionLater: document.querySelector("#locationPermissionLater"),
+    permissionOverlay: document.querySelector("#permissionOverlay"),
+    permissionIcon: document.querySelector("#permissionIcon"),
+    permissionTitle: document.querySelector("#permissionTitle"),
+    permissionMessage: document.querySelector("#permissionMessage"),
+    permissionRecoverySteps: document.querySelector("#permissionRecoverySteps"),
+    permissionPrimaryButton: document.querySelector("#permissionPrimaryButton"),
+    permissionLaterButton: document.querySelector("#permissionLaterButton"),
     bottomSheet: document.querySelector("#bottomSheet"),
     sheetHandle: document.querySelector("#sheetHandle"),
     sheetTitle: document.querySelector("#sheetTitle"),
@@ -344,8 +354,8 @@ function bindEvents() {
   els.mapZoomOutButton?.addEventListener("click", () => changeMapZoom(-1));
   els.mapNorthButton?.addEventListener("click", resetMapNorth);
   els.mapLocateButton?.addEventListener("click", focusOnCurrentLocation);
-  els.locationPermissionButton?.addEventListener("click", requestLocationFromPermissionPanel);
-  els.locationPermissionLater?.addEventListener("click", dismissLocationPermissionPanel);
+  els.permissionPrimaryButton?.addEventListener("click", requestPermissionFromPanel);
+  els.permissionLaterButton?.addEventListener("click", dismissPermissionPanel);
   els.filterButton.addEventListener("click", openFilterPanel);
   els.filterCloseButton.addEventListener("click", closeFilterPanel);
   els.filterResetButton.addEventListener("click", resetFilterControls);
@@ -357,7 +367,7 @@ function bindEvents() {
   });
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
-    if (!els.locationPermissionOverlay.hidden) dismissLocationPermissionPanel();
+    if (!els.permissionOverlay.hidden) dismissPermissionPanel();
     else if (!els.searchSuggestions.hidden) hideSearchSuggestions();
     else if (els.filterPanel.classList.contains("is-open")) closeFilterPanel();
     else if (els.mainMenu.classList.contains("is-open")) closeMainMenu();
@@ -528,44 +538,134 @@ function showFavoriteLotsFromMenu() {
 }
 
 function getCurrentCoordinates() {
+  state.lastLocationError = null;
   if (!navigator.geolocation) return Promise.resolve(null);
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => resolve({ latitude: coords.latitude, longitude: coords.longitude }),
-      () => resolve(null),
+      (error) => {
+        state.lastLocationError = error;
+        resolve(null);
+      },
       { enableHighAccuracy: true, timeout: 60000, maximumAge: 30000 }
     );
   });
 }
 
-function locationPromptWasDismissed() {
+function permissionPromptWasDismissed(kind) {
   try {
-    return sessionStorage.getItem(LOCATION_PROMPT_SESSION_KEY) === "true";
+    return sessionStorage.getItem(PERMISSION_PROMPT_SESSION_KEYS[kind]) === "true";
   } catch (_error) {
     return false;
   }
 }
 
-function showLocationPermissionPanel(message = LOCATION_PERMISSION_MESSAGE) {
-  if (!els.locationPermissionOverlay) return;
-  els.locationPermissionMessage.textContent = message;
-  els.locationPermissionOverlay.hidden = false;
-  els.locationPermissionOverlay.setAttribute("aria-hidden", "false");
+function isIOSDevice() {
+  return /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+    (/Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 }
 
-function hideLocationPermissionPanel() {
-  if (!els.locationPermissionOverlay) return;
-  els.locationPermissionOverlay.hidden = true;
-  els.locationPermissionOverlay.setAttribute("aria-hidden", "true");
+function permissionRecoverySteps(kind) {
+  const isMicrophone = kind === "microphone";
+  if (isIOSDevice() && /CriOS/i.test(navigator.userAgent)) {
+    return isMicrophone
+      ? [
+        "iPhone의 설정 앱에서 Chrome을 선택하세요.",
+        "마이크와 음성 인식을 모두 켜세요.",
+        "주소창에 마이크 아이콘이 보이면 사이트 권한도 켜세요.",
+        "Chrome으로 돌아와 아래 버튼을 다시 누르세요."
+      ]
+      : [
+        "iPhone 설정의 개인정보 보호 및 보안에서 위치 서비스를 여세요.",
+        "Chrome을 선택하고 '앱을 사용하는 동안'과 정확한 위치를 켜세요.",
+        "주소창의 사이트 정보에서 위치가 차단돼 있다면 허용으로 바꾸세요.",
+        "Chrome으로 돌아와 아래 버튼을 다시 누르세요."
+      ];
+  }
+  if (isIOSDevice()) {
+    return [
+      "주소창 왼쪽의 페이지 메뉴에서 웹사이트 설정을 여세요.",
+      `${isMicrophone ? "마이크" : "위치"}를 '허용'으로 변경하세요.`,
+      "이 페이지로 돌아와 아래 버튼을 다시 누르세요."
+    ];
+  }
+  if (/Android/i.test(navigator.userAgent)) {
+    return [
+      "Chrome 주소창 왼쪽의 사이트 정보에서 권한을 여세요.",
+      `${isMicrophone ? "마이크" : "위치"} 권한을 '허용'으로 변경하세요.`,
+      "이 페이지로 돌아와 아래 버튼을 다시 누르세요."
+    ];
+  }
+  return [
+    "브라우저 주소창의 사이트 정보 또는 사이트 설정을 여세요.",
+    `${isMicrophone ? "마이크" : "위치"} 권한을 '허용'으로 변경하세요.`,
+    "이 페이지로 돌아와 아래 버튼을 다시 누르세요."
+  ];
 }
 
-function dismissLocationPermissionPanel() {
+function showPermissionPanel(kind, options = {}) {
+  if (!els.permissionOverlay) return;
+  const isMicrophone = kind === "microphone";
+  const blocked = Boolean(options.blocked);
+  state.permissionKind = kind;
+  els.permissionTitle.textContent = isMicrophone
+    ? "음성으로 장소를 검색할까요?"
+    : "내 주변 주차장을 찾을까요?";
+  els.permissionMessage.textContent = options.message || (isMicrophone
+    ? MICROPHONE_PERMISSION_MESSAGE
+    : LOCATION_PERMISSION_MESSAGE);
+  els.permissionPrimaryButton.textContent = options.actionLabel || (blocked
+    ? "설정 후 다시 확인"
+    : isMicrophone ? "마이크 사용" : "현재 위치 사용");
+  els.permissionPrimaryButton.disabled = false;
+  els.permissionIcon.innerHTML = `<i data-lucide="${isMicrophone ? "mic" : "locate-fixed"}"></i>`;
+  els.permissionRecoverySteps.replaceChildren();
+  if (blocked) {
+    permissionRecoverySteps(kind).forEach((step) => {
+      const item = document.createElement("li");
+      item.textContent = step;
+      els.permissionRecoverySteps.appendChild(item);
+    });
+  }
+  els.permissionRecoverySteps.hidden = !blocked;
+  els.permissionOverlay.hidden = false;
+  els.permissionOverlay.setAttribute("aria-hidden", "false");
+  refreshIcons();
+}
+
+function hidePermissionPanel() {
+  if (!els.permissionOverlay) return;
+  els.permissionOverlay.hidden = true;
+  els.permissionOverlay.setAttribute("aria-hidden", "true");
+}
+
+function dismissPermissionPanel() {
   try {
-    sessionStorage.setItem(LOCATION_PROMPT_SESSION_KEY, "true");
+    sessionStorage.setItem(PERMISSION_PROMPT_SESSION_KEYS[state.permissionKind], "true");
   } catch (_error) {
     // The panel can still be dismissed when storage is unavailable.
   }
-  hideLocationPermissionPanel();
+  hidePermissionPanel();
+}
+
+function locationPermissionIsBlocked() {
+  return window.isSecureContext === false || state.lastLocationError?.code === 1;
+}
+
+function locationFailureMessage() {
+  if (window.isSecureContext === false) {
+    return "현재 위치는 HTTPS 보안 주소에서만 사용할 수 있습니다. 배포된 ParkView 주소로 접속해 주세요.";
+  }
+  if (state.lastLocationError?.code === 1) {
+    return "위치 권한이 꺼져 있습니다. 아래 순서대로 권한을 켜 주세요.";
+  }
+  if (state.lastLocationError?.code === 2) {
+    return "기기의 위치 서비스를 확인할 수 없습니다. 위치 서비스를 켠 뒤 다시 시도해 주세요.";
+  }
+  if (state.lastLocationError?.code === 3) {
+    return "현재 위치 확인 시간이 초과됐습니다. GPS 수신이 잘 되는 곳에서 다시 시도해 주세요.";
+  }
+  return "현재 위치를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
 async function initializeLocationAccess() {
@@ -579,15 +679,14 @@ async function initializeLocationAccess() {
       const permission = await navigator.permissions.query({ name: "geolocation" });
       if (permission.state === "granted") {
         await locateFromGrantedPermission();
-      } else if (!locationPromptWasDismissed()) {
-        showLocationPermissionPanel(
-          permission.state === "denied"
-            ? "위치 권한이 차단되어 있습니다. 브라우저의 사이트 설정에서 위치 권한을 허용해 주세요."
-            : LOCATION_PERMISSION_MESSAGE
-        );
+      } else if (!permissionPromptWasDismissed("location")) {
+        showPermissionPanel("location", permission.state === "denied" ? {
+          blocked: true,
+          message: "위치 권한이 꺼져 있습니다. 아래 순서대로 권한을 켜 주세요."
+        } : {});
       }
       permission.addEventListener?.("change", () => {
-        if (permission.state === "granted" && !els.locationPermissionButton?.disabled) {
+        if (permission.state === "granted" && !els.permissionPrimaryButton?.disabled) {
           locateFromGrantedPermission();
         }
       });
@@ -597,40 +696,54 @@ async function initializeLocationAccess() {
     console.info("Geolocation permission state is unavailable.", error);
   }
 
-  if (!locationPromptWasDismissed()) showLocationPermissionPanel();
+  if (!permissionPromptWasDismissed("location")) showPermissionPanel("location");
 }
 
 async function locateFromGrantedPermission() {
   setLocateLoading(true);
   const location = await getCurrentCoordinates();
   setLocateLoading(false);
-  if (!location) return;
-  hideLocationPermissionPanel();
+  if (!location) {
+    setSearchFeedback(locationFailureMessage(), true, 5000);
+    if (locationPermissionIsBlocked()) {
+      showPermissionPanel("location", { blocked: true, message: locationFailureMessage() });
+    }
+    return;
+  }
+  hidePermissionPanel();
   applyUserLocation(location, true);
   setSearchFeedback("현재 위치 주변 주차장을 표시합니다.");
 }
 
+function requestPermissionFromPanel() {
+  if (state.permissionKind === "microphone") return requestMicrophonePermissionFromPanel();
+  return requestLocationFromPermissionPanel();
+}
+
 async function requestLocationFromPermissionPanel() {
   if (!navigator.geolocation) {
-    els.locationPermissionMessage.textContent = "이 기기에서는 현재 위치를 확인할 수 없습니다.";
+    els.permissionMessage.textContent = "이 기기에서는 현재 위치를 확인할 수 없습니다.";
     return;
   }
 
-  const button = els.locationPermissionButton;
+  const button = els.permissionPrimaryButton;
   button.disabled = true;
   button.textContent = "위치 확인 중...";
   setLocateLoading(true);
   const location = await getCurrentCoordinates();
   setLocateLoading(false);
-  button.disabled = false;
-  button.textContent = "현재 위치 사용";
 
   if (!location) {
-    els.locationPermissionMessage.textContent = "위치 권한이 차단되어 있습니다. 브라우저의 사이트 설정에서 위치 권한을 허용해 주세요.";
+    const blocked = locationPermissionIsBlocked();
+    showPermissionPanel("location", {
+      blocked,
+      message: locationFailureMessage(),
+      actionLabel: blocked ? "설정 후 다시 확인" : "다시 시도"
+    });
     return;
   }
 
-  hideLocationPermissionPanel();
+  hidePermissionPanel();
   applyUserLocation(location, true);
   setSearchFeedback("현재 위치 주변 주차장으로 이동했습니다.");
 }
@@ -660,8 +773,12 @@ async function focusOnCurrentLocation() {
   const location = await getCurrentCoordinates();
   setLocateLoading(false);
   if (!location) {
-    setSearchFeedback("위치 권한을 허용하면 내 주변 주차장을 볼 수 있습니다.", true);
-    showLocationPermissionPanel("위치 권한이 차단되어 있습니다. 브라우저의 사이트 설정에서 위치 권한을 허용해 주세요.");
+    setSearchFeedback(locationFailureMessage(), true, 5000);
+    showPermissionPanel("location", {
+      blocked: locationPermissionIsBlocked(),
+      message: locationFailureMessage(),
+      actionLabel: locationPermissionIsBlocked() ? "설정 후 다시 확인" : "다시 시도"
+    });
     return;
   }
   applyUserLocation(location, true);
@@ -730,13 +847,67 @@ function updateMapNavigationControls() {
   els.mapZoomOutButton.disabled = state.transform.scale <= FALLBACK_MAP_MIN_SCALE;
 }
 
-function startVoiceSearch() {
+async function startVoiceSearch() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     els.searchInput.focus();
     setSearchFeedback("이 브라우저에서는 음성 검색을 지원하지 않습니다.", true);
     return;
   }
+
+  if (!state.microphonePermissionGranted) {
+    let permissionState = "prompt";
+    try {
+      if (navigator.permissions?.query) {
+        permissionState = (await navigator.permissions.query({ name: "microphone" })).state;
+      }
+    } catch (_error) {
+      // Safari does not expose microphone permission state before requesting it.
+    }
+    if (permissionState !== "granted") {
+      showPermissionPanel("microphone", permissionState === "denied" ? {
+        blocked: true,
+        message: "마이크 권한이 꺼져 있습니다. 아래 순서대로 권한을 켜 주세요."
+      } : {});
+      return;
+    }
+    state.microphonePermissionGranted = true;
+  }
+
+  beginVoiceRecognition();
+}
+
+async function requestMicrophonePermissionFromPanel() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    hidePermissionPanel();
+    setSearchFeedback("이 브라우저에서는 마이크 권한을 요청할 수 없습니다.", true, 5000);
+    return;
+  }
+
+  const button = els.permissionPrimaryButton;
+  button.disabled = true;
+  button.textContent = "마이크 확인 중...";
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((track) => track.stop());
+    state.microphonePermissionGranted = true;
+    hidePermissionPanel();
+    beginVoiceRecognition();
+  } catch (error) {
+    const blocked = error?.name === "NotAllowedError" || error?.name === "SecurityError";
+    showPermissionPanel("microphone", {
+      blocked,
+      message: blocked
+        ? "마이크 또는 음성 인식 권한이 꺼져 있습니다. 아래 순서대로 권한을 켜 주세요."
+        : "마이크를 사용할 수 없습니다. 다른 앱에서 마이크를 사용 중인지 확인해 주세요.",
+      actionLabel: blocked ? "설정 후 다시 확인" : "다시 시도"
+    });
+  }
+}
+
+function beginVoiceRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return;
   state.voiceRecognition?.abort?.();
   const recognition = new SpeechRecognition();
   state.voiceRecognition = recognition;
@@ -755,7 +926,17 @@ function startVoiceSearch() {
     handleSearchInput();
     searchMapLocation();
   };
-  recognition.onerror = () => setSearchFeedback("음성을 인식하지 못했습니다. 다시 시도해 주세요.", true);
+  recognition.onerror = (event) => {
+    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+      state.microphonePermissionGranted = false;
+      showPermissionPanel("microphone", {
+        blocked: true,
+        message: "마이크 또는 음성 인식 권한이 꺼져 있습니다. 아래 순서대로 권한을 켜 주세요."
+      });
+      return;
+    }
+    setSearchFeedback("음성을 인식하지 못했습니다. 다시 시도해 주세요.", true);
+  };
   recognition.onend = () => {
     els.voiceSearchButton.classList.remove("is-listening");
     els.voiceSearchButton.setAttribute("aria-pressed", "false");
@@ -1440,9 +1621,12 @@ function initializeMainMap(initialLocation = null) {
   state.mapMode = "kakao";
   els.realMap.classList.remove("unavailable");
   els.mapWorld?.classList.add("fallback-map");
+  // Kakao Web supports touch pan and pinch zoom, but exposes no bearing or tilt API.
   state.mainMap = new window.kakao.maps.Map(els.realMap, {
     center: new window.kakao.maps.LatLng(initialLatitude, initialLongitude),
     level: kakaoLevelFromZoom(initialZoom),
+    draggable: true,
+    scrollwheel: true,
     keyboardShortcuts: true
   });
   state.mainMap.setMinLevel(kakaoLevelFromZoom(MAIN_MAP_MAX_ZOOM));
