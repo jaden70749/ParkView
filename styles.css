@@ -1332,8 +1332,26 @@ textarea {
   text-align: left;
 }
 
-.lot-main h2 {
+.lot-card.is-recommended {
+  border-color: rgba(222, 171, 0, 0.58);
+  box-shadow: 0 3px 10px rgba(113, 83, 0, 0.12);
+}
+
+.lot-main {
+  min-width: 0;
+}
+
+.lot-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
   margin: 0 0 4px;
+}
+
+.lot-main h2 {
+  min-width: 0;
+  margin: 0;
   overflow: hidden;
   color: #050505;
   font-size: 13px;
@@ -1341,6 +1359,21 @@ textarea {
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.recommendation-badge {
+  height: 17px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #ffc400;
+  color: #312700;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 950;
+  line-height: 1;
 }
 
 .lot-main p {

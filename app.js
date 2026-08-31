@@ -162,6 +162,8 @@ const state = {
   searchSuggestionToken: 0,
   searchSuggestions: [],
   searchSuggestionIndex: -1,
+  searchDestination: null,
+  recommendationRanks: new Map(),
   filters: {
     openOnly: false,
     availableOnly: false,
@@ -498,6 +500,10 @@ function updateMenuFavoriteCount() {
 
 function showAllLotsFromMenu() {
   closeMainMenu();
+  state.searchDestination = null;
+  state.recommendationRanks.clear();
+  clearSearchLocationMarker();
+  hideSearchSuggestions();
   els.searchInput.value = "";
   state.mapSearchKeyword = "";
   state.filters = makeDefaultFilters();
@@ -509,6 +515,10 @@ function showAllLotsFromMenu() {
 
 function showFavoriteLotsFromMenu() {
   closeMainMenu();
+  state.searchDestination = null;
+  state.recommendationRanks.clear();
+  clearSearchLocationMarker();
+  hideSearchSuggestions();
   els.searchInput.value = "";
   state.mapSearchKeyword = "";
   state.filters = makeDefaultFilters();
@@ -785,9 +795,12 @@ function filterLotCollection(lots, keyword, filters = state.filters) {
 }
 
 function applyCurrentFilters() {
-  const keyword = els.searchInput.value.trim();
+  const keyword = state.searchDestination ? "" : els.searchInput.value.trim();
   state.mapSearchKeyword = keyword.toLowerCase();
-  state.filteredLots = filterLotCollection(state.lots, keyword);
+  const filtered = filterLotCollection(state.lots, keyword);
+  state.filteredLots = state.searchDestination
+    ? rankDestinationParkingLots(filtered)
+    : filtered;
   updateQuickFilterButtons();
   updateSheetTitle();
   renderMapMarkers();
@@ -797,6 +810,7 @@ function applyCurrentFilters() {
 function updateSheetTitle() {
   if (!els.sheetTitle) return;
   if (state.filters.favoritesOnly) els.sheetTitle.textContent = "즐겨찾기";
+  else if (state.searchDestination) els.sheetTitle.textContent = `${state.searchDestination.name} 주변 추천`;
   else if (state.mapSearchKeyword) els.sheetTitle.textContent = "검색 결과";
   else if (hasActiveLotFilters()) els.sheetTitle.textContent = "조건에 맞는 주차장";
   else els.sheetTitle.textContent = "주변 주차장";
@@ -1762,7 +1776,9 @@ function renderKakaoMarkers() {
   const markerMode = zoom < MAP_MARKER_MIN_ZOOM
     ? "hidden"
     : zoom < MAP_MARKER_DETAIL_ZOOM ? "compact" : "detail";
-  const source = state.mapSearchKeyword || hasActiveLotFilters() ? state.filteredLots : state.lots;
+  const source = state.searchDestination || state.mapSearchKeyword || hasActiveLotFilters()
+    ? state.filteredLots
+    : state.lots;
   const bounds = map.getBounds();
   const visibleLots = source.filter((lot) => bounds.contain(
     new window.kakao.maps.LatLng(lot.latitude, lot.longitude)
@@ -1920,6 +1936,10 @@ function normalizeSearchText(value) {
   return String(value || "").toLowerCase().replace(/\s+/g, "").replace(/[^0-9a-z가-힣]/g, "");
 }
 
+function parkingSearchRequested(query) {
+  return /주차|파킹|parking/i.test(String(query || ""));
+}
+
 function localSearchSuggestions(query) {
   const keyword = normalizeSearchText(query);
   if (!keyword) return [];
@@ -1975,12 +1995,15 @@ async function kakaoKeywordSuggestions(query) {
     name: place.place_name,
     address: place.road_address_name || place.address_name,
     category: place.category_group_name || String(place.category_name || "장소").split(" > ").pop(),
+    categoryGroupCode: place.category_group_code,
     latitude: Number(place.y),
     longitude: Number(place.x),
     distanceMeters: optionalNumber(place.distance),
     source: "kakao-place",
     placeUrl: place.place_url
-  })).filter((place) => Number.isFinite(place.latitude) && Number.isFinite(place.longitude));
+  }))
+    .filter((place) => Number.isFinite(place.latitude) && Number.isFinite(place.longitude))
+    .sort((a, b) => Number(a.categoryGroupCode === "PK6") - Number(b.categoryGroupCode === "PK6"));
 }
 
 function mergeSearchSuggestions(local, remote) {
@@ -2011,7 +2034,7 @@ function handleSearchInput() {
     return;
   }
 
-  const local = localSearchSuggestions(query);
+  const local = parkingSearchRequested(query) ? localSearchSuggestions(query) : [];
   state.searchSuggestions = local;
   renderSearchSuggestions();
   if (query.length < 2) return;
@@ -2127,16 +2150,21 @@ function selectSearchSuggestion(suggestion) {
   state.searchSuggestionToken += 1;
   els.searchInput.value = suggestion.name;
   hideSearchSuggestions();
+  state.searchDestination = {
+    name: suggestion.name,
+    latitude: suggestion.latitude,
+    longitude: suggestion.longitude
+  };
   state.mapSearchKeyword = "";
-  state.filteredLots = filterLotCollection(state.lots, "");
-  if (suggestion.lot) state.selectedLot = suggestion.lot;
+  state.filteredLots = rankDestinationParkingLots(filterLotCollection(state.lots, ""));
+  updateSheetTitle();
   showListView();
   updateSearchLocationMarker(suggestion);
   focusMapOn(suggestion.latitude, suggestion.longitude, 16);
   renderMapMarkers();
   renderList();
   window.setTimeout(refreshNearbyList, 320);
-  setSearchFeedback(`${suggestion.name} 주변 주차장을 표시합니다.`);
+  setSearchFeedback(`${suggestion.name} 주변의 저렴하고 가까운 주차장을 추천합니다.`);
 }
 
 async function searchMapLocation() {
@@ -2147,7 +2175,7 @@ async function searchMapLocation() {
   }
   setSearchFeedback("장소를 검색하고 있습니다.", false, 6000);
   try {
-    const local = localSearchSuggestions(query);
+    const local = parkingSearchRequested(query) ? localSearchSuggestions(query) : [];
     let remote = [];
     try {
       remote = await kakaoKeywordSuggestions(query);
@@ -2180,6 +2208,8 @@ function resetMapSearch() {
   state.searchSuggestions = [];
   hideSearchSuggestions();
   clearSearchLocationMarker();
+  state.searchDestination = null;
+  state.recommendationRanks.clear();
   els.searchInput.value = "";
   state.mapSearchKeyword = "";
   state.filteredLots = filterLotCollection(state.lots, "");
@@ -2191,6 +2221,13 @@ function resetMapSearch() {
 
 function refreshNearbyList() {
   if (state.mapSearchKeyword || state.mapMode !== "kakao" || !state.mainMap) return;
+  if (state.searchDestination) {
+    state.filteredLots = rankDestinationParkingLots(filterLotCollection(state.lots, ""));
+    updateSheetTitle();
+    if (hasActiveLotFilters()) renderMapMarkers();
+    renderList();
+    return;
+  }
   const visibleCenter = visibleMapCenterPoint();
   const center = state.mainMap.getProjection().coordsFromContainerPoint(
     new window.kakao.maps.Point(visibleCenter.x, visibleCenter.y)
@@ -2205,6 +2242,51 @@ function refreshNearbyList() {
     .slice(0, 700);
   if (hasActiveLotFilters()) renderMapMarkers();
   renderList();
+}
+
+function destinationDistanceMeters(lot) {
+  if (!state.searchDestination) return null;
+  return haversineKm(
+    state.searchDestination.latitude,
+    state.searchDestination.longitude,
+    lot.latitude,
+    lot.longitude
+  ) * 1000;
+}
+
+function destinationRecommendationScore(lot, distanceMeters) {
+  const distanceScore = clamp(distanceMeters / 1500, 0, 1);
+  const priceScore = Number.isFinite(lot.hourlyPrice)
+    ? clamp(lot.hourlyPrice / 6000, 0, 1)
+    : 0.72;
+  const capacityScore = Number.isFinite(lot.totalSpaces)
+    ? 1 - clamp(lot.totalSpaces / 200, 0, 1)
+    : 0.5;
+  const operationScore = lot.isOpen ? 0 : 1;
+  const fullPenalty = hasLiveAvailability(lot) && lot.availableSpaces < 1 ? 0.8 : 0;
+  return distanceScore * 0.5 + priceScore * 0.34 + operationScore * 0.1 + capacityScore * 0.06 + fullPenalty;
+}
+
+function rankDestinationParkingLots(lots) {
+  state.recommendationRanks.clear();
+  if (!state.searchDestination) return lots;
+  const scored = lots.map((lot) => {
+    const distanceMeters = destinationDistanceMeters(lot);
+    return {
+      lot,
+      distanceMeters,
+      score: destinationRecommendationScore(lot, distanceMeters)
+    };
+  });
+  const withinThreeKm = scored.filter(({ distanceMeters }) => distanceMeters <= 3000);
+  const candidates = withinThreeKm.length >= 5
+    ? withinThreeKm
+    : [...scored].sort((a, b) => a.distanceMeters - b.distanceMeters).slice(0, 50);
+  const ranked = candidates
+    .sort((a, b) => a.score - b.score || a.distanceMeters - b.distanceMeters)
+    .slice(0, 200);
+  ranked.forEach(({ lot }, index) => state.recommendationRanks.set(String(lot.id), index + 1));
+  return ranked.map(({ lot }) => lot);
 }
 
 function haversineKm(lat1, lng1, lat2, lng2) {
@@ -2330,17 +2412,27 @@ function renderList() {
   empty.className = "lot-list-empty";
   empty.textContent = state.filters.favoritesOnly
     ? "즐겨찾는 주차장이 없습니다."
-    : "조건에 맞는 주차장이 없습니다.";
+    : state.searchDestination
+      ? "목적지 주변에 등록된 주차장이 없습니다."
+      : "조건에 맞는 주차장이 없습니다.";
   els.lotList.replaceChildren(empty);
 }
 
 function lotCard(lot) {
+  const recommendationRank = state.recommendationRanks.get(String(lot.id));
+  const destinationDistance = destinationDistanceMeters(lot);
+  const distanceText = state.searchDestination
+    ? `${formatLotDistance(lot)} · 목적지 ${formatDistance(destinationDistance)}`
+    : formatLotDistance(lot);
   const button = document.createElement("button");
-  button.className = "lot-card";
+  button.className = `lot-card${recommendationRank && recommendationRank <= 3 ? " is-recommended" : ""}`;
   button.innerHTML = `
     <span class="lot-main">
-      <h2>${escapeHtml(lot.name)}</h2>
-      <p>${formatLotDistance(lot)}</p>
+      <span class="lot-title-row">
+        ${recommendationRank && recommendationRank <= 3 ? `<em class="recommendation-badge">추천 ${recommendationRank}</em>` : ""}
+        <h2>${escapeHtml(lot.name)}</h2>
+      </span>
+      <p>${escapeHtml(distanceText)}</p>
       <span class="open-dot">${lot.isOpen ? "운영중" : "운영종료"}</span>
     </span>
     <span class="lot-side">
