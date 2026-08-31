@@ -180,6 +180,7 @@ const state = {
   searchFeedbackTimer: null,
   voiceRecognition: null,
   permissionKind: "location",
+  locationPermissionState: "unknown",
   microphonePermissionGranted: false,
   lastLocationError: null,
   transform: { x: 0, y: 0, scale: 1 },
@@ -674,45 +675,66 @@ async function initializeLocationAccess() {
     return;
   }
 
+  let permissionState = "prompt";
   try {
     if (navigator.permissions?.query) {
       const permission = await navigator.permissions.query({ name: "geolocation" });
-      if (permission.state === "granted") {
-        await locateFromGrantedPermission();
-      } else if (!permissionPromptWasDismissed("location")) {
-        showPermissionPanel("location", permission.state === "denied" ? {
-          blocked: true,
-          message: "위치 권한이 꺼져 있습니다. 아래 순서대로 권한을 켜 주세요."
-        } : {});
-      }
+      permissionState = permission.state;
+      state.locationPermissionState = permissionState;
       permission.addEventListener?.("change", () => {
-        if (permission.state === "granted" && !els.permissionPrimaryButton?.disabled) {
-          locateFromGrantedPermission();
+        state.locationPermissionState = permission.state;
+        if (permission.state === "granted" && !els.permissionOverlay.hidden) {
+          showPermissionPanel("location", {
+            message: "위치 권한이 허용되어 있습니다. 버튼을 눌러 현재 위치로 이동하세요.",
+            actionLabel: "현재 위치로 이동"
+          });
         }
       });
-      return;
     }
   } catch (error) {
     console.info("Geolocation permission state is unavailable.", error);
   }
 
-  if (!permissionPromptWasDismissed("location")) showPermissionPanel("location");
+  if (!permissionPromptWasDismissed("location")) {
+    if (permissionState === "denied") {
+      showPermissionPanel("location", {
+          blocked: true,
+          message: "위치 권한이 꺼져 있습니다. 아래 순서대로 권한을 켜 주세요."
+      });
+    } else if (permissionState === "granted") {
+      showPermissionPanel("location", {
+        message: "위치 권한이 허용되어 있습니다. 버튼을 눌러 현재 위치로 이동하세요.",
+        actionLabel: "현재 위치로 이동"
+      });
+    } else {
+      showPermissionPanel("location");
+    }
+  }
 }
 
-async function locateFromGrantedPermission() {
-  setLocateLoading(true);
-  const location = await getCurrentCoordinates();
-  setLocateLoading(false);
-  if (!location) {
-    setSearchFeedback(locationFailureMessage(), true, 5000);
-    if (locationPermissionIsBlocked()) {
-      showPermissionPanel("location", { blocked: true, message: locationFailureMessage() });
+async function refreshLocationPermissionState() {
+  try {
+    if (navigator.permissions?.query) {
+      state.locationPermissionState = (await navigator.permissions.query({ name: "geolocation" })).state;
     }
-    return;
+  } catch (_error) {
+    state.locationPermissionState = "unknown";
   }
-  hidePermissionPanel();
-  applyUserLocation(location, true);
-  setSearchFeedback("현재 위치 주변 주차장을 표시합니다.");
+  return state.locationPermissionState;
+}
+
+async function showLocationRequestFailure() {
+  await refreshLocationPermissionState();
+  const blocked = locationPermissionIsBlocked();
+  const message = blocked && state.locationPermissionState === "granted"
+    ? "Chrome의 위치 권한은 켜져 있지만 ParkView 사이트 권한이 차단되어 있습니다. 아래 사이트 권한도 확인해 주세요."
+    : locationFailureMessage();
+  setSearchFeedback(message, true, 5000);
+  showPermissionPanel("location", {
+    blocked,
+    message,
+    actionLabel: blocked ? "설정 후 다시 확인" : "다시 시도"
+  });
 }
 
 function requestPermissionFromPanel() {
@@ -734,12 +756,7 @@ async function requestLocationFromPermissionPanel() {
   setLocateLoading(false);
 
   if (!location) {
-    const blocked = locationPermissionIsBlocked();
-    showPermissionPanel("location", {
-      blocked,
-      message: locationFailureMessage(),
-      actionLabel: blocked ? "설정 후 다시 확인" : "다시 시도"
-    });
+    await showLocationRequestFailure();
     return;
   }
 
@@ -773,12 +790,7 @@ async function focusOnCurrentLocation() {
   const location = await getCurrentCoordinates();
   setLocateLoading(false);
   if (!location) {
-    setSearchFeedback(locationFailureMessage(), true, 5000);
-    showPermissionPanel("location", {
-      blocked: locationPermissionIsBlocked(),
-      message: locationFailureMessage(),
-      actionLabel: locationPermissionIsBlocked() ? "설정 후 다시 확인" : "다시 시도"
-    });
+    await showLocationRequestFailure();
     return;
   }
   applyUserLocation(location, true);
