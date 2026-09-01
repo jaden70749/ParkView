@@ -415,6 +415,8 @@ function bindEvents() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       stopEdgeStatusPolling();
+    } else if (nativeBridge() && !els.permissionOverlay?.hidden) {
+      void resumeNativePermissionFlow();
     } else if (els.managementView?.classList.contains("active")) {
       startEdgeStatusPolling();
     }
@@ -625,9 +627,14 @@ async function initializeLocationAccess() {
       console.info("Native location permission state is unavailable.", error);
     }
     state.locationPermissionState = permissionState;
+    const denied = permissionState === "denied";
     showPermissionPanel("location", permissionState === "granted" ? {
       message: "현재 위치 권한이 활성화되어 있습니다.",
       actionLabel: "현재 위치로 이동"
+    } : denied ? {
+      blocked: true,
+      message: "위치 권한이 차단되어 있습니다. 버튼을 누르면 ParkView 앱 설정이 열립니다.",
+      actionLabel: "앱 설정 열기"
     } : {
       message: "버튼을 누르면 휴대폰의 위치 권한을 요청하고 현재 위치로 이동합니다."
     });
@@ -693,17 +700,41 @@ async function refreshLocationPermissionState() {
   return state.locationPermissionState;
 }
 
+async function resumeNativePermissionFlow() {
+  const native = nativeBridge();
+  if (!native || els.permissionOverlay?.hidden) return;
+  try {
+    if (state.permissionKind === "microphone") {
+      const permission = await native.checkSpeechPermission();
+      if (permission === "granted") {
+        state.microphonePermissionGranted = true;
+        hidePermissionPanel();
+        await startNativeVoiceSearch();
+      }
+      return;
+    }
+    const permission = await native.checkLocationPermission();
+    state.locationPermissionState = permission;
+    if (permission === "granted") await requestLocationFromPermissionPanel();
+  } catch (error) {
+    console.info("Native permission state could not be refreshed.", error);
+  }
+}
+
 async function showLocationRequestFailure() {
   await refreshLocationPermissionState();
   const blocked = locationPermissionIsBlocked();
-  const message = blocked && state.locationPermissionState === "granted"
+  const nativeDenied = Boolean(nativeBridge() && state.locationPermissionState === "denied");
+  const message = nativeDenied
+    ? "위치 권한이 차단되어 있습니다. 버튼을 누르면 ParkView 앱 설정이 열립니다."
+    : blocked && state.locationPermissionState === "granted"
     ? "현재 위치를 가져오지 못했습니다. 활성화 버튼을 눌러 다시 요청해 주세요."
     : locationFailureMessage();
   setSearchFeedback(message, true, 5000);
   showPermissionPanel("location", {
     blocked,
     message,
-    actionLabel: blocked ? "현재 위치 활성화" : "다시 시도"
+    actionLabel: nativeDenied ? "앱 설정 열기" : blocked ? "현재 위치 활성화" : "다시 시도"
   });
 }
 
@@ -719,6 +750,23 @@ async function requestLocationFromPermissionPanel() {
   }
 
   const button = els.permissionPrimaryButton;
+  const native = nativeBridge();
+  if (native) {
+    const permission = await native.checkLocationPermission().catch(() => "unknown");
+    if (permission === "denied") {
+      button.disabled = true;
+      button.textContent = "앱 설정 여는 중...";
+      try {
+        await native.openAppSettings();
+      } catch (error) {
+        setSearchFeedback(error?.message || "앱 설정을 열지 못했습니다.", true, 5000);
+      } finally {
+        button.disabled = false;
+        button.textContent = "앱 설정 열기";
+      }
+      return;
+    }
+  }
   button.disabled = true;
   button.textContent = "위치 확인 중...";
   setLocateLoading(true);
@@ -753,6 +801,20 @@ async function focusOnCurrentLocation() {
   closeMainMenu();
   if (!nativeBridge() && !navigator.geolocation) {
     setSearchFeedback("이 기기에서는 현재 위치를 확인할 수 없습니다.", true);
+    return;
+  }
+  const native = nativeBridge();
+  if (native && await native.checkLocationPermission().catch(() => "unknown") === "denied") {
+    showPermissionPanel("location", {
+      blocked: true,
+      message: "위치 권한이 차단되어 있습니다. 버튼을 누르면 ParkView 앱 설정이 열립니다.",
+      actionLabel: "앱 설정 열기"
+    });
+    try {
+      await native.openAppSettings();
+    } catch (error) {
+      setSearchFeedback(error?.message || "앱 설정을 열지 못했습니다.", true, 5000);
+    }
     return;
   }
   setLocateLoading(true);
@@ -854,6 +916,20 @@ async function requestMicrophonePermissionFromPanel() {
 async function startNativeVoiceSearch(fromPanel = false) {
   const native = nativeBridge();
   if (!native) return;
+  const permission = await native.checkSpeechPermission().catch(() => "unknown");
+  if (permission === "denied") {
+    showPermissionPanel("microphone", {
+      blocked: true,
+      message: "마이크 또는 음성 인식 권한이 차단되어 있습니다. 버튼을 누르면 ParkView 앱 설정이 열립니다.",
+      actionLabel: "앱 설정 열기"
+    });
+    try {
+      await native.openAppSettings();
+    } catch (error) {
+      setSearchFeedback(error?.message || "앱 설정을 열지 못했습니다.", true, 5000);
+    }
+    return;
+  }
   const button = fromPanel ? els.permissionPrimaryButton : null;
   if (button) {
     button.disabled = true;
@@ -879,8 +955,8 @@ async function startNativeVoiceSearch(fromPanel = false) {
     if (blocked) {
       showPermissionPanel("microphone", {
         blocked: true,
-        message: "버튼을 누르면 휴대폰의 마이크와 음성 인식 권한을 요청합니다.",
-        actionLabel: "음성 검색 활성화"
+        message: "마이크 또는 음성 인식 권한이 차단되어 있습니다. 버튼을 누르면 ParkView 앱 설정이 열립니다.",
+        actionLabel: "앱 설정 열기"
       });
       return;
     }

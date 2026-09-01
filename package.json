@@ -11,7 +11,8 @@
   "dependencies": {
     "@capacitor/core": "8.5.0",
     "@capacitor/geolocation": "8.2.2",
-    "@capgo/capacitor-speech-recognition": "8.2.0"
+    "@capgo/capacitor-speech-recognition": "8.2.0",
+    "capacitor-native-settings": "8.2.0"
   },
   "devDependencies": {
     "@capacitor/android": "8.5.0",

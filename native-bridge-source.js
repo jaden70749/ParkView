@@ -1,6 +1,7 @@
 import { Capacitor } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
 import { SpeechRecognition } from "@capgo/capacitor-speech-recognition";
+import { AndroidSettings, IOSSettings, NativeSettings } from "capacitor-native-settings";
 
 function permissionGranted(status, keys) {
   return keys.some((key) => status?.[key] === "granted");
@@ -11,6 +12,14 @@ function permissionError(kind) {
   error.name = "NotAllowedError";
   error.code = "PERMISSION_DENIED";
   return error;
+}
+
+async function openAppSettings() {
+  const result = await NativeSettings.open({
+    optionAndroid: AndroidSettings.ApplicationDetails,
+    optionIOS: IOSSettings.App
+  });
+  return result.status;
 }
 
 async function checkLocationPermission() {
@@ -74,5 +83,6 @@ window.ParkViewNative = Object.freeze({
   checkLocationPermission,
   getCurrentPosition,
   checkSpeechPermission,
-  recognizeSpeech
+  recognizeSpeech,
+  openAppSettings
 });

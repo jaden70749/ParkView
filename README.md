@@ -49,6 +49,7 @@ npm run cap:android
 - Android: Android Studio에서 프로젝트를 열거나, Android Studio 내장 JDK로 `android/gradlew assembleDebug`를 실행합니다.
 - 카카오디벨로퍼스 JavaScript SDK 사이트 도메인에는 웹 배포 주소와 네이티브 WebView 주소 `https://localhost`를 등록합니다.
 - 네이티브 앱이 외부 분석 서버를 사용할 경우 `.env`의 `PARKVIEW_EDGE_API_BASE_URL`에 HTTPS 주소를 입력한 뒤 `npm run cap:sync`를 다시 실행합니다.
+- 권한을 처음 요청할 때는 운영체제 권한 창이 열리고, 이미 차단된 권한은 같은 버튼이 ParkView 앱 설정 화면을 엽니다. 설정에서 허용한 뒤 앱으로 돌아오면 요청을 이어서 처리합니다.
 - `.env` 값은 `npm run build:web` 시 `dist/config.js`에 반영되므로 API 비밀키를 넣으면 안 됩니다. 카카오 JavaScript 키처럼 공개 클라이언트 키만 허용 도메인으로 제한해 사용합니다.
 
 ## GitHub Pages
