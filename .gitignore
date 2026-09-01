@@ -6,3 +6,5 @@ __pycache__/
 debug/
 backups/
 .codex-stage/
+node_modules/
+dist/

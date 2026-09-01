@@ -31,7 +31,25 @@ pip install -r requirements.txt
 python3 server.py --host 0.0.0.0 --port 5180
 ```
 
-브라우저에서 `http://localhost:5180/?v=74`를 엽니다. 단순 정적 서버를 사용하면 `/api/public-config`와 AI 프록시가 없으므로 반드시 `server.py`로 실행해야 합니다.
+브라우저에서 `http://localhost:5180/?v=97`을 엽니다. 단순 정적 서버를 사용하면 `/api/public-config`와 AI 프록시가 없으므로 반드시 `server.py`로 실행해야 합니다.
+
+## 모바일 앱
+
+웹 브라우저는 사용자가 운영체제 설정에서 차단한 위치·마이크 권한을 앱 버튼으로 다시 켤 수 없습니다. `ios/`와 `android/` 프로젝트는 Capacitor 네이티브 권한 API를 사용하므로, 설치형 앱에서는 `현재 위치 사용`과 음성 검색 버튼이 운영체제 권한 창을 직접 요청합니다.
+
+```bash
+npm install
+npm run cap:sync
+npm run cap:ios
+# 또는
+npm run cap:android
+```
+
+- iOS: Xcode에서 개발 팀과 번들 서명을 선택한 뒤 실제 iPhone에서 실행합니다.
+- Android: Android Studio에서 프로젝트를 열거나, Android Studio 내장 JDK로 `android/gradlew assembleDebug`를 실행합니다.
+- 카카오디벨로퍼스 JavaScript SDK 사이트 도메인에는 웹 배포 주소와 네이티브 WebView 주소 `https://localhost`를 등록합니다.
+- 네이티브 앱이 외부 분석 서버를 사용할 경우 `.env`의 `PARKVIEW_EDGE_API_BASE_URL`에 HTTPS 주소를 입력한 뒤 `npm run cap:sync`를 다시 실행합니다.
+- `.env` 값은 `npm run build:web` 시 `dist/config.js`에 반영되므로 API 비밀키를 넣으면 안 됩니다. 카카오 JavaScript 키처럼 공개 클라이언트 키만 허용 도메인으로 제한해 사용합니다.
 
 ## GitHub Pages
 

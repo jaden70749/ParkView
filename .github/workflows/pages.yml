@@ -21,15 +21,21 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
       - name: Prepare static site
         env:
           KAKAO_JAVASCRIPT_KEY: ${{ secrets.KAKAO_JAVASCRIPT_KEY }}
         run: |
           test -n "$KAKAO_JAVASCRIPT_KEY"
-          mkdir -p _site/data
-          cp index.html app.js styles.css manifest.webmanifest sw.js _site/
-          cp data/parking-lots.json _site/data/
-          node -e 'const fs = require("fs"); const config = { edgeApiBaseUrl: "", kakaoJavaScriptKey: process.env.KAKAO_JAVASCRIPT_KEY }; fs.writeFileSync("_site/config.js", `window.PARKVIEW_CONFIG = Object.freeze(${JSON.stringify(config)});\n`);'
+          npm ci
+          npm run build:web
+          mkdir -p _site
+          cp -R dist/. _site/
           touch _site/.nojekyll
 
       - name: Configure Pages

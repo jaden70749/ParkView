@@ -533,8 +533,25 @@ function showFavoriteLotsFromMenu() {
   setSearchFeedback(state.filteredLots.length ? "즐겨찾는 주차장만 표시합니다." : "아직 즐겨찾는 주차장이 없습니다.", !state.filteredLots.length);
 }
 
-function getCurrentCoordinates() {
+function nativeBridge() {
+  return window.ParkViewNative?.isNative ? window.ParkViewNative : null;
+}
+
+async function getCurrentCoordinates() {
   state.lastLocationError = null;
+  const native = nativeBridge();
+  if (native) {
+    try {
+      return await native.getCurrentPosition();
+    } catch (error) {
+      state.lastLocationError = {
+        code: error?.name === "NotAllowedError" || error?.code === "PERMISSION_DENIED" ? 1 : 2,
+        message: error?.message || "현재 위치를 확인하지 못했습니다.",
+        nativeCode: error?.code || ""
+      };
+      return null;
+    }
+  }
   if (!navigator.geolocation) return Promise.resolve(null);
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
@@ -543,7 +560,7 @@ function getCurrentCoordinates() {
         state.lastLocationError = error;
         resolve(null);
       },
-      { enableHighAccuracy: true, timeout: 60000, maximumAge: 30000 }
+      { enableHighAccuracy: false, timeout: 15000, maximumAge: 120000 }
     );
   });
 }
@@ -599,6 +616,23 @@ function locationFailureMessage() {
 }
 
 async function initializeLocationAccess() {
+  const native = nativeBridge();
+  if (native) {
+    let permissionState = "prompt";
+    try {
+      permissionState = await native.checkLocationPermission();
+    } catch (error) {
+      console.info("Native location permission state is unavailable.", error);
+    }
+    state.locationPermissionState = permissionState;
+    showPermissionPanel("location", permissionState === "granted" ? {
+      message: "현재 위치 권한이 활성화되어 있습니다.",
+      actionLabel: "현재 위치로 이동"
+    } : {
+      message: "버튼을 누르면 휴대폰의 위치 권한을 요청하고 현재 위치로 이동합니다."
+    });
+    return;
+  }
   if (!navigator.geolocation) {
     setSearchFeedback("이 기기에서는 현재 위치를 확인할 수 없습니다.", true);
     return;
@@ -640,6 +674,15 @@ async function initializeLocationAccess() {
 }
 
 async function refreshLocationPermissionState() {
+  const native = nativeBridge();
+  if (native) {
+    try {
+      state.locationPermissionState = await native.checkLocationPermission();
+    } catch (_error) {
+      state.locationPermissionState = "unknown";
+    }
+    return state.locationPermissionState;
+  }
   try {
     if (navigator.permissions?.query) {
       state.locationPermissionState = (await navigator.permissions.query({ name: "geolocation" })).state;
@@ -670,7 +713,7 @@ function requestPermissionFromPanel() {
 }
 
 async function requestLocationFromPermissionPanel() {
-  if (!navigator.geolocation) {
+  if (!nativeBridge() && !navigator.geolocation) {
     els.permissionMessage.textContent = "이 기기에서는 현재 위치를 확인할 수 없습니다.";
     return;
   }
@@ -708,7 +751,7 @@ function applyUserLocation(location, focusMap = false) {
 
 async function focusOnCurrentLocation() {
   closeMainMenu();
-  if (!navigator.geolocation) {
+  if (!nativeBridge() && !navigator.geolocation) {
     setSearchFeedback("이 기기에서는 현재 위치를 확인할 수 없습니다.", true);
     return;
   }
@@ -787,6 +830,10 @@ function updateMapNavigationControls() {
 }
 
 async function startVoiceSearch() {
+  if (nativeBridge()) {
+    await startNativeVoiceSearch();
+    return;
+  }
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     els.searchInput.focus();
@@ -797,7 +844,55 @@ async function startVoiceSearch() {
 }
 
 async function requestMicrophonePermissionFromPanel() {
+  if (nativeBridge()) {
+    await startNativeVoiceSearch(true);
+    return;
+  }
   await activateMicrophoneAndStart(true);
+}
+
+async function startNativeVoiceSearch(fromPanel = false) {
+  const native = nativeBridge();
+  if (!native) return;
+  const button = fromPanel ? els.permissionPrimaryButton : null;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "음성 인식 시작 중...";
+  }
+  els.voiceSearchButton.classList.add("is-listening");
+  els.voiceSearchButton.setAttribute("aria-pressed", "true");
+  setSearchFeedback("검색할 장소를 말씀해 주세요.", false, 20000);
+  try {
+    const transcript = await native.recognizeSpeech();
+    state.microphonePermissionGranted = true;
+    hidePermissionPanel();
+    if (!transcript) {
+      setSearchFeedback("음성을 인식하지 못했습니다. 다시 눌러 말씀해 주세요.", true, 5000);
+      return;
+    }
+    els.searchInput.value = transcript;
+    handleSearchInput();
+    await searchMapLocation();
+  } catch (error) {
+    const blocked = error?.name === "NotAllowedError" || error?.code === "PERMISSION_DENIED";
+    state.microphonePermissionGranted = !blocked;
+    if (blocked) {
+      showPermissionPanel("microphone", {
+        blocked: true,
+        message: "버튼을 누르면 휴대폰의 마이크와 음성 인식 권한을 요청합니다.",
+        actionLabel: "음성 검색 활성화"
+      });
+      return;
+    }
+    setSearchFeedback(error?.message || "음성 검색을 시작하지 못했습니다.", true, 6000);
+  } finally {
+    els.voiceSearchButton.classList.remove("is-listening");
+    els.voiceSearchButton.setAttribute("aria-pressed", "false");
+    if (button) {
+      button.disabled = false;
+      button.textContent = "음성 검색 활성화";
+    }
+  }
 }
 
 async function activateMicrophoneAndStart(fromPanel = false) {

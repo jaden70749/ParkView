@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ParkView</string>
+    <string name="title_activity_main">ParkView</string>
+    <string name="package_name">com.waymakerschool.parkview</string>
+    <string name="custom_url_scheme">com.waymakerschool.parkview</string>
+</resources>

@@ -1,0 +1,10 @@
+{
+  "appId": "com.waymakerschool.parkview",
+  "appName": "ParkView",
+  "webDir": "dist",
+  "server": {
+    "hostname": "localhost",
+    "iosScheme": "https",
+    "androidScheme": "https"
+  }
+}

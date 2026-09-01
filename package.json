@@ -1,0 +1,22 @@
+{
+  "name": "parkview",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build:web": "node scripts/prepare-mobile-web.mjs",
+    "cap:sync": "npm run build:web && cap sync",
+    "cap:ios": "npm run cap:sync && cap open ios",
+    "cap:android": "npm run cap:sync && cap open android"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.5.0",
+    "@capacitor/geolocation": "8.2.2",
+    "@capgo/capacitor-speech-recognition": "8.2.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "8.5.0",
+    "@capacitor/cli": "8.5.0",
+    "@capacitor/ios": "8.5.0",
+    "esbuild": "0.28.2"
+  }
+}
