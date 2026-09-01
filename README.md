@@ -33,6 +33,17 @@ python3 server.py --host 0.0.0.0 --port 5180
 
 브라우저에서 `http://localhost:5180/?v=97`을 엽니다. 단순 정적 서버를 사용하면 `/api/public-config`와 AI 프록시가 없으므로 반드시 `server.py`로 실행해야 합니다.
 
+### CCTV 연결 확인
+
+RTSP 주소는 저장소에 커밋하지 말고 `.env`의 `PARKVIEW_CAMERA_URL`에만 입력합니다. 서버는 30초마다 새 프레임을 열어 분석하므로 연결이 끊겼다가 복구되어도 다음 주기에 다시 연결합니다.
+
+```bash
+curl -X POST http://127.0.0.1:5180/api/camera/test \
+  -H "Authorization: Bearer $PARKVIEW_ADMIN_TOKEN"
+```
+
+연결에 성공하면 `debug/latest_capture.jpg`가 저장됩니다. `/api/health`의 `camera` 항목에서 마지막 연결 시각, 연속 실패 횟수, 해상도와 화질 지표를 확인할 수 있습니다. 이 테스트는 YOLO와 Firebase를 실행하지 않으므로 CCTV 연결 문제를 분석 문제와 분리해 확인할 수 있습니다.
+
 ## 모바일 앱
 
 웹 브라우저는 사용자가 운영체제 설정에서 차단한 위치·마이크 권한을 앱 버튼으로 다시 켤 수 없습니다. `ios/`와 `android/` 프로젝트는 Capacitor 네이티브 권한 API를 사용하므로, 설치형 앱에서는 `현재 위치 사용`과 음성 검색 버튼이 운영체제 권한 창을 직접 요청합니다.

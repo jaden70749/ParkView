@@ -9,6 +9,7 @@ import io
 import ipaddress
 import json
 import os
+import socket
 import threading
 import time
 import urllib.error
@@ -64,6 +65,9 @@ CAMERA_URL = os.environ.get(
 ).strip()
 CAMERA_NAME = os.environ.get("PARKVIEW_CAMERA_NAME", "주차장 CCTV").strip()
 SITE_ID = os.environ.get("PARKVIEW_SITE_ID", "site-1").strip()
+CAMERA_SOCKET_TIMEOUT = max(
+    1.0, float(os.environ.get("PARKVIEW_CAMERA_SOCKET_TIMEOUT", "3"))
+)
 FLOOR_ID = os.environ.get("PARKVIEW_FLOOR_ID", "B1").strip()
 CAPTURE_INTERVAL = max(5, int(os.environ.get("PARKVIEW_ANALYSIS_INTERVAL", "30")))
 INFERENCE_SIZE = int(os.environ.get("PARKVIEW_IMAGE_SIZE", "640"))
@@ -533,10 +537,66 @@ def save_debug_artifacts(
     )
 
 
+def camera_network_endpoint(camera_url: str) -> tuple[str, int] | None:
+    parsed = urllib.parse.urlsplit(camera_url)
+    if parsed.scheme.lower() not in {"rtsp", "rtsps"}:
+        return None
+    if not parsed.hostname:
+        raise ValueError("RTSP 카메라 주소에 호스트가 없습니다")
+    try:
+        port = parsed.port or 554
+    except ValueError as error:
+        raise ValueError("RTSP 카메라 포트가 올바르지 않습니다") from error
+    return parsed.hostname, port
+
+
+def check_camera_endpoint(camera_url: str) -> None:
+    endpoint = camera_network_endpoint(camera_url)
+    if endpoint is None:
+        return
+    try:
+        with socket.create_connection(
+            endpoint, timeout=CAMERA_SOCKET_TIMEOUT
+        ):
+            return
+    except OSError as error:
+        raise ConnectionError(
+            "RTSP 카메라 네트워크에 연결할 수 없습니다"
+        ) from error
+
+
+def describe_camera_frame(image_bytes: bytes) -> dict[str, Any]:
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as source:
+            image = ImageOps.exif_transpose(source).convert("RGB")
+    except Exception as error:
+        raise ValueError("카메라 프레임이 올바른 이미지가 아닙니다") from error
+    grayscale = np.asarray(image.convert("L"))
+    focus_score = float(
+        cv2.Laplacian(grayscale, cv2.CV_64F).var()
+    )
+    return {
+        "width": image.width,
+        "height": image.height,
+        "bytes": len(image_bytes),
+        "brightness": round(float(grayscale.mean()), 1),
+        "focus_score": round(focus_score, 1),
+    }
+
+
+def save_latest_camera_frame(image_bytes: bytes) -> Path:
+    ensure_debug_directory()
+    path = DEBUG_DIR / "latest_capture.jpg"
+    path.write_bytes(image_bytes)
+    return path
+
+
 def capture_camera_frame(camera_url: str) -> bytes:
     source: str | int = (
         int(camera_url) if camera_url.isdigit() else camera_url
     )
+    if isinstance(source, str):
+        check_camera_endpoint(source)
     backend = (
         cv2.CAP_FFMPEG
         if isinstance(source, str)
@@ -648,6 +708,12 @@ class AnalysisWorker:
         self._last_result: dict[str, Any] | None = None
         self._last_error: str | None = None
         self._camera_connected = False
+        self._last_camera_error: str | None = None
+        self._last_analysis_error: str | None = None
+        self._last_camera_attempt_at: str | None = None
+        self._last_camera_success_at: str | None = None
+        self._last_frame: dict[str, Any] | None = None
+        self._consecutive_camera_failures = 0
         self._stable_status: dict[str, str] = {}
         self._empty_streak: dict[str, int] = {}
 
@@ -671,14 +737,72 @@ class AnalysisWorker:
             started = time.monotonic()
             try:
                 self.run_once()
-            except Exception:
-                pass
+            except Exception as error:
+                print(
+                    f"ANALYSIS_RETRY_SCHEDULED after={CAPTURE_INTERVAL}s "
+                    f"type={type(error).__name__}",
+                    flush=True,
+                )
             remaining = max(
                 0,
                 CAPTURE_INTERVAL
                 - (time.monotonic() - started),
             )
             self._stop.wait(remaining)
+
+    def _capture(self, *, always_save: bool = False) -> tuple[bytes, dict[str, Any]]:
+        attempted_at = utc_now()
+        with self._lock:
+            self._last_camera_attempt_at = attempted_at
+        try:
+            image_bytes = capture_camera_frame(CAMERA_URL)
+            frame = describe_camera_frame(image_bytes)
+            if DEBUG_ENABLED or always_save:
+                save_latest_camera_frame(image_bytes)
+            succeeded_at = utc_now()
+            with self._lock:
+                self._camera_connected = True
+                self._last_camera_error = None
+                self._last_camera_success_at = succeeded_at
+                self._last_frame = frame
+                self._consecutive_camera_failures = 0
+            return image_bytes, frame
+        except Exception as error:
+            with self._lock:
+                self._camera_connected = False
+                self._last_camera_error = str(error)
+                self._consecutive_camera_failures += 1
+            raise
+
+    def test_camera(self) -> dict[str, Any]:
+        if not CAMERA_URL:
+            raise RuntimeError("PARKVIEW_CAMERA_URL이 설정되지 않았습니다")
+        if not self._analysis_lock.acquire(blocking=False):
+            raise RuntimeError("이미 카메라 분석 중입니다")
+        started = time.perf_counter()
+        try:
+            _image_bytes, frame = self._capture(always_save=True)
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+            print(
+                f"CAMERA_TEST_OK resolution={frame['width']}x{frame['height']} "
+                f"bytes={frame['bytes']} elapsed_ms={elapsed_ms}",
+                flush=True,
+            )
+            return {
+                "connected": True,
+                "captured_at": self._last_camera_success_at,
+                "image": frame,
+                "elapsed_ms": elapsed_ms,
+                "debug_file": "debug/latest_capture.jpg",
+            }
+        except Exception as error:
+            print(
+                f"CAMERA_TEST_ERROR type={type(error).__name__} error={error}",
+                flush=True,
+            )
+            raise
+        finally:
+            self._analysis_lock.release()
 
     def run_once(self) -> dict[str, Any]:
         if not CAMERA_URL:
@@ -688,7 +812,7 @@ class AnalysisWorker:
         if not self._analysis_lock.acquire(blocking=False):
             raise RuntimeError("이미 분석 중입니다")
         try:
-            image_bytes = capture_camera_frame(CAMERA_URL)
+            image_bytes, _frame = self._capture()
             payload = detect_objects(
                 image_bytes, debug=True
             )
@@ -701,6 +825,7 @@ class AnalysisWorker:
             with self._lock:
                 self._last_result = payload
                 self._last_error = None
+                self._last_analysis_error = None
                 self._camera_connected = True
             print(
                 f"ANALYSIS_COMPLETE vehicles={payload['count']} "
@@ -712,7 +837,8 @@ class AnalysisWorker:
         except Exception as error:
             with self._lock:
                 self._last_error = str(error)
-                self._camera_connected = False
+                if self._camera_connected:
+                    self._last_analysis_error = str(error)
             print(
                 f"ANALYSIS_ERROR type={type(error).__name__} "
                 f"error={error}",
@@ -767,7 +893,13 @@ class AnalysisWorker:
                     "name": CAMERA_NAME,
                     "configured": bool(CAMERA_URL),
                     "connected": self._camera_connected,
+                    "last_attempt_at": self._last_camera_attempt_at,
+                    "last_success_at": self._last_camera_success_at,
+                    "last_error": self._last_camera_error,
+                    "consecutive_failures": self._consecutive_camera_failures,
+                    "frame": self._last_frame,
                 },
+                "analysis_error": self._last_analysis_error,
                 "site_id": SITE_ID,
                 "floor_id": FLOOR_ID,
                 "last_analysis_at": (
@@ -907,6 +1039,13 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
                     HTTPStatus.OK, worker.run_once()
                 )
                 return
+            if path == "/api/camera/test":
+                if not self.require_admin():
+                    return
+                self.send_json(
+                    HTTPStatus.OK, worker.test_camera()
+                )
+                return
             if (
                 path == "/api/detect"
                 and ALLOW_DIAGNOSTIC_UPLOADS
@@ -1029,7 +1168,7 @@ def main() -> None:
     )
     print(
         f"ParkView server: "
-        f"http://127.0.0.1:{args.port}/?v=74",
+        f"http://127.0.0.1:{args.port}/?v=97",
         flush=True,
     )
     print(
