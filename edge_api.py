@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import threading
 import time
 import urllib.error
@@ -18,7 +19,13 @@ from typing import Any
 
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash").strip()
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip()
+GEMINI_FALLBACK_MODELS = tuple(
+    model.strip()
+    for model in os.environ.get("GEMINI_FALLBACK_MODELS", "gemini-2.5-flash-lite").split(",")
+    if model.strip()
+)
+GEMINI_RETRY_ATTEMPTS = max(1, int(os.environ.get("GEMINI_RETRY_ATTEMPTS", "2")))
 ALLOWED_ORIGINS = {
     origin.strip().rstrip("/")
     for origin in os.environ.get(
@@ -51,10 +58,14 @@ def validate_payload(payload: Any) -> dict[str, Any]:
     return {"contents": contents, "generationConfig": generation_config}
 
 
-def request_gemini(payload: Any) -> dict[str, Any]:
-    if not GEMINI_API_KEY:
-        raise RuntimeError("AI 서버 키가 설정되지 않았습니다")
-    model = urllib.parse.quote(GEMINI_MODEL, safe="-._")
+class GeminiApiError(RuntimeError):
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def request_gemini_model(payload: Any, model: str) -> dict[str, Any]:
+    model = urllib.parse.quote(model, safe="-._")
     key = urllib.parse.quote(GEMINI_API_KEY, safe="")
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -75,9 +86,33 @@ def request_gemini(payload: Any) -> dict[str, Any]:
             detail = json.loads(body).get("error", {}).get("message")
         except json.JSONDecodeError:
             detail = None
-        raise RuntimeError(detail or f"AI API HTTP {error.code}") from error
+        raise GeminiApiError(detail or f"AI API HTTP {error.code}", error.code) from error
     except urllib.error.URLError as error:
-        raise RuntimeError("AI API에 연결할 수 없습니다") from error
+        raise GeminiApiError("AI API에 연결할 수 없습니다") from error
+
+
+def request_gemini(payload: Any) -> dict[str, Any]:
+    if not GEMINI_API_KEY:
+        raise RuntimeError("AI 서버 키가 설정되지 않았습니다")
+
+    models = tuple(dict.fromkeys((GEMINI_MODEL, *GEMINI_FALLBACK_MODELS)))
+    last_error: GeminiApiError | None = None
+    transient_statuses = {408, 429, 500, 502, 503, 504}
+
+    for model in models:
+        for attempt in range(GEMINI_RETRY_ATTEMPTS):
+            try:
+                return request_gemini_model(payload, model)
+            except GeminiApiError as error:
+                last_error = error
+                if error.status not in transient_statuses:
+                    raise
+                if attempt + 1 < GEMINI_RETRY_ATTEMPTS:
+                    time.sleep((2**attempt) + random.uniform(0.1, 0.5))
+
+    if last_error and last_error.status in transient_statuses:
+        raise RuntimeError("AI 서버가 혼잡합니다. 잠시 후 다시 시도해 주세요.") from last_error
+    raise last_error or RuntimeError("AI API에 연결할 수 없습니다")
 
 
 def rate_limit_allows(client: str) -> tuple[bool, int]:
