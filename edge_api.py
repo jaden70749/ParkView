@@ -28,6 +28,13 @@ GEMINI_FALLBACK_MODELS = tuple(
     ).split(",")
     if model.strip()
 )
+BUILTIN_GEMINI_MODELS = (
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+)
+GEMINI_MODELS = tuple(dict.fromkeys((GEMINI_MODEL, *GEMINI_FALLBACK_MODELS, *BUILTIN_GEMINI_MODELS)))
 GEMINI_RETRY_ATTEMPTS = max(1, int(os.environ.get("GEMINI_RETRY_ATTEMPTS", "2")))
 BUILD_COMMIT = os.environ.get("RENDER_GIT_COMMIT", "local").strip()[:7]
 ALLOWED_ORIGINS = {
@@ -107,12 +114,11 @@ def request_gemini(payload: Any) -> dict[str, Any]:
     if not GEMINI_API_KEY:
         raise RuntimeError("AI 서버 키가 설정되지 않았습니다")
 
-    models = tuple(dict.fromkeys((GEMINI_MODEL, *GEMINI_FALLBACK_MODELS)))
     last_error: GeminiApiError | None = None
     attempts: list[dict[str, Any]] = []
     transient_statuses = {408, 429, 500, 502, 503, 504}
 
-    for model in models:
+    for model in GEMINI_MODELS:
         for attempt in range(GEMINI_RETRY_ATTEMPTS):
             try:
                 return request_gemini_model(payload, model)
@@ -216,7 +222,7 @@ class EdgeApiHandler(BaseHTTPRequestHandler):
                     "geminiConfigured": bool(GEMINI_API_KEY),
                     "backendConnected": True,
                     "geminiModel": GEMINI_MODEL,
-                    "fallbackModels": GEMINI_FALLBACK_MODELS,
+                    "geminiModels": GEMINI_MODELS,
                     "build": BUILD_COMMIT,
                 },
             )
