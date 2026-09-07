@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: parkview-plan-api
+    runtime: python
+    plan: free
+    buildCommand: python3 -m compileall -q edge_api.py
+    startCommand: python3 edge_api.py
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: PARKVIEW_ALLOWED_ORIGINS
+        value: https://jaden70749.github.io
+      - key: PARKVIEW_AI_RATE_LIMIT
+        value: 30
+      - key: PARKVIEW_AI_RATE_WINDOW
+        value: 600

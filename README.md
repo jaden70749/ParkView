@@ -70,8 +70,22 @@ npm run cap:android
 2. `Settings > Pages > Source`를 `GitHub Actions`로 변경합니다.
 3. `main`에 push하면 `.github/workflows/pages.yml`이 정적 앱을 배포합니다.
 
-Pages에서는 카카오 지도와 정적 UI만 동작합니다. Python 분석 API와
-Gemini 프록시는 별도 HTTPS 백엔드 주소를 `edgeApiBaseUrl`에 지정해야 합니다.
+### AI 도면 API 배포
+
+`render.yaml`은 도면 생성 전용 `edge_api.py`만 배포하므로 CCTV/YOLO 서버보다
+가볍습니다.
+
+1. `https://render.com/deploy?repo=https://github.com/jaden70749/ParkView`에서
+   Blueprint를 생성합니다.
+2. 생성 화면의 `GEMINI_API_KEY`에 서버용 키를 입력합니다.
+3. 배포 후 발급된 `https://...onrender.com` 주소를 GitHub 저장소의
+   `Settings > Secrets and variables > Actions > Variables`에
+   `PARKVIEW_EDGE_API_BASE_URL` 이름으로 추가합니다.
+4. Pages 워크플로를 다시 실행하거나 `main`에 새 커밋을 push합니다.
+
+브라우저에는 분석 서버 주소만 전달되며 Gemini 키는 Render 환경변수에만
+남습니다. API는 `PARKVIEW_ALLOWED_ORIGINS`에 등록한 ParkView 웹 주소의 요청만
+허용하고 호출 횟수와 요청 크기를 제한합니다.
 
 ## 테스트
 
