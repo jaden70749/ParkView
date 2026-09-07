@@ -16,7 +16,9 @@ ParkView는 CCTV 영상의 차량을 감지해 주차 칸 점유 상태를 갱�
 ```dotenv
 KAKAO_JAVASCRIPT_KEY=
 GEMINI_API_KEY=
-GEMINI_MODEL=gemini-3.5-flash
+GEMINI_MODEL=gemini-3.7-flash
+GEMINI_FALLBACK_MODELS=gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite
+GEMINI_RETRY_ATTEMPTS=2
 PARKVIEW_ADMIN_TOKEN=CHANGE_THIS_TO_A_LONG_RANDOM_VALUE
 ```
 

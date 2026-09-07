@@ -3487,9 +3487,16 @@ async function generatePlanFromPrompt() {
         const draftFloors = await generatePlanWithGemini(floorName, index, floorNames.length);
         if (revision !== planImageRevision) return;
         els.geminiStatus.textContent = `Gemini가 ${floorName} 주차면 수와 배치를 다시 검수하는 중입니다...`;
-        const reviewedFloors = await reviewPlanWithGemini(floorName, draftFloors[0]);
+        let reviewedFloor = draftFloors[0];
+        try {
+          const reviewedFloors = await reviewPlanWithGemini(floorName, draftFloors[0]);
+          reviewedFloor = reviewedFloors[0];
+        } catch (reviewError) {
+          console.warn(`Gemini ${floorName} review skipped:`, reviewError);
+          els.geminiStatus.textContent = `${floorName} 검수 서버가 혼잡해 1차 생성 도면을 사용합니다.`;
+        }
         if (revision !== planImageRevision) return;
-        generatedFloors.push(polishGeneratedFloor({ ...reviewedFloors[0], name: floorName }));
+        generatedFloors.push(polishGeneratedFloor({ ...reviewedFloor, name: floorName }));
       }
       applyGeneratedFloors(generatedFloors);
       clearPlanImages();
