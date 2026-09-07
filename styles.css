@@ -2120,14 +2120,14 @@ textarea {
 }
 
 .upload-dropzone {
-  min-height: 118px;
+  min-height: 88px;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 18px;
-  border: 2px dashed #ded2e5;
-  border-radius: 12px;
-  background: linear-gradient(180deg, #fff9ff, #ffffff);
+  gap: 12px;
+  padding: 14px;
+  border: 1px dashed #c7cbd1;
+  border-radius: 8px;
+  background: #f8f9fa;
   color: #111111;
   cursor: pointer;
   transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
@@ -2136,7 +2136,7 @@ textarea {
 .upload-dropzone.dragging,
 .upload-dropzone.has-files {
   border-color: var(--pink);
-  background: #fff3ff;
+  background: #fffbea;
 }
 
 .upload-dropzone:active {
@@ -2144,14 +2144,14 @@ textarea {
 }
 
 .upload-icon {
-  width: 50px;
-  height: 50px;
-  flex: 0 0 50px;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
   display: grid;
   place-items: center;
   border-radius: 8px;
   background: var(--pink);
-  color: #ffffff;
+  color: #292711;
   font-size: 32px;
   line-height: 1;
   font-weight: 900;
@@ -2164,9 +2164,9 @@ textarea {
 
 .upload-copy strong {
   color: #111111;
-  font-size: 18px;
-  line-height: 1.1;
-  font-weight: 950;
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 650;
 }
 
 .upload-copy em,
@@ -2174,7 +2174,7 @@ textarea {
   color: #888893;
   font-size: 12px;
   font-style: normal;
-  font-weight: 800;
+  font-weight: 500;
   line-height: 1.35;
 }
 
@@ -2190,6 +2190,7 @@ textarea {
 }
 
 .image-preview img {
+  display: block;
   width: 100%;
   aspect-ratio: 4 / 3;
   object-fit: contain;
@@ -2197,6 +2198,121 @@ textarea {
   border-radius: 8px;
   background: #f0f0f3;
 }
+
+.plan-floor-summary {
+  margin: -4px 0 18px;
+  font-size: 12px;
+  color: #68717c;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.plan-counts {
+  margin-bottom: 20px;
+  border-top: 1px solid #eceef1;
+  border-bottom: 1px solid #eceef1;
+}
+
+.plan-count-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 124px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #444c56;
+}
+
+.plan-count-row + .plan-count-row { border-top: 1px solid #f0f1f3; }
+
+.plan-auto-count {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  color: #777f89;
+  font-size: 11px;
+}
+
+.plan-auto-count input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--brand);
+}
+
+.number-stepper {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 36px;
+  height: 42px;
+  border: 1px solid #dfe2e6;
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.number-stepper button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: #f6f7f8;
+  color: #424952;
+}
+
+.number-stepper button svg { width: 16px; height: 16px; }
+.number-stepper button:active { background: var(--brand-soft); }
+.number-stepper button:disabled { opacity: 0.45; }
+
+.number-stepper input {
+  min-width: 0;
+  width: 100%;
+  height: 40px;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 500;
+  appearance: textfield;
+}
+
+.number-stepper input::-webkit-inner-spin-button,
+.number-stepper input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.number-stepper input:disabled { background: #ffffff; color: #838b94; }
+.number-stepper:focus-within { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+.plan-photo { position: relative; min-width: 0; }
+.plan-photo img { height: auto; }
+.plan-photo select {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  margin-top: 6px;
+  padding: 0 8px;
+  border: 1px solid #dfe2e6;
+  border-radius: 7px;
+  background: #ffffff;
+  font-size: 16px;
+  color: #343b44;
+}
+
+.plan-photo-remove {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  top: 4px;
+  right: 4px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e1e4e8;
+  border-radius: 50%;
+  color: #454b53;
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.plan-photo-remove svg { width: 17px; height: 17px; }
+#geminiStatus { line-height: 1.5; overflow-wrap: anywhere; }
 
 .image-preview:empty {
   display: none;
@@ -3012,6 +3128,10 @@ textarea {
   min-height: 48px;
   font-size: 14px;
   font-weight: 650;
+}
+
+.registration-actions.plan-step {
+  grid-template-columns: 1fr;
 }
 
 .registration-actions button:disabled {

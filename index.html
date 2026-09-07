@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-title" content="ParkView">
   <title>ParkView</title>
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=98">
+  <link rel="stylesheet" href="./styles.css?v=99">
 </head>
 <body>
   <main id="app" class="app-shell">
@@ -290,39 +290,51 @@
 
         <article class="registration-panel" data-registration-step="plan">
           <div class="registration-copy">
-            <h3>사진으로 층별 도면을 만드세요</h3>
-            <p>주차장 전체가 보이는 사진을 올리면 실제 비율의 평면도로 변환합니다.</p>
+            <h3>층별 도면</h3>
           </div>
-          <div class="form-grid three-columns">
+          <div class="form-grid two-columns">
             <label class="form-field">
-              시작층
-              <input id="floorStart" type="text" value="B1">
+              가장 아래층
+              <select id="floorStart" aria-label="가장 아래층"></select>
             </label>
             <label class="form-field">
-              끝층
-              <input id="floorEnd" type="text" value="B1">
-            </label>
-            <label class="form-field">
-              <span>예상 주차면 <span class="optional-label">선택</span></span>
-              <input id="registerTotalSpaces" type="number" min="1" max="500" placeholder="사진에서 자동 확인" inputmode="numeric">
+              가장 위층
+              <select id="floorEnd" aria-label="가장 위층"></select>
             </label>
           </div>
-          <div class="form-grid two-columns special-counts">
-            <label class="form-field">
-              장애인 주차면
-              <input id="registerDisabledSpaces" type="number" min="0" max="50" value="0" inputmode="numeric">
-            </label>
-            <label class="form-field">
-              임산부 주차면
-              <input id="registerPregnantSpaces" type="number" min="0" max="50" value="0" inputmode="numeric">
-            </label>
+          <p id="planFloorSummary" class="plan-floor-summary" aria-live="polite"></p>
+          <div class="plan-counts">
+            <div class="plan-count-row">
+              <div><label for="registerTotalSpaces">층당 예상 주차면</label><label class="plan-auto-count"><input id="planAutoCount" type="checkbox" checked>사진에서 확인</label></div>
+              <div class="number-stepper">
+                <button type="button" data-step-target="registerTotalSpaces" data-step="-1" aria-label="예상 주차면 줄이기"><i data-lucide="minus"></i></button>
+                <input id="registerTotalSpaces" type="number" min="1" max="500" placeholder="자동" inputmode="numeric" disabled>
+                <button type="button" data-step-target="registerTotalSpaces" data-step="1" aria-label="예상 주차면 늘리기"><i data-lucide="plus"></i></button>
+              </div>
+            </div>
+            <div class="plan-count-row">
+              <label for="registerDisabledSpaces">층당 장애인 주차면</label>
+              <div class="number-stepper">
+                <button type="button" data-step-target="registerDisabledSpaces" data-step="-1" aria-label="장애인 주차면 줄이기"><i data-lucide="minus"></i></button>
+                <input id="registerDisabledSpaces" type="number" min="0" max="50" value="0" inputmode="numeric">
+                <button type="button" data-step-target="registerDisabledSpaces" data-step="1" aria-label="장애인 주차면 늘리기"><i data-lucide="plus"></i></button>
+              </div>
+            </div>
+            <div class="plan-count-row">
+              <label for="registerPregnantSpaces">층당 임산부 주차면</label>
+              <div class="number-stepper">
+                <button type="button" data-step-target="registerPregnantSpaces" data-step="-1" aria-label="임산부 주차면 줄이기"><i data-lucide="minus"></i></button>
+                <input id="registerPregnantSpaces" type="number" min="0" max="50" value="0" inputmode="numeric">
+                <button type="button" data-step-target="registerPregnantSpaces" data-step="1" aria-label="임산부 주차면 늘리기"><i data-lucide="plus"></i></button>
+              </div>
+            </div>
           </div>
           <div class="photo-upload">
             <label id="planUploadBox" class="upload-dropzone" for="planImages">
-              <span class="upload-icon">＋</span>
+              <span class="upload-icon"><i data-lucide="image-plus"></i></span>
               <span class="upload-copy">
                 <strong>주차장 사진 추가</strong>
-                <em>여러 방향에서 찍은 사진을 최대 6장 선택</em>
+                <em>최대 6장 · JPG, PNG, WebP</em>
               </span>
             </label>
             <input id="planImages" class="sr-only" type="file" accept="image/*" multiple>
@@ -331,7 +343,7 @@
           <div id="planImagePreview" class="image-preview"></div>
           <input id="planPrompt" type="hidden" value="사진의 실제 벽, 차로, 출입구, 기둥과 주차면 배치를 CAD 평면도처럼 복원해줘.">
           <button id="generatePlanButton" class="primary-button full-width-button">AI 도면 생성</button>
-          <p id="geminiStatus" class="hint">사진과 입력한 주차면 수를 대조해 층별 도면을 생성합니다.</p>
+          <p id="geminiStatus" class="hint" role="status" aria-live="polite"></p>
         </article>
 
         <article class="registration-panel" data-registration-step="review">
@@ -423,9 +435,9 @@
   <script src="./config.js?v=2"></script>
   <script>
     if (window.Capacitor?.isNativePlatform?.()) {
-      document.write('<script src="./native-bridge-source.js?v=98"><\/script>');
+      document.write('<script src="./native-bridge-source.js?v=99"><\/script>');
     }
   </script>
-  <script src="./app.js?v=98"></script>
+  <script src="./app.js?v=99"></script>
 </body>
 </html>

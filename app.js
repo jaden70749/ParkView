@@ -22,19 +22,23 @@ async function loadRuntimeConfig() {
     mapProvider: staticKey ? "kakao" : "fallback",
     kakaoJavaScriptKey: staticKey,
     kakaoConfigured: Boolean(staticKey),
-    geminiConfigured: false
+    geminiConfigured: false,
+    backendConnected: false
   };
 
   // GitHub Pages has no Python API. Its deployment workflow injects only the
   // public Kakao JavaScript key into config.js.
-  if (staticConfig.kakaoConfigured && !EDGE_API_BASE_URL) {
+  if (!EDGE_API_BASE_URL && window.location.hostname.endsWith(".github.io")) {
     state.runtimeConfig = staticConfig;
     return state.runtimeConfig;
   }
 
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 8000);
   try {
     const response = await fetch(edgeApiUrl("/api/public-config"), {
       cache: "no-store",
+      signal: controller.signal,
       headers: { Accept: "application/json" }
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -45,6 +49,7 @@ async function loadRuntimeConfig() {
     state.runtimeConfig = {
       ...staticConfig,
       ...serverConfig,
+      backendConnected: true,
       mapProvider: kakaoJavaScriptKey ? "kakao" : "fallback",
       kakaoJavaScriptKey,
       kakaoConfigured: Boolean(kakaoJavaScriptKey)
@@ -52,6 +57,8 @@ async function loadRuntimeConfig() {
   } catch (error) {
     state.runtimeConfig = staticConfig;
     console.warn("Runtime configuration unavailable.", error);
+  } finally {
+    window.clearTimeout(timeout);
   }
   return state.runtimeConfig;
 }
@@ -422,6 +429,7 @@ function bindEvents() {
     }
   });
   els.planImages?.addEventListener("change", handlePlanImageUpload);
+  initializePlanControls();
   els.planUploadBox?.addEventListener("dragover", (event) => {
     event.preventDefault();
     els.planUploadBox.classList.add("dragging");
@@ -1480,6 +1488,10 @@ function resetLotRegistration() {
   els.registerTotalSpaces.value = "";
   els.registerDisabledSpaces.value = "0";
   els.registerPregnantSpaces.value = "0";
+  state.planGenerated = false;
+  document.querySelector("#planAutoCount").checked = true;
+  els.registerTotalSpaces.disabled = true;
+  updateRequestedFloors();
   els.registrationInfoError.textContent = "";
   state.floors = makeFloors();
   state.floorIndex = 0;
@@ -1490,7 +1502,7 @@ function resetLotRegistration() {
   state.registrationLocation = null;
   state.registrationGeocodeToken += 1;
   clearPlanImages();
-  els.geminiStatus.textContent = "사진과 입력한 주차면 수를 대조해 층별 도면을 생성합니다.";
+  els.geminiStatus.textContent = "";
   setRegistrationLocationStatus("주소를 입력하면 지도에서 위치를 자동으로 찾습니다.", "idle");
   syncRegistrationFeeFields();
   renderAdminFloor();
@@ -1518,6 +1530,8 @@ function setRegistrationStep(index) {
   els.registrationProgressBar.style.width = `${((state.registrationStep + 1) / REGISTRATION_STEPS.length) * 100}%`;
   els.registrationBackButton.disabled = state.registrationStep === 0;
   els.registrationNextButton.textContent = step.next;
+  els.registrationNextButton.hidden = step.id === "plan";
+  els.registrationNextButton.parentElement.classList.toggle("plan-step", step.id === "plan");
 
   if (step.id === "review") {
     state.floorIndex = 0;
@@ -1562,7 +1576,7 @@ function validateRegistrationStep() {
       return false;
     }
   }
-  if (step === "plan" && !state.floors.some((floor) => floor.slots.length > 0)) {
+  if (step === "plan" && !state.planGenerated) {
     els.geminiStatus.textContent = "사진을 올리고 AI 도면 생성을 먼저 완료해 주세요.";
     return false;
   }
@@ -3353,39 +3367,114 @@ function renderAdminFloor() {
 }
 
 async function handlePlanImageUpload() {
-  await handlePlanFiles(Array.from(els.planImages.files || []));
+  const files = Array.from(els.planImages.files || []);
+  els.planImages.value = "";
+  await handlePlanFiles(files);
 }
 
+let planUploadQueue = Promise.resolve();
+let planImageRevision = 0;
+
 async function handlePlanFiles(selectedFiles) {
-  const files = selectedFiles.slice(0, 6);
-  state.planImages = [];
+  if (state.planBusy || !selectedFiles.length) return;
+  const revision = planImageRevision;
+  planUploadQueue = planUploadQueue.then(async () => {
+    if (revision !== planImageRevision) return;
+    els.generatePlanButton.disabled = true;
+    els.planImageCount.textContent = "사진을 읽는 중...";
+    const notices = new Set();
+    for (const file of selectedFiles) {
+      if (revision !== planImageRevision) return;
+      if (!file.type.startsWith("image/")) { notices.add("이미지 파일을 선택해 주세요."); continue; }
+      const fileId = `${file.name}:${file.size}:${file.lastModified}`;
+      if (state.planImages.some(image => image.fileId === fileId)) continue;
+      if (state.planImages.length >= 6) { notices.add("사진은 최대 6장까지 추가할 수 있습니다."); break; }
+      try {
+        const image = await imageFileToGeminiPart(file);
+        if (revision !== planImageRevision) return;
+        state.planImages.push({ ...image, fileId, name: file.name, floor: getRequestedFloorNames()[0] });
+        state.planGenerated = false;
+      } catch {
+        notices.add("읽을 수 없는 사진이 있습니다. JPG, PNG 또는 WebP로 다시 선택해 주세요.");
+      }
+    }
+    renderPlanImages();
+    els.geminiStatus.textContent = [...notices].join(" ");
+  }).finally(() => {
+    if (revision === planImageRevision && !state.planBusy) els.generatePlanButton.disabled = false;
+  });
+  return planUploadQueue;
+}
+
+function renderPlanImages() {
+  const floors = getRequestedFloorNames();
   els.planImagePreview.replaceChildren();
-  els.planImageCount.textContent = "사진을 읽는 중...";
-  els.planUploadBox.classList.remove("has-files");
-
-  for (const file of files) {
-    if (!file.type.startsWith("image/")) continue;
-    const image = await imageFileToGeminiPart(file);
-    state.planImages.push(image);
-
+  state.planImages.forEach((image, index) => {
+    const item = document.createElement("div");
+    item.className = "plan-photo";
     const preview = document.createElement("img");
     preview.src = image.previewUrl;
-    preview.alt = file.name;
-    els.planImagePreview.appendChild(preview);
-  }
-
+    preview.alt = image.name;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "plan-photo-remove";
+    remove.setAttribute("aria-label", `사진 ${index + 1} 삭제`);
+    remove.innerHTML = '<i data-lucide="x"></i>';
+    remove.addEventListener("click", () => {
+      if (state.planBusy) return;
+      state.planImages = state.planImages.filter(entry => entry !== image);
+      state.planGenerated = false;
+      renderPlanImages();
+    });
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", `사진 ${index + 1}의 층`);
+    select.add(new Option("층 선택", ""));
+    floors.forEach(floor => select.add(new Option(floorDisplayName(floor), floor)));
+    select.value = floors.includes(image.floor) ? image.floor : "";
+    image.floor = select.value;
+    select.addEventListener("change", () => { image.floor = select.value; });
+    item.append(preview, remove, select);
+    els.planImagePreview.appendChild(item);
+  });
   els.planUploadBox.classList.toggle("has-files", state.planImages.length > 0);
-  els.planImageCount.textContent = `선택된 사진 ${state.planImages.length}장`;
-  els.geminiStatus.textContent = state.planImages.length
-    ? `${state.planImages.length}장의 사진을 준비했습니다. 사진으로 도면 생성을 누르세요.`
-    : "사진을 선택하지 않았습니다.";
+  els.planImageCount.textContent = `사진 ${state.planImages.length} / 6장`;
+  refreshIcons();
 }
 
 async function generatePlanFromPrompt() {
+  if (state.planBusy) return;
+  await planUploadQueue;
+  if (state.planBusy) return;
   const floorNames = getRequestedFloorNames();
-
-  if (state.planImages.length > 0 && !state.runtimeConfig?.geminiConfigured) {
-    els.geminiStatus.textContent = "서버의 .env에 GEMINI_API_KEY를 설정해 주세요.";
+  if (floorNames.length > 6) {
+    els.geminiStatus.textContent = "한 번에 최대 6개 층을 등록할 수 있습니다.";
+    return;
+  }
+  if (state.planImages.some(image => !image.floor)) {
+    els.geminiStatus.textContent = "각 사진의 층을 선택해 주세요.";
+    return;
+  }
+  const missingFloors = floorNames.filter(floor => !state.planImages.some(image => image.floor === floor));
+  if (missingFloors.length) {
+    els.geminiStatus.textContent = `${missingFloors.map(floorDisplayName).join(", ")} 사진을 추가해 주세요.`;
+    return;
+  }
+  for (const input of [els.registerTotalSpaces, els.registerDisabledSpaces, els.registerPregnantSpaces]) {
+    if (!input.disabled && (!input.value || !input.reportValidity())) {
+      els.geminiStatus.textContent = "주차면 수를 입력 범위에 맞게 확인해 주세요.";
+      return;
+    }
+  }
+  const revision = planImageRevision;
+  setPlanBusy(true);
+  els.geminiStatus.textContent = "분석 서버 연결 확인 중...";
+  await loadRuntimeConfig();
+  if (revision !== planImageRevision) return;
+  if (!state.runtimeConfig?.geminiConfigured) {
+    els.geminiStatus.textContent = state.runtimeConfig?.backendConnected
+      ? "분석 서버의 AI 설정이 준비되지 않았습니다."
+      : "AI 분석 서버가 연결되지 않았습니다. 사진은 그대로 보관됩니다.";
+    setPlanBusy(false);
     return;
   }
 
@@ -3396,18 +3485,24 @@ async function generatePlanFromPrompt() {
         const floorName = floorNames[index];
         els.geminiStatus.textContent = `Gemini가 ${floorName} 도면을 생성하는 중입니다... (${index + 1}/${floorNames.length})`;
         const draftFloors = await generatePlanWithGemini(floorName, index, floorNames.length);
+        if (revision !== planImageRevision) return;
         els.geminiStatus.textContent = `Gemini가 ${floorName} 주차면 수와 배치를 다시 검수하는 중입니다...`;
         const reviewedFloors = await reviewPlanWithGemini(floorName, draftFloors[0]);
+        if (revision !== planImageRevision) return;
         generatedFloors.push(polishGeneratedFloor({ ...reviewedFloors[0], name: floorName }));
       }
       applyGeneratedFloors(generatedFloors);
       clearPlanImages();
+      state.planGenerated = true;
       els.geminiStatus.textContent = `사진 기반 도면 생성 완료: ${generatedFloors.map((floor) => `${floor.name} ${floor.slots.length}면`).join(" / ")}`;
       setRegistrationStep(3);
       return;
     } catch (error) {
+      if (revision !== planImageRevision) return;
       els.geminiStatus.textContent = `Gemini 생성 실패: ${error.message}`;
       return;
+    } finally {
+      if (revision === planImageRevision) setPlanBusy(false);
     }
   } else {
     els.geminiStatus.textContent = "사진을 넣어야 사진과 맞는 도면을 만들 수 있습니다.";
@@ -3435,11 +3530,14 @@ function generatePlanByRules(floorNames = getRequestedFloorNames()) {
 
   applyGeneratedFloors(floors);
   clearPlanImages();
+  state.planGenerated = true;
   els.geminiStatus.textContent = `규칙 기반 도면 생성 완료: ${floors.map((floor) => `${floor.name} ${floor.slots.length}면`).join(" / ")}`;
   setRegistrationStep(3);
 }
 
 function clearPlanImages() {
+  planImageRevision += 1;
+  setPlanBusy(false);
   state.planImages = [];
   els.planImages.value = "";
   els.planImagePreview.replaceChildren();
@@ -3450,14 +3548,70 @@ function clearPlanImages() {
 function getRequestedFloorNames() {
   const start = parseFloorName(els.floorStart.value, "B1");
   const end = parseFloorName(els.floorEnd.value, start.label);
-  if (start.kind !== end.kind) return [start.label];
-
-  const direction = start.number <= end.number ? 1 : -1;
+  const low = start.kind === "basement" ? -start.number : start.number;
+  const high = end.kind === "basement" ? -end.number : end.number;
   const floors = [];
-  for (let number = start.number; direction > 0 ? number <= end.number : number >= end.number; number += direction) {
-    floors.push(formatFloorName(start.kind, number));
+  for (let number = Math.min(low, high); number <= Math.max(low, high); number += 1) {
+    if (number !== 0) floors.push(number < 0 ? `B${-number}` : `${number}F`);
   }
-  return floors.slice(0, 8);
+  return floors;
+}
+
+function floorDisplayName(floor) {
+  const parsed = parseFloorName(floor, "B1");
+  return `${parsed.kind === "basement" ? "지하 " : "지상 "}${parsed.number}층`;
+}
+
+function initializePlanControls() {
+  for (const select of [els.floorStart, els.floorEnd]) {
+    for (let floor = -8; floor <= 50; floor += 1) {
+      if (!floor) continue;
+      const value = floor < 0 ? `B${-floor}` : `${floor}F`;
+      select.add(new Option(floorDisplayName(value), value));
+    }
+    select.value = "B1";
+    select.addEventListener("change", () => {
+      if (els.floorStart.selectedIndex > els.floorEnd.selectedIndex) {
+        (select === els.floorStart ? els.floorEnd : els.floorStart).value = select.value;
+      }
+      updateRequestedFloors();
+      renderPlanImages();
+      state.planGenerated = false;
+    });
+  }
+  document.querySelector("#planAutoCount").addEventListener("change", (event) => {
+    els.registerTotalSpaces.disabled = event.target.checked;
+    els.registerTotalSpaces.value = event.target.checked ? "" : "1";
+    state.planGenerated = false;
+  });
+  document.querySelectorAll("[data-step-target]").forEach(button => {
+    button.addEventListener("click", () => {
+      const input = document.getElementById(button.dataset.stepTarget);
+      if (input === els.registerTotalSpaces && input.disabled) {
+        document.querySelector("#planAutoCount").checked = false;
+        input.disabled = false;
+      }
+      input.value = String(clamp((Number(input.value) || 0) + Number(button.dataset.step), Number(input.min), Number(input.max)));
+      state.planGenerated = false;
+    });
+  });
+  updateRequestedFloors();
+}
+
+function updateRequestedFloors() {
+  const floors = getRequestedFloorNames();
+  document.querySelector("#planFloorSummary").textContent = floors.length > 6
+    ? "한 번에 최대 6개 층을 선택해 주세요."
+    : `${floors.join(" · ")} / 총 ${floors.length}개 층`;
+}
+
+function setPlanBusy(busy) {
+  state.planBusy = busy;
+  document.querySelectorAll('[data-registration-step="plan"] input, [data-registration-step="plan"] select, [data-registration-step="plan"] button').forEach(control => {
+    control.disabled = busy;
+  });
+  if (!busy) els.registerTotalSpaces.disabled = document.querySelector("#planAutoCount").checked;
+  els.generatePlanButton.textContent = busy ? "도면 생성 중..." : "AI 도면 생성";
 }
 
 function parseFloorName(value, fallback) {
@@ -3476,7 +3630,7 @@ function formatFloorName(kind, number) {
 }
 
 async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
-  const imageParts = state.planImages.map((image) => ({
+  const imageParts = state.planImages.filter(image => image.floor === floorName).map((image) => ({
     inline_data: {
       mime_type: image.mimeType,
       data: image.base64
@@ -3506,7 +3660,7 @@ async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
 }
 
 async function reviewPlanWithGemini(floorName, draftFloor) {
-  const imageParts = state.planImages.map((image) => ({
+  const imageParts = state.planImages.filter(image => image.floor === floorName).map((image) => ({
     inline_data: {
       mime_type: image.mimeType,
       data: image.base64

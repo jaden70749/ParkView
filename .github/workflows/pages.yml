@@ -30,6 +30,7 @@ jobs:
       - name: Prepare static site
         env:
           KAKAO_JAVASCRIPT_KEY: ${{ secrets.KAKAO_JAVASCRIPT_KEY }}
+          PARKVIEW_EDGE_API_BASE_URL: ${{ vars.PARKVIEW_EDGE_API_BASE_URL || secrets.PARKVIEW_EDGE_API_BASE_URL }}
         run: |
           test -n "$KAKAO_JAVASCRIPT_KEY"
           npm ci
