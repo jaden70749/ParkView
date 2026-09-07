@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-title" content="ParkView">
   <title>ParkView</title>
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=97">
+  <link rel="stylesheet" href="./styles.css?v=98">
 </head>
 <body>
   <main id="app" class="app-shell">
@@ -168,7 +168,10 @@
           <div id="lotList" class="lot-list"></div>
         </div>
         <div id="detailView" class="sheet-view">
-          <button id="backToList" class="back-button" aria-label="목록으로">‹</button>
+          <div class="detail-toolbar">
+            <button id="backToList" class="back-button" aria-label="목록으로"><i data-lucide="chevron-left" aria-hidden="true"></i></button>
+            <span>주차장 정보</span>
+          </div>
           <div id="lotDetail"></div>
         </div>
       </section>
@@ -206,12 +209,11 @@
 
         <article class="registration-panel active" data-registration-step="info">
           <div class="registration-copy">
-            <h3>어떤 주차장인가요?</h3>
-            <p>사용자 화면과 지도에 표시될 기본 정보입니다.</p>
+            <h3>주차장 기본 정보</h3>
           </div>
           <label class="form-field">
             주차장 이름
-            <input id="registerName" type="text" placeholder="예: ParkView 시연 주차장" autocomplete="off">
+            <input id="registerName" type="text" placeholder="주차장 이름 입력" autocomplete="off">
           </label>
           <label class="form-field">
             주소
@@ -245,7 +247,7 @@
               </select>
             </label>
             <label class="form-field">
-              1시간 요금
+              1시간 요금 (원)
               <input id="registerHourlyPrice" type="number" min="0" step="500" value="5000" inputmode="numeric">
             </label>
           </div>
@@ -268,7 +270,7 @@
               </select>
             </label>
             <label class="form-field">
-              전화번호 <span class="optional-label">선택</span>
+              <span>전화번호 <span class="optional-label">선택</span></span>
               <input id="registerPhone" type="tel" placeholder="예: 02-1234-5678" autocomplete="tel">
             </label>
           </div>
@@ -301,7 +303,7 @@
               <input id="floorEnd" type="text" value="B1">
             </label>
             <label class="form-field">
-              예상 주차면 <span class="optional-label">선택</span>
+              <span>예상 주차면 <span class="optional-label">선택</span></span>
               <input id="registerTotalSpaces" type="number" min="1" max="500" placeholder="사진에서 자동 확인" inputmode="numeric">
             </label>
           </div>
@@ -421,9 +423,9 @@
   <script src="./config.js?v=2"></script>
   <script>
     if (window.Capacitor?.isNativePlatform?.()) {
-      document.write('<script src="./native-bridge-source.js?v=97"><\/script>');
+      document.write('<script src="./native-bridge-source.js?v=98"><\/script>');
     }
   </script>
-  <script src="./app.js?v=97"></script>
+  <script src="./app.js?v=98"></script>
 </body>
 </html>

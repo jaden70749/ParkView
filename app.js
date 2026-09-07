@@ -1398,6 +1398,7 @@ function openAdminHome() {
 
 function setAdminView(view) {
   state.adminView = view;
+  els.adminScreen.dataset.view = view;
   const views = {
     home: els.adminHomeView,
     registration: els.registrationView,
@@ -1510,6 +1511,7 @@ function setRegistrationStep(index) {
   const step = REGISTRATION_STEPS[state.registrationStep];
   els.registrationPanels.forEach((panel) => {
     panel.classList.toggle("active", panel.dataset.registrationStep === step.id);
+    panel.scrollTop = 0;
   });
   els.registrationStepCount.textContent = `${state.registrationStep + 1} / ${REGISTRATION_STEPS.length}`;
   els.registrationStepTitle.textContent = step.title;
@@ -2836,6 +2838,7 @@ function showDetail(lot) {
   state.floorIndex = 0;
   renderLotDetail(lot);
   const bounds = bottomSheetBounds();
+  els.lotDetail.scrollTop = 0;
   const currentHeight = els.bottomSheet.getBoundingClientRect().height;
   applyBottomSheetHeight(Math.max(currentHeight, bounds.medium), true);
 }
@@ -2892,9 +2895,9 @@ function renderLotDetail(lot) {
         </span>
       </div>
       <div class="detail-actions" aria-label="주차장 작업">
-        <button id="detailShare" class="detail-action" type="button"><i aria-hidden="true">↗</i><span>공유</span></button>
-        <button id="detailFavorite" class="detail-action${isFavorite ? " is-active" : ""}" type="button"><i aria-hidden="true">${isFavorite ? "★" : "☆"}</i><span>즐겨찾기</span></button>
-        <button id="detailNavigate" class="detail-action primary" type="button"><i aria-hidden="true">→</i><span>길찾기</span></button>
+        <button id="detailShare" class="detail-action" type="button"><span class="detail-action-icon"><i data-lucide="share-2"></i></span><span>공유</span></button>
+        <button id="detailFavorite" class="detail-action${isFavorite ? " is-active" : ""}" type="button" aria-pressed="${isFavorite}"><span class="detail-action-icon"><i data-lucide="star"></i></span><span>즐겨찾기</span></button>
+        <button id="detailNavigate" class="detail-action primary" type="button"><span class="detail-action-icon"><i data-lucide="navigation"></i></span><span>길찾기</span></button>
       </div>
       <p id="detailFeedback" class="detail-feedback" role="status"></p>
     </header>
@@ -2906,18 +2909,18 @@ function renderLotDetail(lot) {
     </section>
 
     <section class="detail-contact-list" aria-label="주차장 연락처와 주소">
-      <div class="detail-contact-row"><i aria-hidden="true">⌖</i><span>${escapeHtml(lot.address || "주소 정보 없음")}</span></div>
-      <div class="detail-contact-row"><i aria-hidden="true">☎</i>${lot.phone
+      <div class="detail-contact-row"><i data-lucide="map-pin"></i><span>${escapeHtml(lot.address || "주소 정보 없음")}</span></div>
+      <div class="detail-contact-row"><i data-lucide="phone"></i>${lot.phone
         ? `<a href="tel:${escapeHtml(lot.phone.replace(/[^0-9+]/g, ""))}">${escapeHtml(lot.phone)}</a>`
         : "<span class=\"muted-contact\">전화번호 정보 없음</span>"}</div>
     </section>
 
     <section id="detailVacancySection" class="detail-content-section">
-      <p class="detail-section-label">실시간 주차 현황</p>
-      <div class="vacancy-card">
+      <p class="detail-section-label">${hasRealtime ? "실시간 주차 현황" : "주차면 정보"}</p>
+      <div class="vacancy-card${!hasTotalSpaces && !hasRealtime ? " is-unavailable" : ""}">
         <span>${hasRealtime
           ? "현재 이용 가능한 자리 <em>LIVE</em>"
-          : hasTotalSpaces ? "전체 주차면 · 실시간 잔여 미제공" : "주차면 정보"}</span>
+          : hasTotalSpaces ? "전체 주차면 · 실시간 잔여 미제공" : "전체 주차면"}</span>
         <strong>${hasRealtime
           ? `${lot.availableSpaces}<small> / ${lot.totalSpaces}면</small>`
           : hasTotalSpaces ? `총 ${lot.totalSpaces}<small>면</small>` : "면수 정보 없음"}</strong>
@@ -2943,6 +2946,7 @@ function renderLotDetail(lot) {
     renderLotDetail(lot);
   });
   if (floor) renderFloorPlan(els.lotDetail.querySelector("#detailFloorPlan"), floor, false);
+  refreshIcons();
 }
 
 function formatWon(value) {
@@ -2994,8 +2998,7 @@ function toggleFavoriteLot(lot) {
   const button = els.lotDetail.querySelector("#detailFavorite");
   const active = state.favoriteLotIds.has(id);
   button?.classList.toggle("is-active", active);
-  const icon = button?.querySelector("i");
-  if (icon) icon.textContent = active ? "★" : "☆";
+  button?.setAttribute("aria-pressed", String(active));
   updateMenuFavoriteCount();
   if (state.filters.favoritesOnly && !active) applyCurrentFilters();
   setDetailFeedback(active ? "즐겨찾기에 추가했습니다." : "즐겨찾기에서 삭제했습니다.");
@@ -4319,9 +4322,9 @@ function onSheetHandleKeyDown(event) {
 }
 
 function bottomSheetBounds() {
-  const min = Math.max(170, window.innerHeight * 0.22);
-  const max = Math.max(min, window.innerHeight);
-  const medium = clamp(window.innerHeight * 0.57, min, max);
+  const max = els.userScreen?.clientHeight || window.innerHeight;
+  const min = Math.min(max, Math.max(170, max * 0.22));
+  const medium = clamp(max * 0.57, min, max);
   return { min, medium, max };
 }
 
@@ -4335,7 +4338,7 @@ function applyBottomSheetHeight(requestedHeight, animate = false) {
   els.bottomSheet.style.setProperty("--sheet-progress", progress.toFixed(3));
   els.bottomSheet.classList.toggle("expanded", nextHeight > bounds.medium + 12);
   els.bottomSheet.classList.toggle("sheet-full", nextHeight >= bounds.max - 2);
-  els.sheetHandle.setAttribute("aria-valuenow", String(Math.round(nextHeight / window.innerHeight * 100)));
+  els.sheetHandle.setAttribute("aria-valuenow", String(Math.round(nextHeight / bounds.max * 100)));
   positionMainMapControls();
   if (animate) {
     window.setTimeout(() => els.bottomSheet.classList.remove("is-animating"), 320);

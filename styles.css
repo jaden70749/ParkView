@@ -1512,11 +1512,22 @@ textarea {
   background: #ff2f20;
 }
 
+.detail-toolbar {
+  display: flex;
+  flex: 0 0 44px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  border-bottom: 1px solid #f0f1f3;
+  background: #ffffff;
+  color: #686d75;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .back-button {
-  position: absolute;
-  z-index: 2;
-  top: 4px;
-  left: 10px;
+  display: grid;
+  place-items: center;
   width: 38px;
   height: 38px;
   margin: 0;
@@ -1529,6 +1540,7 @@ textarea {
 }
 
 #lotDetail {
+  flex: 1;
   min-height: 0;
   padding: 0 0 calc(22px + env(safe-area-inset-bottom));
   overflow-y: auto;
@@ -1546,20 +1558,20 @@ textarea {
   margin: 0;
   overflow-wrap: anywhere;
   font-size: 20px;
-  line-height: 1.18;
-  font-weight: 950;
+  line-height: 1.4;
+  font-weight: 750;
 }
 
 .detail-sub {
   display: block;
   margin-top: 4px;
   color: #85868e;
-  font-size: 11px;
-  font-weight: 800;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .detail-hero {
-  padding: 5px 16px 18px;
+  padding: 18px 20px;
   border-bottom: 1px solid #e4e5e8;
   background: #ffffff;
 }
@@ -1568,8 +1580,7 @@ textarea {
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  min-height: 50px;
-  padding: 5px 40px 0;
+  padding: 0;
 }
 
 .detail-heading-copy {
@@ -1579,7 +1590,7 @@ textarea {
 
 .detail-type {
   flex: 0 0 auto;
-  margin-top: 3px;
+  margin-top: 5px;
   padding: 3px 6px;
   border-radius: 4px;
   background: #fff1a8;
@@ -1592,7 +1603,7 @@ textarea {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 20px;
 }
 
 .detail-action {
@@ -1604,23 +1615,23 @@ textarea {
   border: 0;
   background: transparent;
   color: #5d6067;
-  font-size: 10px;
-  font-weight: 850;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .detail-action:focus {
   outline: none;
 }
 
-.detail-action i {
+.detail-action-icon {
   display: grid;
   width: 43px;
   height: 43px;
   place-items: center;
-  border: 1.5px solid #e0ae00;
+  border: 1px solid #e3e5e8;
   border-radius: 50%;
   background: #ffffff;
-  color: #d59f00;
+  color: #444a52;
   font-size: 23px;
   font-family: Arial, sans-serif;
   font-weight: 400;
@@ -1628,19 +1639,25 @@ textarea {
   line-height: 1;
 }
 
-.detail-action:focus-visible i {
+.detail-action-icon svg {
+  width: 21px;
+  height: 21px;
+  stroke-width: 1.75;
+}
+
+.detail-action:focus-visible .detail-action-icon {
   outline: 2px solid #9b7600;
   outline-offset: 3px;
 }
 
-.detail-action.primary i,
-.detail-action.is-active i {
+.detail-action.primary .detail-action-icon,
+.detail-action.is-active .detail-action-icon {
   border-color: var(--brand);
   background: var(--brand);
   color: #161616;
 }
 
-.detail-action:active i {
+.detail-action:active .detail-action-icon {
   transform: scale(0.94);
 }
 
@@ -1662,29 +1679,30 @@ textarea {
 }
 
 .parking-info-panel {
-  padding: 18px 16px;
+  padding: 12px 20px;
   border-bottom: 1px solid #e4e5e8;
   background: #ffffff;
 }
 
 .parking-info-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: 14px;
-  min-height: 42px;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
 }
 
 .parking-info-row span {
   color: #85868e;
-  font-size: 14px;
-  font-weight: 750;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .parking-info-row strong {
   color: #202328;
-  font-size: 19px;
-  font-weight: 950;
+  font-size: 15px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
   text-align: right;
 }
 
@@ -1700,7 +1718,7 @@ textarea {
 }
 
 .detail-contact-list {
-  padding: 5px 16px;
+  padding: 4px 20px;
   border-bottom: 8px solid #f2f3f5;
   background: #ffffff;
 }
@@ -1713,14 +1731,21 @@ textarea {
   border-bottom: 1px solid #ececef;
   color: #292c31;
   font-size: 13px;
-  font-weight: 750;
+  font-weight: 500;
+  gap: 6px;
+  padding: 12px 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .detail-contact-row:last-child {
   border-bottom: 0;
 }
 
-.detail-contact-row i {
+.detail-contact-row svg {
+  width: 19px;
+  height: 19px;
+  stroke-width: 1.75;
   color: #8a9097;
   font-size: 20px;
   font-style: normal;
@@ -1736,7 +1761,7 @@ textarea {
 }
 
 .detail-content-section {
-  padding: 18px 16px 0;
+  padding: 20px 20px 0;
   scroll-margin-top: 8px;
 }
 
@@ -1749,10 +1774,8 @@ textarea {
 
 .vacancy-card {
   margin-bottom: 14px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.11);
+  padding: 8px 0 16px;
+  border-bottom: 1px solid var(--line);
 }
 
 .vacancy-card span {
@@ -1788,6 +1811,13 @@ textarea {
 .vacancy-card strong small {
   color: #85868e;
   font-size: 12px;
+}
+
+.vacancy-card.is-unavailable strong {
+  color: #787e86;
+  font-size: 15px;
+  line-height: 1.5;
+  font-weight: 500;
 }
 
 .floor-head {
@@ -2534,7 +2564,38 @@ textarea {
 }
 
 .registration-view {
-  padding-top: 14px;
+  padding: 0;
+  min-height: 0;
+}
+
+.admin-screen[data-view="registration"].active {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.admin-screen[data-view="registration"] .admin-header {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.admin-screen[data-view="registration"] .admin-header h2 {
+  font-size: 20px;
+  font-weight: 750;
+}
+
+.admin-screen[data-view="registration"] .admin-back {
+  width: 40px;
+  height: 40px;
+  box-shadow: none;
+}
+
+.registration-view.active {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .registration-progress {
@@ -2543,7 +2604,16 @@ textarea {
   grid-template-columns: 1fr 36px;
   align-items: center;
   gap: 10px;
-  margin-bottom: 24px;
+  flex: 0 0 auto;
+  padding: 10px 20px 14px;
+  margin: 0;
+  border-bottom: 1px solid #eceef1;
+}
+
+.registration-progress > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .registration-progress span,
@@ -2552,15 +2622,15 @@ textarea {
 }
 
 .registration-progress span {
-  color: var(--pink);
-  font-size: 10px;
-  font-weight: 950;
+  color: #846300;
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .registration-progress strong {
-  margin-top: 3px;
-  font-size: 17px;
-  font-weight: 950;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
 }
 
 .plain-icon-button {
@@ -2594,7 +2664,12 @@ textarea {
 
 .registration-panel {
   display: none;
-  min-height: 520px;
+  flex: 1;
+  min-height: 0;
+  padding: 20px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
 }
 
 .registration-panel.active {
@@ -2602,7 +2677,7 @@ textarea {
 }
 
 .registration-copy {
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
 
 .registration-copy h3,
@@ -2611,9 +2686,9 @@ textarea {
 }
 
 .registration-copy h3 {
-  font-size: 22px;
-  line-height: 1.25;
-  font-weight: 950;
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 700;
 }
 
 .registration-copy p {
@@ -2626,11 +2701,14 @@ textarea {
 
 .form-field {
   display: grid;
+  grid-template-rows: 18px 46px;
+  align-content: start;
+  line-height: 18px;
   gap: 7px;
   margin-bottom: 14px;
   color: #4f5058;
-  font-size: 11px;
-  font-weight: 900;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .optional-label {
@@ -2643,22 +2721,29 @@ textarea {
 .form-field input,
 .form-field select {
   width: 100%;
+  margin: 0;
   min-width: 0;
   height: 46px;
   padding: 0 12px;
-  border: 1px solid #d1d2d8;
+  border: 1px solid #dfe2e6;
   border-radius: 7px;
   outline: 0;
   background: #ffffff;
   color: #17181c;
-  font-size: 14px;
-  font-weight: 750;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.form-field input::placeholder {
+  color: #9298a0;
+  font-size: 13px;
+  font-weight: 400;
 }
 
 .form-field input:focus,
 .form-field select:focus {
   border-color: var(--pink);
-  box-shadow: 0 0 0 3px rgba(216, 43, 231, 0.10);
+  box-shadow: 0 0 0 3px rgba(248, 196, 0, 0.14);
 }
 
 .form-field input:disabled {
@@ -2910,14 +2995,14 @@ textarea {
 }
 
 .registration-actions {
-  position: sticky;
+  position: relative;
   z-index: 20;
-  bottom: calc(-28px - env(safe-area-inset-bottom));
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: 92px minmax(0, 1fr);
   gap: 9px;
-  margin: 18px -16px calc(-28px - env(safe-area-inset-bottom));
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  margin: 0;
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
   border-top: 1px solid #dedfe3;
   background: rgba(255, 255, 255, 0.97);
   backdrop-filter: blur(12px);
@@ -2925,6 +3010,20 @@ textarea {
 
 .registration-actions button {
   min-height: 48px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.registration-actions button:disabled {
+  background: #f2f3f5;
+  color: #a1a6ae;
+}
+
+@media (max-width: 359px) {
+  .registration-panel { padding: 16px; }
+  .form-field input, .form-field select { padding: 0 8px; }
+  .registration-panel .three-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .registration-panel .three-columns > :last-child { grid-column: 1 / -1; }
 }
 
 .management-view {
