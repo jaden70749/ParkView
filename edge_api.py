@@ -34,7 +34,12 @@ BUILTIN_GEMINI_MODELS = (
     "gemini-3.5-flash",
     "gemini-3.5-flash-lite",
 )
-GEMINI_MODELS = tuple(dict.fromkeys((GEMINI_MODEL, *GEMINI_FALLBACK_MODELS, *BUILTIN_GEMINI_MODELS)))
+RETIRED_GEMINI_MODELS = {"gemini-2.5-flash", "gemini-2.5-flash-lite"}
+GEMINI_MODELS = tuple(
+    model
+    for model in dict.fromkeys((*BUILTIN_GEMINI_MODELS, GEMINI_MODEL, *GEMINI_FALLBACK_MODELS))
+    if model not in RETIRED_GEMINI_MODELS
+)
 GEMINI_RETRY_ATTEMPTS = max(1, int(os.environ.get("GEMINI_RETRY_ATTEMPTS", "2")))
 BUILD_COMMIT = os.environ.get("RENDER_GIT_COMMIT", "local").strip()[:7]
 ALLOWED_ORIGINS = {

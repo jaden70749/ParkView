@@ -114,6 +114,7 @@ const FAVORITE_LOTS_STORAGE = "parkview.favoriteLots.v1";
 const LOCATION_PERMISSION_MESSAGE = "현재 위치는 거리 계산과 주변 주차장 검색에만 사용됩니다.";
 const MICROPHONE_PERMISSION_MESSAGE = "마이크는 장소를 음성으로 검색할 때만 사용됩니다.";
 const DEFAULT_PLAN_INSTRUCTION = "아크릴 주차장 사진을 보고 일반 주차면, 장애인 주차면, 임산부 주차면, 중앙 통로가 보이도록 깨끗한 2D 도면을 만들어줘.";
+const FLOOR_PLAN_X_SCALE = 1.6;
 const SETUP_STEPS = ["plan", "detect", "review"];
 const REGISTRATION_STEPS = [
   { id: "info", title: "기본 정보", next: "위치 지정" },
@@ -3144,8 +3145,7 @@ function renderFloorPlan(container, floorOrSlots, editable) {
   });
 
   slots.forEach((slot, index) => {
-    const sourcePolygon = getSourceSlotPolygon(slot);
-    const orientation = sourcePolygon ? "source-polygon" : slot.w >= slot.h ? "horizontal" : "vertical";
+    const orientation = slot.w >= slot.h ? "horizontal" : "vertical";
     const group = createSvgElement("g", {
       class: `floor-slot floor-slot-${slot.kind} floor-slot-${slot.status} ${orientation}`,
       role: editable ? "button" : "img",
@@ -3153,76 +3153,61 @@ function renderFloorPlan(container, floorOrSlots, editable) {
       "aria-label": `${index + 1}번 주차면 ${slot.status === "available" ? "주차 가능" : "주차 중"}`
     });
     const symbol = slot.kind === "disabled" ? "♿" : slot.kind === "pregnant" ? "♀" : "";
-    if (sourcePolygon) {
-      group.appendChild(createSvgElement("polygon", {
-        points: svgPoints(sourcePolygon),
-        class: "floor-slot-body"
+    const x = toSvgX(slot.x);
+    const y = slot.y;
+    const width = toSvgX(slot.w);
+    const height = slot.h;
+    const rotation = clamp(Number(slot.rotation) || 0, -180, 180);
+    if (Math.abs(rotation) > 0.1) {
+      group.setAttribute("transform", `rotate(${rotation} ${x + width / 2} ${y + height / 2})`);
+    }
+    group.appendChild(createSvgElement("rect", { x, y, width, height, rx: 0.45, class: "floor-slot-body" }));
+    group.appendChild(createSvgElement("rect", {
+      x: x + 0.8,
+      y: y + 0.8,
+      width: Math.max(0.5, width - 1.6),
+      height: Math.max(0.5, height - 1.6),
+      rx: 0.25,
+      class: "floor-slot-inset"
+    }));
+    if (orientation === "vertical") {
+      group.appendChild(createSvgElement("line", {
+        x1: x + width * 0.18, x2: x + width * 0.82,
+        y1: y + height * 0.86, y2: y + height * 0.86,
+        class: "floor-wheel-stop"
       }));
-      const center = polygonCenter(sourcePolygon);
-      if (symbol) {
-        group.appendChild(createSvgElement("text", {
-          x: toSvgX(center.x),
-          y: center.y,
-          class: "floor-slot-symbol"
-        }, symbol));
-      }
     } else {
-      const x = toSvgX(slot.x);
-      const y = slot.y;
-      const width = toSvgX(slot.w);
-      const height = slot.h;
-      const rotation = clamp(Number(slot.rotation) || 0, -180, 180);
-      if (Math.abs(rotation) > 0.1) {
-        group.setAttribute("transform", `rotate(${rotation} ${x + width / 2} ${y + height / 2})`);
-      }
-      group.appendChild(createSvgElement("rect", { x, y, width, height, rx: 0.45, class: "floor-slot-body" }));
-      group.appendChild(createSvgElement("rect", {
-        x: x + 0.8,
-        y: y + 0.8,
-        width: Math.max(0.5, width - 1.6),
-        height: Math.max(0.5, height - 1.6),
-        rx: 0.25,
-        class: "floor-slot-inset"
+      group.appendChild(createSvgElement("line", {
+        x1: x + width * 0.86, x2: x + width * 0.86,
+        y1: y + height * 0.18, y2: y + height * 0.82,
+        class: "floor-wheel-stop"
       }));
+    }
+    if (symbol) {
+      group.appendChild(createSvgElement("text", {
+        x: x + width / 2,
+        y: y + height / 2,
+        class: "floor-slot-symbol"
+      }, symbol));
+    } else if (slot.status === "occupied") {
       if (orientation === "vertical") {
-        group.appendChild(createSvgElement("line", {
-          x1: x + width * 0.18, x2: x + width * 0.82,
-          y1: y + height * 0.86, y2: y + height * 0.86,
-          class: "floor-wheel-stop"
+        group.appendChild(createSvgElement("rect", {
+          x: x + width * 0.25,
+          y: y + height * 0.16,
+          width: width * 0.5,
+          height: height * 0.58,
+          rx: Math.min(width, height) * 0.16,
+          class: "floor-vehicle-mark"
         }));
       } else {
-        group.appendChild(createSvgElement("line", {
-          x1: x + width * 0.86, x2: x + width * 0.86,
-          y1: y + height * 0.18, y2: y + height * 0.82,
-          class: "floor-wheel-stop"
+        group.appendChild(createSvgElement("rect", {
+          x: x + width * 0.16,
+          y: y + height * 0.25,
+          width: width * 0.58,
+          height: height * 0.5,
+          rx: Math.min(width, height) * 0.16,
+          class: "floor-vehicle-mark"
         }));
-      }
-      if (symbol) {
-        group.appendChild(createSvgElement("text", {
-          x: x + width / 2,
-          y: y + height / 2,
-          class: "floor-slot-symbol"
-        }, symbol));
-      } else if (slot.status === "occupied") {
-        if (orientation === "vertical") {
-          group.appendChild(createSvgElement("rect", {
-            x: x + width * 0.25,
-            y: y + height * 0.16,
-            width: width * 0.5,
-            height: height * 0.58,
-            rx: Math.min(width, height) * 0.16,
-            class: "floor-vehicle-mark"
-          }));
-        } else {
-          group.appendChild(createSvgElement("rect", {
-            x: x + width * 0.16,
-            y: y + height * 0.25,
-            width: width * 0.58,
-            height: height * 0.5,
-            rx: Math.min(width, height) * 0.16,
-            class: "floor-vehicle-mark"
-          }));
-        }
       }
     }
     if (editable) {
@@ -3262,16 +3247,11 @@ function createSvgElement(name, attributes = {}, text = "") {
 }
 
 function toSvgX(value) {
-  return Number(value) * 1.6;
+  return Number(value) * FLOOR_PLAN_X_SCALE;
 }
 
 function svgPoints(points) {
   return points.map((point) => `${toSvgX(point.x)},${point.y}`).join(" ");
-}
-
-function getSourceSlotPolygon(slot) {
-  const points = normalizeFloorPoints(slot?.sourcePolygon, 4);
-  return points.length === 4 ? points.slice(0, 4) : null;
 }
 
 function polygonCenter(points) {
@@ -3484,19 +3464,9 @@ async function generatePlanFromPrompt() {
       for (let index = 0; index < floorNames.length; index += 1) {
         const floorName = floorNames[index];
         els.geminiStatus.textContent = `Gemini가 ${floorName} 도면을 생성하는 중입니다... (${index + 1}/${floorNames.length})`;
-        const draftFloors = await generatePlanWithGemini(floorName, index, floorNames.length);
+        const generated = await generatePlanWithGemini(floorName, index, floorNames.length);
         if (revision !== planImageRevision) return;
-        els.geminiStatus.textContent = `Gemini가 ${floorName} 주차면 수와 배치를 다시 검수하는 중입니다...`;
-        let reviewedFloor = draftFloors[0];
-        try {
-          const reviewedFloors = await reviewPlanWithGemini(floorName, draftFloors[0]);
-          reviewedFloor = reviewedFloors[0];
-        } catch (reviewError) {
-          console.warn(`Gemini ${floorName} review skipped:`, reviewError);
-          els.geminiStatus.textContent = `${floorName} 검수 서버가 혼잡해 1차 생성 도면을 사용합니다.`;
-        }
-        if (revision !== planImageRevision) return;
-        generatedFloors.push(polishGeneratedFloor({ ...reviewedFloor, name: floorName }));
+        generatedFloors.push(polishGeneratedFloor({ ...generated[0], name: floorName }));
       }
       applyGeneratedFloors(generatedFloors);
       clearPlanImages();
@@ -3637,12 +3607,15 @@ function formatFloorName(kind, number) {
 }
 
 async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
-  const imageParts = state.planImages.filter(image => image.floor === floorName).map((image) => ({
-    inline_data: {
-      mime_type: image.mimeType,
-      data: image.base64
+  const imageParts = state.planImages.filter(image => image.floor === floorName).flatMap((image, index) => [
+    { text: `참고 사진 ${index + 1}: ${floorName}의 동일한 주차장을 다른 위치에서 촬영한 사진` },
+    {
+      inline_data: {
+        mime_type: image.mimeType,
+        data: image.base64
+      }
     }
-  }));
+  ]);
 
   const payload = await requestGeminiGeneration({
     contents: [
@@ -3655,6 +3628,8 @@ async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
       }
     ],
     generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 32768,
       responseMimeType: "application/json",
       responseSchema: floorPlanSchema()
     }
@@ -3664,34 +3639,6 @@ async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
   if (!text) throw new Error("응답에 도면 JSON이 없습니다.");
   const parsed = JSON.parse(stripJsonFence(text));
   return validateGeneratedFloors(parsed);
-}
-
-async function reviewPlanWithGemini(floorName, draftFloor) {
-  const imageParts = state.planImages.filter(image => image.floor === floorName).map((image) => ({
-    inline_data: {
-      mime_type: image.mimeType,
-      data: image.base64
-    }
-  }));
-  const payload = await requestGeminiGeneration({
-    contents: [
-      {
-        role: "user",
-        parts: [
-          { text: geminiReviewPrompt(floorName, draftFloor) },
-          ...imageParts
-        ]
-      }
-    ],
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: floorPlanSchema()
-    }
-  });
-
-  const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
-  if (!text) throw new Error("검수 응답에 도면 JSON이 없습니다.");
-  return validateGeneratedFloors(JSON.parse(stripJsonFence(text)));
 }
 
 async function requestGeminiGeneration(payload) {
@@ -3710,37 +3657,6 @@ async function requestGeminiGeneration(payload) {
   return result;
 }
 
-function geminiReviewPrompt(floorName, draftFloor) {
-  const enteredTotal = Number(els.registerTotalSpaces?.value);
-  const expectedTotal = enteredTotal > 0 ? `${enteredTotal}면` : `미입력(사진에서 직접 계산, 초안은 ${draftFloor.slots.length}면)`;
-  const expectedDisabled = Math.max(0, Number(els.registerDisabledSpaces?.value) || 0);
-  const expectedPregnant = Math.max(0, Number(els.registerPregnantSpaces?.value) || 0);
-  return `
-너는 주차장 사진과 1차 생성 도면을 대조하는 건축 CAD 검수자다. 초안의 숫자를 믿지 말고 사진 원본에서 주차면과 구조물을 독립적으로 다시 확인해 ${floorName} 도면 JSON 전체를 교정해라.
-
-사용자 입력 참고값: 전체 예상 ${expectedTotal}, 장애인 ${expectedDisabled}면, 임산부 ${expectedPregnant}면. 입력 숫자를 맞추기 위해 사진에 없는 칸을 만들지 말고 사진을 우선한다.
-
-검수 순서:
-1. sourcePolygon은 카메라 원본 화면의 좌표다. 이 좌표만큼은 조감도 원근 보정을 적용하지 말고 사진에서 보이는 네 꼭짓점을 그대로 기록한다.
-2. 사진에 빨강/초록 점선 사각형과 0/1 표시가 있으면 닫힌 사각형 하나를 주차면 하나로 보고, 각 사각형의 네 모서리와 서로 이웃한 면을 확인해라.
-3. 빨강/초록 사각형이 표시된 사진에서는 그 사각형의 네 꼭짓점이 최종 배치의 절대 기준이다. sourcePolygon에 네 꼭짓점을 그대로 복사하고, 보기 좋게 일렬 정렬하거나 위치·간격·각도를 바꾸지 마라. x/y/w/h는 폴리곤이 없는 사진에서만 쓰는 예비값이다.
-4. 카메라 화면에서 가까워서 크게 보이는 칸과 멀어서 작게 보이는 칸의 앞뒤·좌우 순서와 인접 관계를 절대 바꾸지 마라.
-5. 서로 다른 깊이에 놓인 칸을 보기 좋다는 이유로 한 줄 가로 배열로 합치지 마라. 초안이 그렇게 되어 있으면 반드시 교정한다.
-6. 사진의 가상 빨강/초록 테두리와 0/1은 슬롯 위치와 초기 점유 상태를 읽는 자료일 뿐 도면의 벽, 화살표, 장애인 표식이 아니다.
-7. 장애인·임산부 kind는 바닥 도색이나 실제 표지가 사진에서 확인될 때만 사용한다. 입력 숫자만 보고 특수 칸을 만들지 마라.
-8. 사진에 차량이 있거나 빨강/1이면 occupied, 차량이 없고 초록/0이면 available로 둔다.
-9. 초안에 사진에 없는 칸·벽·화살표·출입구가 있으면 삭제하고, 빠진 칸과 구조가 있으면 추가한다.
-10. detectedSlotCount와 slots 배열 길이를 반드시 같게 만든다.
-11. 각 주차면은 sourcePolygon에 사진에서 보이는 실제 사각형을 기록한다. x/y/w/h는 폴리곤이 없을 때의 대체 렌더링용이다.
-12. parking zone의 label은 빈 문자열로 두고 wall/divider/boundary에는 label을 넣지 않는다.
-13. 각 slot의 sourcePolygon과 adjacentSlots가 사진 원본 및 최종 도면의 인접 관계와 일치하는지 확인한다.
-14. 출력은 floorPlanSchema에 맞는 JSON만 반환한다.
-
-1차 초안:
-${JSON.stringify({ floors: [draftFloor] })}
-`;
-}
-
 function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
   const instruction = els.planPrompt.value || DEFAULT_PLAN_INSTRUCTION;
   const enteredTotal = Number(els.registerTotalSpaces?.value);
@@ -3748,7 +3664,7 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
   const expectedDisabled = Math.max(0, Number(els.registerDisabledSpaces?.value) || 0);
   const expectedPregnant = Math.max(0, Number(els.registerPregnantSpaces?.value) || 0);
   return `
-너는 사진 측량 방식으로 건축 평면도를 복원하는 주차장 CAD 변환기다. 색칠된 주차칸 모음이나 예시 배치도를 만들지 말고, 사진 속 주차장을 천장에서 수직으로 내려다본 실제 2D 평면도처럼 원근을 보정해 복원해라.
+너는 항공·드론·고정 카메라 사진을 실제 2D 주차장 평면도로 복원하는 측량 CAD 변환기다. 색칠된 예시 배치도를 새로 디자인하지 말고, 사진에 존재하는 주차열과 차로의 위상 관계를 탑뷰로 복원해라.
 
 사용자 입력 참고값: 전체 예상 ${expectedTotal}, 장애인 ${expectedDisabled}면, 임산부 ${expectedPregnant}면. 숫자를 맞추기 위해 사진에 없는 칸을 만들지 말고 사진을 우선한다.
 
@@ -3756,52 +3672,49 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 출력은 JSON만 반환한다.
 - 지금 생성할 층은 ${floorName}이다. 전체 ${floorTotal}개 층 중 ${floorIndex + 1}번째다.
 - floors 배열에는 반드시 ${floorName} 한 층만 넣는다.
-- outline은 건물 또는 주차장 바닥의 실제 외곽선을 시계방향으로 기록한 점 배열이다. 직사각형으로 단순화하지 말고 사진에 보이는 돌출부, 꺾인 벽, 잘린 모서리를 모두 반영한다.
+- 첨부 사진이 여러 장이면 같은 장소를 다른 방향에서 본 보조 사진으로 취급한다. 가장 넓은 전경을 기준 좌표계로 사용하고, 다른 사진은 가려진 칸과 특수 표식을 확인하는 데만 사용한다. 중복 주차면을 두 번 세거나 서로 모순되는 별도 구조를 이어 붙이지 않는다.
+- 먼저 각 사진에서 독립된 주차열을 찾고, 각 열의 면수·방향·맞은편 열·사이 차로·출입구 순서를 내부적으로 표로 정리한 다음 JSON 좌표를 작성한다.
+- 모든 x/y/w/h/rotation은 카메라 화면의 원근 좌표가 아니라 원근을 제거한 최종 탑뷰 좌표다. 좌상단이 0,0이고 우하단이 100,100이다.
+- outline은 사진에서 확인되는 주차장 포장면의 경계를 시계방향으로 기록한다. 보이지 않는 건물 뒤나 수목 아래의 굴곡을 추측하지 말고, 근거가 없으면 단순한 경계로 둔다.
 - zones에는 parking, room, core, outdoor 구역을 다각형으로 분리해 넣는다. parking은 실제 차량 통행·주차 영역, room/core는 계단실·승강기실·기계실 같은 비주차 공간이다.
-- 각 zone의 points도 외곽을 따라 순서대로 기록하고 label에는 사진에서 확인되는 짧은 공간명만 넣는다.
-- JSON을 작성하기 전에 바닥 평면의 소실점과 평행 방향을 찾고, 사진을 천장에서 내려다본 조감도로 원근 보정했다고 가정한 뒤 좌표를 정해라.
-- 사진에 빨강/초록 점선 사각형과 0/1 표시가 있으면 닫힌 사각형 하나를 주차면 하나로 본다. 각 사각형의 네 모서리, 앞뒤 순서, 좌우 이웃 관계를 먼저 확인한다.
-- 빨강/초록 사각형이 이미 표시되어 있으면 그 사각형의 네 꼭짓점을 sourcePolygon에 그대로 복사한다. 이것이 최종 주차면 위치의 절대 기준이며, 일렬 정렬·간격 보정·회전 보정·재배치를 하지 않는다.
-- 표시된 사각형이 있는 경우 x/y/w/h는 sourcePolygon이 없을 때만 쓰는 예비값이다. 최종 화면은 sourcePolygon을 직접 렌더링하므로 다섯 사각형이 사진에서 차지한 상대 위치와 원근을 그대로 유지해야 한다.
-- x/y/w/h에는 필요하면 조감도용 값을 기록할 수 있지만 sourcePolygon은 카메라 사진에서 가까운 칸과 먼 칸의 크기·기울기 차이까지 그대로 보존한다.
+- 모든 zone의 label은 빈 문자열로 둔다. 사진 내용을 영어 설명으로 번역하거나 Building, Trees, Slope, Walkway 같은 추측 라벨을 만들지 않는다.
+- JSON을 작성하기 전에 소실점과 평행 방향을 찾고, 도로 경계와 주차선이 탑뷰에서 평행·직각이 되도록 원근을 제거한다.
 - 빨강/초록 테두리와 0/1은 슬롯 경계와 점유 상태를 읽는 참고 정보일 뿐, 도면에 색 면·숫자·장식으로 그리지 않는다.
-- detectedSlotCount에는 사진에서 센 전체 주차면 수를 넣고, slots 배열에도 정확히 같은 개수의 객체를 넣어라.
-- 반복되는 주차면을 대표 3~4칸으로 줄이거나 생략하면 안 된다. 사진에 보이는 주차면 하나당 slot 객체가 반드시 하나 있어야 한다.
+- rows 배열에는 사진에서 연속된 주차열 하나당 객체 하나를 넣는다. 곡선이나 방향이 바뀌는 열은 직선 구간별로 나눈다.
+- row의 startX/startY는 첫 번째 주차면 중심, endX/endY는 마지막 주차면 중심의 최종 탑뷰 좌표다.
+- row의 count는 그 열의 전체 면수다. w는 회전 전 주차면의 짧은 폭, h는 긴 깊이이며 항상 w<h로 둔다. rotation은 긴 축이 세로일 때 0도, 가로일 때 90도인 탑뷰 회전 각도다.
+- statuses와 kinds 배열은 첫 칸부터 마지막 칸 순서이며 길이가 반드시 count와 같아야 한다.
+- detectedSlotCount는 모든 rows의 count 합계와 같아야 한다. 반복되는 열을 대표 3~4칸으로 줄이거나 생략하지 않는다.
+- 차량 때문에 주차선이 가려져도 같은 열의 규칙적인 간격과 차량 중심을 사용해 차량 한 대당 주차면 하나를 복원한다. 빈 칸과 차량이 있는 칸을 모두 센다.
 - 좌표는 전체 도면 기준 퍼센트이며 0~100 범위다.
-- slot의 x, y는 좌상단 기준이다.
-- slot의 w, h는 폭과 높이다.
-- slot의 rotation은 위에서 본 도면에서의 회전 각도이며 -180~180 범위다.
-- slot의 sourcePolygon은 카메라 원본 사진에서 해당 주차면의 네 모서리를 사진 기준 0~100 좌표로 시계방향 기록한다.
-- slot의 adjacentSlots에는 원본 사진에서 경계를 맞대거나 바로 이웃한 다른 주차면의 1부터 시작하는 번호를 넣는다.
-- kind는 normal, disabled, pregnant 중 하나다.
-- status는 occupied 또는 available 중 하나다.
+- kinds 값은 normal, disabled, pregnant 중 하나다.
+- statuses 값은 occupied 또는 available 중 하나다.
 - 사진에 차량이 있거나 빨강/1로 표시된 칸은 occupied, 차량이 없고 초록/0으로 표시된 칸은 available로 둔다.
 - 장애인 주차면은 실제 휠체어 바닥 도색이나 표지가 보일 때만 disabled로 둔다.
 - 임산부/여성 우선 주차면은 실제 바닥 도색이나 표지가 보일 때만 pregnant로 둔다.
 - 사용자 입력에 장애인·임산부 숫자가 있어도 사진에서 위치를 확인할 수 없으면 일반 칸을 임의로 특수 칸으로 바꾸지 않는다.
 - 파란 바탕의 휠체어 표시는 disabled로, 분홍 바탕의 특수 주차 표시는 pregnant로 분류한다.
 - 사진에 보이지 않는 구조를 임의로 추가하지 않되, 사진에 보이는 벽과 통행 공간은 반드시 도면 요소로 만든다.
-- 사진 바깥의 책상, 케이블, 손, 의자 같은 배경은 모두 무시하고 주차 보드만 도면 전체에 맞춰 사용한다.
-- 사진에 보이는 벽, 차로, 입구, 계단, 승강기, 문, 카메라/기둥/장애물, 라벨은 elements 배열로 만든다.
+- 사진 바깥 배경과 주차장 밖의 건물·나무·보행로는 도면 요소로 만들지 않는다.
+- 사진에 보이는 벽, 차로, 입구, 계단, 승강기, 문, 기둥, 장애물만 elements 배열로 만든다. label 타입 element는 사용하지 않는다.
 - elements의 type은 boundary, wall, divider, lane, room, stair, elevator, door, entrance, exit, ramp, column, camera, obstacle, label, stripe, arrow 중 하나다.
 - 기울어진 벽이나 요소는 rotation에 각도를 넣는다. 외곽 전체를 하나의 큰 사각형으로 덮어 구조를 숨기면 안 된다.
 - 사선 완충 구역과 방향 화살표는 사진 바닥에 실제로 그려져 있을 때만 만든다. CCTV 오버레이의 선이나 숫자를 구조물로 해석하지 않는다.
 - 주차면은 사진에서 보이는 위치와 방향을 우선한다. 앱이 보기 좋게 만들려고 임의로 상단/하단/좌우 템플릿에 맞추지 않는다.
 - 주차면이 행(row)이나 열(column)을 이루면 개수, 앞뒤·좌우 순서, 간격, 방향을 그대로 유지한다. 사진의 깊이 방향 배치를 임의의 가로 한 줄로 펴지 않는다.
-- sourcePolygon에서 확인한 인접 관계가 최종 x, y, rotation 배치에서도 유지되어야 한다.
 - 주차면 하나는 실제 약 2.3~2.5m × 5m 비율처럼 짧은 변 대비 긴 변이 1.8~2.4배인 직사각형이어야 한다. 정사각형이나 작은 막대로 만들지 않는다.
-- 사진 중앙이 비어 있으면 빈 공간으로 남기고, 사진 중앙에 구조물이 있으면 obstacle 또는 label로 표시한다.
+- 사진 중앙이 비어 있으면 빈 공간으로 남기고, 실제 구조물이 있으면 obstacle로 표시한다.
 - 주차면끼리 절대 겹치지 않게 배치한다.
 - 장애인/임산부 특수 주차면도 사진에 보이는 실제 위치에 둔다.
 - 보드가 가로로 길면 도면도 가로형으로 구성하고, 중앙 차로가 넓으면 그 비율을 줄이지 않는다.
 - 벽은 wall 또는 boundary, 차량 통행 공간은 lane, 출입구는 entrance/exit, 경사로는 ramp, 기둥은 column으로 구분한다.
 - 결과는 색칠된 칸 표가 아니라 건축 도면이어야 한다. 비주차 실은 흰 공간, 주차 구역은 별도 zone, 벽은 가는 이중선, 주차면은 얇은 경계선으로 읽혀야 한다.
 - lane은 주차면 아래에 넓은 면으로 배치하고 arrow는 lane 위에 둔다. 주차면과 차로가 겹치면 안 된다.
-- 슬롯 번호나 임의의 숫자는 elements 또는 slots에 추가하지 않는다.
-- parking zone의 label은 빈 문자열로 두고, wall/divider/boundary에 "좌측 벽", "우측 벽", "주차구역" 같은 설명용 label을 넣지 않는다.
+- 슬롯 번호나 임의의 숫자는 elements에 추가하지 않는다.
+- 모든 zone과 wall/divider/boundary에는 label을 넣지 않는다.
 - outline이 외곽선을 나타내므로 동일한 외곽을 boundary element로 중복 생성하지 않는다.
-- 응답 직전에 detectedSlotCount와 slots.length가 같은지 다시 확인한다.
-- 사진이 여러 층을 직접 구분하지 못하면 층마다 같은 구조를 쓰되 일부 주차 상태만 다르게 둔다.
+- 응답 직전에 detectedSlotCount와 rows의 count 합계가 같은지 다시 확인한다.
+- 사진에서 확인할 수 없는 구조나 층을 복제하지 않는다.
 
 내부 지시:
 ${instruction}
@@ -3871,41 +3784,34 @@ function floorPlanSchema() {
               }
             },
             detectedSlotCount: { type: "INTEGER" },
-            slots: {
+            rows: {
               type: "ARRAY",
               minItems: 1,
               items: {
                 type: "OBJECT",
                 properties: {
-                  kind: { type: "STRING", enum: ["normal", "disabled", "pregnant"] },
-                  status: { type: "STRING", enum: ["occupied", "available"] },
-                  x: { type: "NUMBER" },
-                  y: { type: "NUMBER" },
+                  startX: { type: "NUMBER" },
+                  startY: { type: "NUMBER" },
+                  endX: { type: "NUMBER" },
+                  endY: { type: "NUMBER" },
+                  count: { type: "INTEGER" },
                   w: { type: "NUMBER" },
                   h: { type: "NUMBER" },
                   rotation: { type: "NUMBER" },
-                  sourcePolygon: {
+                  statuses: {
                     type: "ARRAY",
-                    minItems: 4,
-                    items: {
-                      type: "OBJECT",
-                      properties: {
-                        x: { type: "NUMBER" },
-                        y: { type: "NUMBER" }
-                      },
-                      required: ["x", "y"]
-                    }
+                    items: { type: "STRING", enum: ["occupied", "available"] }
                   },
-                  adjacentSlots: {
+                  kinds: {
                     type: "ARRAY",
-                    items: { type: "INTEGER" }
+                    items: { type: "STRING", enum: ["normal", "disabled", "pregnant"] }
                   }
                 },
-                required: ["kind", "status", "x", "y", "w", "h", "rotation", "sourcePolygon", "adjacentSlots"]
+                required: ["startX", "startY", "endX", "endY", "count", "w", "h", "rotation", "statuses", "kinds"]
               }
             }
           },
-          required: ["name", "outline", "zones", "detectedSlotCount", "slots"]
+          required: ["name", "outline", "zones", "detectedSlotCount", "rows"]
         }
       }
     },
@@ -3916,12 +3822,10 @@ function floorPlanSchema() {
 function validateGeneratedFloors(plan) {
   const floors = Array.isArray(plan?.floors) ? plan.floors : [];
   const validFloors = floors.map((floor, floorIndex) => {
-    const slots = Array.isArray(floor.slots)
-      ? floor.slots.map(normalizeGeneratedSlot).filter(Boolean)
-      : [];
+    const slots = expandGeneratedRows(floor.rows);
     return {
       name: String(floor.name || `B${floorIndex + 1}`),
-      detectedSlotCount: Number(floor.detectedSlotCount),
+      detectedSlotCount: slots.length,
       outline: normalizeFloorPoints(floor.outline, 3),
       zones: Array.isArray(floor.zones)
         ? floor.zones.map(normalizeGeneratedZone).filter(Boolean)
@@ -3934,13 +3838,46 @@ function validateGeneratedFloors(plan) {
   }).filter((floor) => floor.slots.length > 0);
 
   if (validFloors.length === 0) throw new Error("유효한 주차면이 없습니다.");
-  const mismatchedFloor = validFloors.find((floor) => (
-    Number.isFinite(floor.detectedSlotCount) && floor.detectedSlotCount !== floor.slots.length
-  ));
-  if (mismatchedFloor) {
-    throw new Error(`Gemini가 센 ${mismatchedFloor.detectedSlotCount}면과 생성한 ${mismatchedFloor.slots.length}면이 달라 도면을 적용하지 않았습니다. 다시 생성해 주세요.`);
-  }
   return validFloors.slice(0, 8);
+}
+
+function expandGeneratedRows(rows) {
+  const slots = [];
+  if (!Array.isArray(rows)) return slots;
+
+  rows.slice(0, 60).forEach((row) => {
+    const count = clamp(Math.round(Number(row.count) || 0), 1, 80);
+    const startX = clamp(Number(row.startX), 1, 99);
+    const startY = clamp(Number(row.startY), 1, 99);
+    const endX = clamp(Number(row.endX), 1, 99);
+    const endY = clamp(Number(row.endY), 1, 99);
+    const rawW = clamp(Number(row.w), 1.5, 30);
+    const rawH = clamp(Number(row.h), 1.5, 30);
+    if (![startX, startY, endX, endY, rawW, rawH].every(Number.isFinite)) return;
+    const shortSide = Math.min(rawW, rawH);
+    const longSide = Math.max(rawW, rawH);
+
+    for (let index = 0; index < count && slots.length < 240; index += 1) {
+      const progress = count === 1 ? 0 : index / (count - 1);
+      const centerX = startX + (endX - startX) * progress;
+      const centerY = startY + (endY - startY) * progress;
+      const status = row.statuses?.[index] === "available" ? "available" : "occupied";
+      const kind = ["disabled", "pregnant"].includes(row.kinds?.[index]) ? row.kinds[index] : "normal";
+      const slotWidth = shortSide / FLOOR_PLAN_X_SCALE;
+      const slot = normalizeGeneratedSlot({
+        kind,
+        status,
+        x: centerX - slotWidth / 2,
+        y: centerY - longSide / 2,
+        w: slotWidth,
+        h: longSide,
+        rotation: row.rotation
+      });
+      if (slot) slots.push(slot);
+    }
+  });
+
+  return slots;
 }
 
 function normalizeGeneratedElement(element) {
@@ -4012,21 +3949,8 @@ function normalizeGeneratedSlot(slot) {
 function normalizeParkingSlotRect(rawX, rawY, rawW, rawH) {
   const centerX = clamp(rawX + rawW / 2, 4, 96);
   const centerY = clamp(rawY + rawH / 2, 4, 96);
-  const horizontal = rawW >= rawH;
-  let w;
-  let h;
-
-  if (horizontal) {
-    w = clamp(rawW, 12, 28);
-    h = clamp(rawH, 8, 18);
-    if (w / h < 1.15) w = Math.min(28, h * 1.15);
-    if (w / h > 1.55) h = w / 1.55;
-  } else {
-    w = clamp(rawW, 4.5, 10);
-    h = clamp(rawH, 14, 30);
-    if (h / w < 2.8) h = Math.min(30, w * 2.8);
-    if (h / w > 3.8) w = h / 3.8;
-  }
+  const w = clamp(rawW, 1.5, 30);
+  const h = clamp(rawH, 1.5, 30);
 
   return {
     x: clamp(centerX - w / 2, 2, 98 - w),
@@ -4041,10 +3965,7 @@ function polishGeneratedFloor(floor) {
     name: floor.name,
     outline: normalizeFloorPoints(floor.outline, 3),
     zones: Array.isArray(floor.zones)
-      ? floor.zones.map(normalizeGeneratedZone).filter(Boolean).map((zone) => ({
-        ...zone,
-        label: zone.type === "parking" ? "" : zone.label
-      }))
+      ? floor.zones.map(normalizeGeneratedZone).filter(Boolean).map((zone) => ({ ...zone, label: "" }))
       : [],
     elements: (floor.elements || []).map(cleanGeneratedElement).filter(Boolean),
     slots: preserveGeneratedLayout(floor.slots || [])
@@ -4053,27 +3974,23 @@ function polishGeneratedFloor(floor) {
 
 function cleanGeneratedElement(element) {
   if (!element || element.type === "boundary") return null;
-  if (element.type === "label" && isGenericPlanLabel(element.label)) return null;
+  if (element.type === "label") return null;
   if (["wall", "divider", "lane", "stripe"].includes(element.type)) {
     return { ...element, label: "" };
   }
   return element;
 }
 
-function isGenericPlanLabel(value) {
-  return /^(주차장|주차구역|주차 영역|좌측 ?벽|우측 ?벽|상단 ?벽|하단 ?벽|외벽|차로)$/.test(String(value || "").trim());
-}
-
 function preserveGeneratedLayout(slots) {
   const preserved = [];
 
-  slots.slice(0, 80).forEach((slot) => {
+  slots.slice(0, 240).forEach((slot) => {
     const clean = {
       ...slot,
       x: clamp(Number(slot.x), 1, 99 - Number(slot.w)),
       y: clamp(Number(slot.y), 1, 99 - Number(slot.h)),
-      w: clamp(Number(slot.w), 5.5, 30),
-      h: clamp(Number(slot.h), 5.5, 30)
+      w: clamp(Number(slot.w), 1.5, 30),
+      h: clamp(Number(slot.h), 1.5, 30)
     };
     const duplicate = preserved.some((existing) => (
       Math.abs(existing.x - clean.x) < 0.5 &&
