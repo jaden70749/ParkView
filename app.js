@@ -3152,7 +3152,6 @@ function renderFloorPlan(container, floorOrSlots, editable) {
       tabindex: editable ? "0" : "-1",
       "aria-label": `${index + 1}번 주차면 ${slot.status === "available" ? "주차 가능" : "주차 중"}`
     });
-    const symbol = slot.kind === "disabled" ? "♿" : slot.kind === "pregnant" ? "♀" : "";
     const x = toSvgX(slot.x);
     const y = slot.y;
     const width = toSvgX(slot.w);
@@ -3161,15 +3160,7 @@ function renderFloorPlan(container, floorOrSlots, editable) {
     if (Math.abs(rotation) > 0.1) {
       group.setAttribute("transform", `rotate(${rotation} ${x + width / 2} ${y + height / 2})`);
     }
-    group.appendChild(createSvgElement("rect", { x, y, width, height, rx: 0.45, class: "floor-slot-body" }));
-    group.appendChild(createSvgElement("rect", {
-      x: x + 0.8,
-      y: y + 0.8,
-      width: Math.max(0.5, width - 1.6),
-      height: Math.max(0.5, height - 1.6),
-      rx: 0.25,
-      class: "floor-slot-inset"
-    }));
+    group.appendChild(createSvgElement("rect", { x, y, width, height, class: "floor-slot-body" }));
     if (orientation === "vertical") {
       group.appendChild(createSvgElement("line", {
         x1: x + width * 0.18, x2: x + width * 0.82,
@@ -3183,33 +3174,9 @@ function renderFloorPlan(container, floorOrSlots, editable) {
         class: "floor-wheel-stop"
       }));
     }
-    if (symbol) {
-      group.appendChild(createSvgElement("text", {
-        x: x + width / 2,
-        y: y + height / 2,
-        class: "floor-slot-symbol"
-      }, symbol));
-    } else if (slot.status === "occupied") {
-      if (orientation === "vertical") {
-        group.appendChild(createSvgElement("rect", {
-          x: x + width * 0.25,
-          y: y + height * 0.16,
-          width: width * 0.5,
-          height: height * 0.58,
-          rx: Math.min(width, height) * 0.16,
-          class: "floor-vehicle-mark"
-        }));
-      } else {
-        group.appendChild(createSvgElement("rect", {
-          x: x + width * 0.16,
-          y: y + height * 0.25,
-          width: width * 0.58,
-          height: height * 0.5,
-          rx: Math.min(width, height) * 0.16,
-          class: "floor-vehicle-mark"
-        }));
-      }
-    }
+    if (slot.status === "occupied") appendFloorVehicle(group, x, y, width, height, orientation);
+    if (slot.kind === "disabled") appendAccessibleFloorSymbol(group, x, y, width, height);
+    if (slot.kind === "pregnant") appendPregnantFloorSymbol(group, x, y, width, height);
     if (editable) {
       const toggle = () => {
         slot.status = slot.status === "available" ? "occupied" : "available";
@@ -3237,6 +3204,77 @@ function renderFloorPlan(container, floorOrSlots, editable) {
     class: "floor-outline-stroke"
   }));
   container.appendChild(svg);
+}
+
+function appendFloorVehicle(group, x, y, width, height, orientation) {
+  const horizontal = orientation === "horizontal";
+  const carX = x + width * (horizontal ? 0.14 : 0.24);
+  const carY = y + height * (horizontal ? 0.24 : 0.14);
+  const carWidth = width * (horizontal ? 0.66 : 0.52);
+  const carHeight = height * (horizontal ? 0.52 : 0.66);
+  group.appendChild(createSvgElement("rect", {
+    x: carX,
+    y: carY,
+    width: carWidth,
+    height: carHeight,
+    rx: Math.min(carWidth, carHeight) * 0.22,
+    class: "floor-vehicle-mark"
+  }));
+  if (horizontal) {
+    group.appendChild(createSvgElement("line", {
+      x1: carX + carWidth * 0.34, x2: carX + carWidth * 0.34,
+      y1: carY + carHeight * 0.12, y2: carY + carHeight * 0.88,
+      class: "floor-vehicle-window"
+    }));
+    group.appendChild(createSvgElement("line", {
+      x1: carX + carWidth * 0.68, x2: carX + carWidth * 0.68,
+      y1: carY + carHeight * 0.12, y2: carY + carHeight * 0.88,
+      class: "floor-vehicle-window"
+    }));
+  } else {
+    group.appendChild(createSvgElement("line", {
+      x1: carX + carWidth * 0.12, x2: carX + carWidth * 0.88,
+      y1: carY + carHeight * 0.34, y2: carY + carHeight * 0.34,
+      class: "floor-vehicle-window"
+    }));
+    group.appendChild(createSvgElement("line", {
+      x1: carX + carWidth * 0.12, x2: carX + carWidth * 0.88,
+      y1: carY + carHeight * 0.68, y2: carY + carHeight * 0.68,
+      class: "floor-vehicle-window"
+    }));
+  }
+}
+
+function appendAccessibleFloorSymbol(group, x, y, width, height) {
+  const centerX = x + width / 2;
+  const centerY = y + height / 2;
+  const scale = Math.max(0.52, Math.min(width, height) / 5.2);
+  group.appendChild(createSvgElement("circle", {
+    cx: centerX - scale * 0.35, cy: centerY - scale * 1.15, r: scale * 0.34,
+    class: "floor-accessible-symbol"
+  }));
+  group.appendChild(createSvgElement("path", {
+    d: `M ${centerX - scale * 0.35} ${centerY - scale * 0.7} L ${centerX - scale * 0.12} ${centerY + scale * 0.05} L ${centerX + scale * 0.72} ${centerY + scale * 0.05} M ${centerX - scale * 0.12} ${centerY + scale * 0.05} L ${centerX + scale * 0.35} ${centerY + scale * 0.82}`,
+    class: "floor-accessible-symbol"
+  }));
+  group.appendChild(createSvgElement("circle", {
+    cx: centerX - scale * 0.22, cy: centerY + scale * 0.46, r: scale * 0.82,
+    class: "floor-accessible-wheel"
+  }));
+}
+
+function appendPregnantFloorSymbol(group, x, y, width, height) {
+  const centerX = x + width / 2;
+  const centerY = y + height / 2;
+  const scale = Math.max(0.55, Math.min(width, height) / 5.2);
+  group.appendChild(createSvgElement("circle", {
+    cx: centerX, cy: centerY - scale * 1.18, r: scale * 0.34,
+    class: "floor-pregnant-symbol"
+  }));
+  group.appendChild(createSvgElement("path", {
+    d: `M ${centerX - scale * 0.32} ${centerY - scale * 0.68} C ${centerX + scale * 0.65} ${centerY - scale * 0.5}, ${centerX + scale * 0.78} ${centerY + scale * 0.38}, ${centerX + scale * 0.2} ${centerY + scale * 0.55} L ${centerX + scale * 0.34} ${centerY + scale * 1.15} M ${centerX - scale * 0.16} ${centerY + scale * 0.48} L ${centerX - scale * 0.32} ${centerY + scale * 1.15}`,
+    class: "floor-pregnant-symbol"
+  }));
 }
 
 function createSvgElement(name, attributes = {}, text = "") {
@@ -3290,7 +3328,8 @@ function renderSvgPlanElement(svg, element, stripePatternId) {
   const height = element.h;
   const centerX = x + width / 2;
   const centerY = y + height / 2;
-  const transform = element.rotation ? `rotate(${element.rotation} ${centerX} ${centerY})` : undefined;
+  const uprightLabelType = ["entrance", "exit", "ramp", "ramp_up", "ramp_down"].includes(element.type);
+  const transform = element.rotation && !uprightLabelType ? `rotate(${element.rotation} ${centerX} ${centerY})` : undefined;
   const group = createSvgElement("g", {
     class: `floor-element floor-element-${element.type}`,
     ...(transform ? { transform } : {})
@@ -3306,7 +3345,8 @@ function renderSvgPlanElement(svg, element, stripePatternId) {
       class: `floor-structure-line floor-structure-${element.type}`
     }));
   } else if (element.type === "arrow") {
-    appendFloorDirectionArrow(group, x, y, width, height, "floor-direction-arrow");
+    const box = fitFloorSymbolBox(x, y, width, height, 10, 5.5);
+    appendFloorDirectionArrow(group, box.x, box.y, box.width, box.height, "floor-direction-arrow");
   } else if (element.type === "label" && !isGenericPlanLabel(element.label)) {
     group.appendChild(createSvgElement("text", { x: centerX, y: centerY, class: "floor-label" }, element.label));
   } else if (element.type === "stripe") {
@@ -3325,9 +3365,10 @@ function renderSvgPlanElement(svg, element, stripePatternId) {
       group.appendChild(createSvgElement("line", { x1: x, x2: x + width, y1: lineY, y2: lineY, class: "floor-stair-line" }));
     }
   } else if (element.type === "elevator") {
-    group.appendChild(createSvgElement("rect", { x, y, width, height, rx: 0.4, class: "floor-elevator-shape" }));
-    group.appendChild(createSvgElement("line", { x1: centerX, x2: centerX, y1: y + 1, y2: y + height - 1, class: "floor-elevator-door" }));
-    group.appendChild(createSvgElement("text", { x: centerX, y: centerY, class: "floor-fixed-label" }, "EV"));
+    const box = fitFloorSymbolBox(x, y, width, height, 6.5, 6.5);
+    group.appendChild(createSvgElement("rect", { x: box.x, y: box.y, width: box.width, height: box.height, class: "floor-elevator-shape" }));
+    group.appendChild(createSvgElement("line", { x1: box.centerX, x2: box.centerX, y1: box.y + 1, y2: box.y + box.height - 1, class: "floor-elevator-door" }));
+    group.appendChild(createSvgElement("text", { x: box.centerX, y: box.centerY, class: "floor-fixed-label" }, "EV"));
   } else if (element.type === "column") {
     const radius = Math.max(1.2, Math.min(width, height) * 0.32);
     group.appendChild(createSvgElement("circle", { cx: centerX, cy: centerY, r: radius, class: "floor-column-shape" }));
@@ -3340,9 +3381,11 @@ function renderSvgPlanElement(svg, element, stripePatternId) {
       class: "floor-door-swing"
     }));
   } else if (["entrance", "exit"].includes(element.type)) {
-    appendFloorGate(group, x, y, width, height, element.type);
+    const box = fitFloorSymbolBox(x, y, width, height, 12, 8);
+    appendFloorGate(group, box, element.type, element.rotation);
   } else if (["ramp", "ramp_up", "ramp_down"].includes(element.type)) {
-    appendFloorRamp(group, x, y, width, height, element.type, stripePatternId);
+    const box = fitFloorSymbolBox(x, y, width, height, 15, 10);
+    appendFloorRamp(group, box, element.type, stripePatternId, element.rotation);
   } else if (element.type === "camera") {
     const radius = Math.max(1.1, Math.min(width, height) * 0.2);
     group.appendChild(createSvgElement("circle", { cx: x + width * 0.32, cy: centerY, r: radius, class: "floor-camera-body" }));
@@ -3361,12 +3404,29 @@ function renderSvgPlanElement(svg, element, stripePatternId) {
   svg.appendChild(group);
 }
 
+function fitFloorSymbolBox(x, y, width, height, minWidth, minHeight) {
+  const fittedWidth = Math.max(width, minWidth);
+  const fittedHeight = Math.max(height, minHeight);
+  const centerX = x + width / 2;
+  const centerY = y + height / 2;
+  const fittedX = clamp(centerX - fittedWidth / 2, 1, 159 - fittedWidth);
+  const fittedY = clamp(centerY - fittedHeight / 2, 1, 99 - fittedHeight);
+  return {
+    x: fittedX,
+    y: fittedY,
+    width: fittedWidth,
+    height: fittedHeight,
+    centerX: fittedX + fittedWidth / 2,
+    centerY: fittedY + fittedHeight / 2
+  };
+}
+
 function appendFloorDirectionArrow(group, x, y, width, height, className) {
   const centerY = y + height / 2;
   const startX = x + width * 0.18;
   const tipX = x + width * 0.82;
   const headX = x + width * 0.62;
-  const headHalfHeight = Math.max(1.8, Math.min(height * 0.32, width * 0.16));
+  const headHalfHeight = Math.max(1.15, Math.min(height * 0.3, width * 0.13));
   group.appendChild(createSvgElement("line", {
     x1: startX, y1: centerY, x2: tipX, y2: centerY,
     class: `${className}-line`
@@ -3377,38 +3437,43 @@ function appendFloorDirectionArrow(group, x, y, width, height, className) {
   }));
 }
 
-function appendFloorGate(group, x, y, width, height, type) {
-  const centerY = y + height / 2;
-  const postTop = y + height * 0.12;
-  const postBottom = y + height * 0.88;
-  group.appendChild(createSvgElement("rect", { x, y, width, height, rx: 0.7, class: `floor-gate-zone floor-gate-${type}` }));
-  [x + width * 0.12, x + width * 0.88].forEach((postX) => {
-    group.appendChild(createSvgElement("line", { x1: postX, x2: postX, y1: postTop, y2: postBottom, class: "floor-gate-post" }));
+function appendFloorGate(group, box, type, rotation = 0) {
+  const symbol = createSvgElement("g", rotation ? {
+    transform: `rotate(${rotation} ${box.centerX} ${box.centerY})`
+  } : {});
+  const postTop = box.y + box.height * 0.12;
+  const postBottom = box.y + box.height * 0.88;
+  [box.x + box.width * 0.12, box.x + box.width * 0.88].forEach((postX) => {
+    symbol.appendChild(createSvgElement("line", { x1: postX, x2: postX, y1: postTop, y2: postBottom, class: "floor-gate-post" }));
   });
-  appendFloorDirectionArrow(group, x + width * 0.15, y + height * 0.03, width * 0.7, height * 0.62, "floor-gate-arrow");
+  appendFloorDirectionArrow(symbol, box.x + box.width * 0.15, box.y + box.height * 0.02, box.width * 0.7, box.height * 0.58, "floor-gate-arrow");
+  group.appendChild(symbol);
   group.appendChild(createSvgElement("text", {
-    x: x + width / 2,
-    y: centerY + height * 0.28,
+    x: box.centerX,
+    y: box.y + box.height * 0.82,
     class: "floor-fixed-label floor-gate-label"
   }, type === "entrance" ? "입구" : "출구"));
 }
 
-function appendFloorRamp(group, x, y, width, height, type, stripePatternId) {
+function appendFloorRamp(group, box, type, stripePatternId, rotation = 0) {
   const rampLabel = type === "ramp_up" ? "상행" : type === "ramp_down" ? "하행" : "경사로";
-  group.appendChild(createSvgElement("rect", { x, y, width, height, rx: 0.7, class: "floor-ramp-shape" }));
-  group.appendChild(createSvgElement("rect", {
-    x: x + 0.7,
-    y: y + 0.7,
-    width: Math.max(0.6, width - 1.4),
-    height: Math.max(0.6, height - 1.4),
-    rx: 0.4,
+  const symbol = createSvgElement("g", rotation ? {
+    transform: `rotate(${rotation} ${box.centerX} ${box.centerY})`
+  } : {});
+  symbol.appendChild(createSvgElement("rect", { x: box.x, y: box.y, width: box.width, height: box.height, class: "floor-ramp-shape" }));
+  symbol.appendChild(createSvgElement("rect", {
+    x: box.x + 0.7,
+    y: box.y + 0.7,
+    width: Math.max(0.6, box.width - 1.4),
+    height: Math.max(0.6, box.height - 1.4),
     fill: `url(#${stripePatternId})`,
     class: "floor-ramp-stripes"
   }));
-  appendFloorDirectionArrow(group, x + width * 0.08, y + height * 0.06, width * 0.84, height * 0.58, "floor-ramp-arrow");
+  appendFloorDirectionArrow(symbol, box.x + box.width * 0.08, box.y + box.height * 0.05, box.width * 0.84, box.height * 0.56, "floor-ramp-arrow");
+  group.appendChild(symbol);
   group.appendChild(createSvgElement("text", {
-    x: x + width / 2,
-    y: y + height * 0.8,
+    x: box.centerX,
+    y: box.y + box.height * 0.82,
     class: "floor-fixed-label floor-ramp-label"
   }, rampLabel));
 }
@@ -3777,6 +3842,7 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 입구와 출구가 보이면 각각 entrance와 exit로 구분한다. 층이 올라가는 경사로는 ramp_up, 내려가는 경사로는 ramp_down, 방향을 확인할 수 없는 경사로만 ramp로 둔다.
 - 바닥에 그려진 모든 차량 진행 화살표는 arrow 요소로 만든다. arrow의 x/y/w/h는 화살표가 차지하는 영역이고 rotation은 기본 오른쪽 진행 방향을 기준으로 한 시계 방향 각도다.
 - entrance, exit, ramp_up, ramp_down의 rotation도 기본 오른쪽 진행 방향을 기준으로 한다. label은 빈 문자열로 두며 앱이 고정된 벡터 기호와 한글 표기를 그린다.
+- arrow는 w 6 이상, h 4 이상으로 잡고 entrance/exit는 w 7 이상, h 7 이상으로 잡아 기호가 알아볼 수 있는 크기가 되게 한다. 작은 글자나 이모지를 elements로 만들지 않는다.
 - 기울어진 벽이나 요소는 rotation에 각도를 넣는다. 외곽 전체를 하나의 큰 사각형으로 덮어 구조를 숨기면 안 된다.
 - 사선 완충 구역과 방향 화살표는 사진 바닥에 실제로 그려져 있을 때만 만든다. CCTV 오버레이의 선이나 숫자를 구조물로 해석하지 않는다.
 - 주차면은 사진에서 보이는 위치와 방향을 우선한다. 앱이 보기 좋게 만들려고 임의로 상단/하단/좌우 템플릿에 맞추지 않는다.
@@ -3934,7 +4000,7 @@ function expandGeneratedRows(rows) {
     const rawH = clamp(Number(row.h), 1.5, 30);
     if (![startX, startY, endX, endY, rawW, rawH].every(Number.isFinite)) return;
     const shortSide = Math.min(rawW, rawH);
-    const longSide = Math.max(rawW, rawH);
+    const longSide = clamp(Math.max(rawW, rawH), shortSide * 1.8, shortSide * 2.4);
 
     for (let index = 0; index < count && slots.length < 240; index += 1) {
       const progress = count === 1 ? 0 : index / (count - 1);

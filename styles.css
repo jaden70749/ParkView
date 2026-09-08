@@ -3599,12 +3599,12 @@ textarea {
   stroke: #4d565b;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 1.7;
+  stroke-width: 1.05;
   vector-effect: non-scaling-stroke;
 }
 
 .floor-gate-zone {
-  fill: rgba(255, 255, 255, 0.92);
+  fill: none;
   stroke: #737a7e;
   stroke-width: 0.45;
   vector-effect: non-scaling-stroke;
@@ -3621,7 +3621,7 @@ textarea {
 .floor-gate-post {
   stroke: #30363a;
   stroke-linecap: square;
-  stroke-width: 2;
+  stroke-width: 1.25;
   vector-effect: non-scaling-stroke;
 }
 
@@ -3633,7 +3633,7 @@ textarea {
 }
 
 .floor-ramp-shape {
-  fill: #f3f4f2;
+  fill: rgba(243, 244, 242, 0.72);
   stroke: #656d71;
   stroke-width: 0.6;
   vector-effect: non-scaling-stroke;
@@ -3703,9 +3703,9 @@ textarea {
 }
 
 .floor-slot-body {
-  fill: #929598;
-  stroke: #353a3d;
-  stroke-width: 0.48;
+  fill: #ffffff;
+  stroke: #686f73;
+  stroke-width: 0.62;
   vector-effect: non-scaling-stroke;
 }
 
@@ -3718,15 +3718,22 @@ textarea {
 }
 
 .floor-slot-available .floor-slot-body {
-  fill: #2eae36;
+  fill: #ffffff;
+  stroke: #598463;
 }
 
 .floor-slot-disabled .floor-slot-body {
-  fill: #347fdc;
+  fill: #edf5fb;
+  stroke: #477baa;
 }
 
 .floor-slot-pregnant .floor-slot-body {
-  fill: #df50c3;
+  fill: #fff2f7;
+  stroke: #a85e83;
+}
+
+.floor-slot-occupied .floor-slot-body {
+  fill: #f1f2f2;
 }
 
 .floor-wheel-stop {
@@ -3742,9 +3749,37 @@ textarea {
 }
 
 .floor-vehicle-mark {
-  fill: rgba(52, 56, 59, 0.25);
+  fill: #777d80;
+  stroke: #4c5255;
+  stroke-width: 0.45;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.floor-vehicle-window {
   stroke: rgba(255, 255, 255, 0.72);
-  stroke-width: 0.4;
+  stroke-width: 0.45;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.floor-accessible-symbol,
+.floor-accessible-wheel {
+  fill: none;
+  stroke: #2f6d9f;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 0.75;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.floor-pregnant-symbol {
+  fill: none;
+  stroke: #9b5276;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 0.75;
   pointer-events: none;
   vector-effect: non-scaling-stroke;
 }
