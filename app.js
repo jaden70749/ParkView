@@ -3224,39 +3224,84 @@ function standardizeFloorPlanSlots(slots, outline) {
   const medianSpacing = nearestDistances.length
     ? (nearestDistances.length % 2 ? nearestDistances[middle] : (nearestDistances[middle - 1] + nearestDistances[middle]) / 2)
     : 7.5;
-  const shortSide = clamp(medianSpacing * 0.82, 5.5, 7.5);
+  const shortSide = clamp(medianSpacing * 0.78, 4.6, 6.8);
   const longSide = shortSide * 1.72;
   const rawWidth = shortSide / FLOOR_PLAN_X_SCALE;
 
   const outlineSvg = outline.map((point) => ({ x: toSvgX(point.x), y: point.y }));
-  return slots.map((slot, index) => keepDisplaySlotInsideOutline({
+  const standardized = slots.map((slot, index) => ({
     ...slot,
     x: centers[index].x / FLOOR_PLAN_X_SCALE - rawWidth / 2,
     y: centers[index].y - longSide / 2,
     w: rawWidth,
     h: longSide
-  }, outlineSvg));
+  }));
+  groupDisplaySlotsByRow(standardized).forEach((indexes) => {
+    shiftDisplaySlotRowInsideOutline(indexes, standardized, outlineSvg);
+  });
+  return standardized;
 }
 
-function keepDisplaySlotInsideOutline(slot, outline) {
-  if (outline.length < 3) return slot;
+function groupDisplaySlotsByRow(slots) {
+  const groups = [];
+  slots.forEach((slot, index) => {
+    const center = { x: toSvgX(slot.x + slot.w / 2), y: slot.y + slot.h / 2 };
+    const angle = ((Number(slot.rotation) || 0) % 180 + 180) % 180;
+    const radians = angle * Math.PI / 180;
+    const normal = { x: -Math.sin(radians), y: Math.cos(radians) };
+    let group = Number.isInteger(slot.rowIndex)
+      ? groups.find((candidate) => candidate.rowIndex === slot.rowIndex)
+      : groups.find((candidate) => {
+        const angleDifference = Math.abs(candidate.angle - angle);
+        const wrappedDifference = Math.min(angleDifference, 180 - angleDifference);
+        const deltaX = center.x - candidate.anchor.x;
+        const deltaY = center.y - candidate.anchor.y;
+        return wrappedDifference < 8 && Math.abs(deltaX * candidate.normal.x + deltaY * candidate.normal.y) < 3.2;
+      });
+    if (!group) {
+      group = {
+        rowIndex: Number.isInteger(slot.rowIndex) ? slot.rowIndex : null,
+        angle,
+        normal,
+        anchor: center,
+        indexes: []
+      };
+      groups.push(group);
+    }
+    group.indexes.push(index);
+  });
+  return groups.map((group) => group.indexes);
+}
+
+function shiftDisplaySlotRowInsideOutline(indexes, slots, outline) {
+  if (outline.length < 3 || !indexes.length) return;
   const polygonCenterPoint = {
     x: outline.reduce((sum, point) => sum + point.x, 0) / outline.length,
     y: outline.reduce((sum, point) => sum + point.y, 0) / outline.length
   };
-  let centerX = toSvgX(slot.x + slot.w / 2);
-  let centerY = slot.y + slot.h / 2;
   for (let attempt = 0; attempt < 16; attempt += 1) {
-    const corners = rotatedSlotCorners(centerX, centerY, toSvgX(slot.w), slot.h, slot.rotation);
-    if (corners.every((corner) => pointInsideFloorPolygon(corner, outline))) break;
-    centerX += (polygonCenterPoint.x - centerX) * 0.08;
-    centerY += (polygonCenterPoint.y - centerY) * 0.08;
+    const corners = indexes.flatMap((index) => {
+      const slot = slots[index];
+      return rotatedSlotCorners(
+        toSvgX(slot.x + slot.w / 2),
+        slot.y + slot.h / 2,
+        toSvgX(slot.w),
+        slot.h,
+        slot.rotation
+      );
+    });
+    if (corners.every((corner) => pointInsideFloorPolygon(corner, outline))) return;
+    const rowCenter = indexes.reduce((center, index) => ({
+      x: center.x + toSvgX(slots[index].x + slots[index].w / 2) / indexes.length,
+      y: center.y + (slots[index].y + slots[index].h / 2) / indexes.length
+    }), { x: 0, y: 0 });
+    const shiftX = (polygonCenterPoint.x - rowCenter.x) * 0.08;
+    const shiftY = (polygonCenterPoint.y - rowCenter.y) * 0.08;
+    indexes.forEach((index) => {
+      slots[index].x += shiftX / FLOOR_PLAN_X_SCALE;
+      slots[index].y += shiftY;
+    });
   }
-  return {
-    ...slot,
-    x: centerX / FLOOR_PLAN_X_SCALE - slot.w / 2,
-    y: centerY - slot.h / 2
-  };
 }
 
 function rotatedSlotCorners(centerX, centerY, width, height, rotation = 0) {
@@ -3291,44 +3336,55 @@ function prepareDrawableFloorElements(elements, slots) {
   const arrowCenters = [];
   const overlapSensitiveTypes = new Set(["room", "stair", "elevator", "door", "ramp", "ramp_up", "ramp_down", "column", "camera", "obstacle", "stripe"]);
   let arrowCount = 0;
+  const normalizedElements = alignFloorAccessPair(elements);
 
-  elements.forEach((element) => {
+  normalizedElements.forEach((element) => {
     if (!element || ["boundary", "label", "lane"].includes(element.type)) return;
+    if (element.type === "arrow" && !Number.isFinite(Number(element.confidence))) return;
+    if (["arrow", "entrance", "exit", "ramp", "ramp_up", "ramp_down"].includes(element.type) && element.confidence < 0.82) return;
     if (element.type !== "arrow") {
       if (overlapSensitiveTypes.has(element.type) && floorElementOverlapsSlots(element, slots, 0.8)) return;
       prepared.push(element);
       return;
     }
     if (arrowCount >= 6) return;
-    const placedArrow = placeFloorArrow(element, slots);
-    if (!placedArrow) return;
+    if (floorArrowOverlapsSlots(element, slots)) return;
     const center = {
-      x: toSvgX(placedArrow.x + placedArrow.w / 2),
-      y: placedArrow.y + placedArrow.h / 2
+      x: toSvgX(element.x + element.w / 2),
+      y: element.y + element.h / 2
     };
     const duplicatesArrow = arrowCenters.some((existing) => Math.hypot(center.x - existing.x, center.y - existing.y) < 11);
     if (duplicatesArrow) return;
     arrowCenters.push(center);
     arrowCount += 1;
-    prepared.push(placedArrow);
+    prepared.push(element);
   });
 
   return prepared;
 }
 
-function placeFloorArrow(element, slots) {
-  const offsets = [[0, 0], [0, -8], [0, 8], [-9, 0], [9, 0], [0, -15], [0, 15], [-16, 0], [16, 0]];
-  const centerX = toSvgX(element.x + element.w / 2);
-  const centerY = element.y + element.h / 2;
-  for (const [offsetX, offsetY] of offsets) {
-    const candidate = {
-      ...element,
-      x: (centerX + offsetX) / FLOOR_PLAN_X_SCALE - element.w / 2,
-      y: centerY + offsetY - element.h / 2
-    };
-    if (!floorArrowOverlapsSlots(candidate, slots)) return candidate;
-  }
-  return null;
+function alignFloorAccessPair(elements) {
+  const entrance = elements.find((element) => element.type === "entrance");
+  const exit = elements.find((element) => element.type === "exit");
+  if (!entrance || !exit) return elements;
+  const entranceCenter = { x: toSvgX(entrance.x + entrance.w / 2), y: entrance.y + entrance.h / 2 };
+  const exitCenter = { x: toSvgX(exit.x + exit.w / 2), y: exit.y + exit.h / 2 };
+  if (Math.hypot(entranceCenter.x - exitCenter.x, entranceCenter.y - exitCenter.y) <= 28) return elements;
+
+  const rotation = Number(exit.rotation) || 0;
+  const radians = rotation * Math.PI / 180;
+  const perpendicular = { x: -Math.sin(radians), y: Math.cos(radians) };
+  const pairedEntranceCenter = {
+    x: exitCenter.x - perpendicular.x * 10,
+    y: exitCenter.y - perpendicular.y * 10
+  };
+  const pairedEntrance = {
+    ...entrance,
+    x: pairedEntranceCenter.x / FLOOR_PLAN_X_SCALE - entrance.w / 2,
+    y: pairedEntranceCenter.y - entrance.h / 2,
+    rotation: ((rotation + 180) % 360 + 360) % 360
+  };
+  return elements.map((element) => element === entrance ? pairedEntrance : element);
 }
 
 function floorArrowOverlapsSlots(element, slots) {
@@ -3922,6 +3978,7 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 바닥에 그려진 모든 차량 진행 화살표는 arrow 요소로 만든다. arrow의 x/y/w/h는 화살표가 차지하는 영역이고 rotation은 기본 오른쪽 진행 방향을 기준으로 한 시계 방향 각도다.
 - entrance, exit, ramp_up, ramp_down의 rotation도 기본 오른쪽 진행 방향을 기준으로 한다. label은 빈 문자열로 두며 앱이 고정된 벡터 기호와 한글 표기를 그린다.
 - arrow는 w 6 이상, h 4 이상으로 잡고 entrance/exit는 w 7 이상, h 7 이상으로 잡아 기호가 알아볼 수 있는 크기가 되게 한다. 작은 글자나 이모지를 elements로 만들지 않는다.
+- 모든 element에는 사진에서 실제로 확인한 정도를 confidence 0~1로 넣는다. arrow, entrance, exit, ramp 계열은 바닥 도색·차단기·연결 도로처럼 직접 보이는 근거가 있어 confidence가 0.82 이상일 때만 만든다. 진행 방향을 추측해서 화살표를 추가하지 않는다.
 - 기울어진 벽이나 요소는 rotation에 각도를 넣는다. 외곽 전체를 하나의 큰 사각형으로 덮어 구조를 숨기면 안 된다.
 - 사선 완충 구역과 방향 화살표는 사진 바닥에 실제로 그려져 있을 때만 만든다. CCTV 오버레이의 선이나 숫자를 구조물로 해석하지 않는다.
 - 주차면은 사진에서 보이는 위치와 방향을 우선한다. 앱이 보기 좋게 만들려고 임의로 상단/하단/좌우 템플릿에 맞추지 않는다.
@@ -4004,9 +4061,10 @@ function floorPlanSchema() {
                   y: { type: "NUMBER" },
                   w: { type: "NUMBER" },
                   h: { type: "NUMBER" },
-                  rotation: { type: "NUMBER" }
+                  rotation: { type: "NUMBER" },
+                  confidence: { type: "NUMBER" }
                 },
-                required: ["type", "x", "y", "w", "h"]
+                required: ["type", "x", "y", "w", "h", "confidence"]
               }
             },
             detectedSlotCount: { type: "INTEGER" },
@@ -4071,7 +4129,7 @@ function expandGeneratedRows(rows) {
   const slots = [];
   if (!Array.isArray(rows)) return slots;
 
-  rows.slice(0, 60).forEach((row) => {
+  rows.slice(0, 60).forEach((row, rowIndex) => {
     const count = clamp(Math.round(Number(row.count) || 0), 1, 80);
     const startX = clamp(Number(row.startX), 1, 99);
     const startY = clamp(Number(row.startY), 1, 99);
@@ -4097,7 +4155,9 @@ function expandGeneratedRows(rows) {
         y: centerY - longSide / 2,
         w: slotWidth,
         h: longSide,
-        rotation: row.rotation
+        rotation: row.rotation,
+        rowIndex,
+        rowPosition: index
       });
       if (slot) slots.push(slot);
     }
@@ -4114,6 +4174,9 @@ function normalizeGeneratedElement(element) {
   const y = clamp(Number(element.y), 0, 98);
   const w = clamp(Number(element.w), 1, 100);
   const h = clamp(Number(element.h), 1, 100);
+  const confidence = Number.isFinite(Number(element.confidence))
+    ? clamp(Number(element.confidence), 0, 1)
+    : 1;
 
   if (![x, y, w, h].every(Number.isFinite)) return null;
   return {
@@ -4123,7 +4186,8 @@ function normalizeGeneratedElement(element) {
     y: Math.min(y, 100 - h),
     w,
     h,
-    rotation: clamp(Number(element.rotation) || 0, -180, 180)
+    rotation: clamp(Number(element.rotation) || 0, -180, 180),
+    confidence
   };
 }
 
@@ -4165,6 +4229,8 @@ function normalizeGeneratedSlot(slot) {
     w,
     h,
     rotation: clamp(Number(slot.rotation) || 0, -180, 180),
+    rowIndex: Number.isInteger(slot.rowIndex) ? slot.rowIndex : null,
+    rowPosition: Number.isInteger(slot.rowPosition) ? slot.rowPosition : null,
     sourcePolygon: normalizeFloorPoints(slot.sourcePolygon, 4).slice(0, 4),
     adjacentSlots: Array.isArray(slot.adjacentSlots)
       ? slot.adjacentSlots.map(Number).filter((value) => Number.isInteger(value) && value > 0).slice(0, 8)
