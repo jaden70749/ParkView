@@ -3237,9 +3237,28 @@ function standardizeFloorPlanSlots(slots, outline) {
     h: longSide
   }));
   groupDisplaySlotsByRow(standardized).forEach((indexes) => {
+    alignDisplaySlotRow(indexes, standardized);
     shiftDisplaySlotRowInsideOutline(indexes, standardized, outlineSvg);
   });
   return standardized;
+}
+
+function alignDisplaySlotRow(indexes, slots) {
+  if (indexes.length < 2) return;
+  const ordered = [...indexes].sort((a, b) => {
+    const aPosition = Number(slots[a].rowPosition);
+    const bPosition = Number(slots[b].rowPosition);
+    return Number.isFinite(aPosition) && Number.isFinite(bPosition) ? aPosition - bPosition : a - b;
+  });
+  const first = slots[ordered[0]];
+  const last = slots[ordered[ordered.length - 1]];
+  const deltaX = toSvgX(last.x + last.w / 2) - toSvgX(first.x + first.w / 2);
+  const deltaY = last.y + last.h / 2 - (first.y + first.h / 2);
+  if (Math.hypot(deltaX, deltaY) < 1) return;
+  const rowAngle = Math.atan2(deltaY, deltaX) * 180 / Math.PI;
+  indexes.forEach((index) => {
+    slots[index].rotation = rowAngle;
+  });
 }
 
 function groupDisplaySlotsByRow(slots) {
@@ -3337,10 +3356,14 @@ function prepareDrawableFloorElements(elements, slots) {
   const overlapSensitiveTypes = new Set(["room", "stair", "elevator", "door", "ramp", "ramp_up", "ramp_down", "column", "camera", "obstacle", "stripe"]);
   let arrowCount = 0;
   const normalizedElements = alignFloorAccessPair(elements);
+  const laneArrows = buildLaneDirectionArrows(normalizedElements, slots);
+  const drawableElements = [
+    ...normalizedElements.filter((element) => element.type !== "arrow"),
+    ...laneArrows
+  ];
 
-  normalizedElements.forEach((element) => {
-    if (!element || ["boundary", "label", "lane"].includes(element.type)) return;
-    if (element.type === "arrow" && !Number.isFinite(Number(element.confidence))) return;
+  drawableElements.forEach((element) => {
+    if (!element || ["boundary", "label", "lane", "wall", "divider"].includes(element.type)) return;
     if (["arrow", "entrance", "exit", "ramp", "ramp_up", "ramp_down"].includes(element.type) && element.confidence < 0.82) return;
     if (element.type !== "arrow") {
       if (overlapSensitiveTypes.has(element.type) && floorElementOverlapsSlots(element, slots, 0.8)) return;
@@ -3366,36 +3389,93 @@ function prepareDrawableFloorElements(elements, slots) {
 function alignFloorAccessPair(elements) {
   const entrance = elements.find((element) => element.type === "entrance");
   const exit = elements.find((element) => element.type === "exit");
-  if (!entrance || !exit) return elements;
+  if (!entrance && !exit) return elements;
+  if (!entrance || !exit) {
+    const anchor = exit || entrance;
+    const counterpartType = exit ? "entrance" : "exit";
+    const counterpart = pairedAccessElement(anchor, counterpartType, exit ? -1 : 1);
+    return [...elements, counterpart];
+  }
   const entranceCenter = { x: toSvgX(entrance.x + entrance.w / 2), y: entrance.y + entrance.h / 2 };
   const exitCenter = { x: toSvgX(exit.x + exit.w / 2), y: exit.y + exit.h / 2 };
-  if (Math.hypot(entranceCenter.x - exitCenter.x, entranceCenter.y - exitCenter.y) <= 28) return elements;
+  if (Math.hypot(entranceCenter.x - exitCenter.x, entranceCenter.y - exitCenter.y) <= 28) {
+    const alignedEntrance = { ...entrance, rotation: ((Number(exit.rotation) + 180) % 360 + 360) % 360 };
+    return elements.map((element) => element === entrance ? alignedEntrance : element);
+  }
 
-  const rotation = Number(exit.rotation) || 0;
+  const pairedEntrance = pairedAccessElement(exit, "entrance", -1, entrance);
+  return elements.map((element) => element === entrance ? pairedEntrance : element);
+}
+
+function pairedAccessElement(anchor, type, side, source = anchor) {
+  const rotation = Number(anchor.rotation) || 0;
   const radians = rotation * Math.PI / 180;
   const perpendicular = { x: -Math.sin(radians), y: Math.cos(radians) };
-  const pairedEntranceCenter = {
-    x: exitCenter.x - perpendicular.x * 10,
-    y: exitCenter.y - perpendicular.y * 10
+  const anchorCenter = {
+    x: toSvgX(anchor.x + anchor.w / 2),
+    y: anchor.y + anchor.h / 2
   };
-  const pairedEntrance = {
-    ...entrance,
-    x: pairedEntranceCenter.x / FLOOR_PLAN_X_SCALE - entrance.w / 2,
-    y: pairedEntranceCenter.y - entrance.h / 2,
+  const pairedCenter = {
+    x: anchorCenter.x + perpendicular.x * 10 * side,
+    y: anchorCenter.y + perpendicular.y * 10 * side
+  };
+  return {
+    ...source,
+    type,
+    label: "",
+    x: pairedCenter.x / FLOOR_PLAN_X_SCALE - source.w / 2,
+    y: pairedCenter.y - source.h / 2,
     rotation: ((rotation + 180) % 360 + 360) % 360
   };
-  return elements.map((element) => element === entrance ? pairedEntrance : element);
+}
+
+function buildLaneDirectionArrows(elements, slots) {
+  const exit = elements.find((element) => element.type === "exit");
+  if (!exit) return [];
+  const exitCenter = {
+    x: toSvgX(exit.x + exit.w / 2),
+    y: exit.y + exit.h / 2
+  };
+  return elements.filter((element) => element.type === "lane").slice(0, 6).flatMap((lane) => {
+    const renderedWidth = toSvgX(lane.w);
+    const baseAngle = renderedWidth >= lane.h ? 0 : 90;
+    let rotation = baseAngle + (Number(lane.rotation) || 0);
+    const laneCenter = { x: toSvgX(lane.x + lane.w / 2), y: lane.y + lane.h / 2 };
+    const radians = rotation * Math.PI / 180;
+    const direction = { x: Math.cos(radians), y: Math.sin(radians) };
+    const towardExit = { x: exitCenter.x - laneCenter.x, y: exitCenter.y - laneCenter.y };
+    if (direction.x * towardExit.x + direction.y * towardExit.y < 0) rotation += 180;
+    const axisRadians = (baseAngle + (Number(lane.rotation) || 0)) * Math.PI / 180;
+    const halfTravel = Math.max(renderedWidth, lane.h) * 0.34;
+    const candidates = [0, -0.62, 0.62].map((offset) => {
+      const center = {
+        x: laneCenter.x + Math.cos(axisRadians) * halfTravel * offset,
+        y: laneCenter.y + Math.sin(axisRadians) * halfTravel * offset
+      };
+      return {
+        type: "arrow",
+        label: "",
+        x: center.x / FLOOR_PLAN_X_SCALE - 2.75,
+        y: center.y - 2.25,
+        w: 5.5,
+        h: 4.5,
+        rotation,
+        confidence: 1
+      };
+    });
+    return candidates.find((arrow) => !floorArrowOverlapsSlots(arrow, slots)) || [];
+  });
 }
 
 function floorArrowOverlapsSlots(element, slots) {
   const centerX = toSvgX(element.x + element.w / 2);
   const centerY = element.y + element.h / 2;
-  const arrowRadius = Math.max(Math.max(toSvgX(element.w), 10), Math.max(element.h, 5.5)) / 2;
+  const arrowRadius = Math.max(2.5, Math.min(toSvgX(element.w), element.h) / 2);
   return slots.some((slot) => {
     const slotCenterX = toSvgX(slot.x + slot.w / 2);
     const slotCenterY = slot.y + slot.h / 2;
-    const slotRadius = Math.hypot(toSvgX(slot.w), slot.h) / 2;
-    return Math.hypot(centerX - slotCenterX, centerY - slotCenterY) < arrowRadius + slotRadius + 1.2;
+    const slotRadius = Math.min(toSvgX(slot.w), slot.h) / 2;
+    return Math.hypot(centerX - slotCenterX, centerY - slotCenterY) < arrowRadius + slotRadius + 1;
   });
 }
 
@@ -3975,9 +4055,9 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 사진에 보이는 벽, 차로, 입구, 출구, 상행·하행 경사로, 계단, 승강기, 문, 기둥, 장애물, 바닥 방향 화살표만 elements 배열로 만든다. label 타입 element는 사용하지 않는다.
 - elements의 type은 boundary, wall, divider, lane, room, stair, elevator, door, entrance, exit, ramp, ramp_up, ramp_down, column, camera, obstacle, label, stripe, arrow 중 하나다.
 - 입구와 출구가 보이면 각각 entrance와 exit로 구분한다. 층이 올라가는 경사로는 ramp_up, 내려가는 경사로는 ramp_down, 방향을 확인할 수 없는 경사로만 ramp로 둔다.
-- 바닥에 그려진 모든 차량 진행 화살표는 arrow 요소로 만든다. arrow의 x/y/w/h는 화살표가 차지하는 영역이고 rotation은 기본 오른쪽 진행 방향을 기준으로 한 시계 방향 각도다.
+- 차량 진행 화살표를 arrow 요소로 직접 만들지 않는다. 사진에서 확인되는 차량 통행 공간만 lane으로 정확히 표시하며, 앱이 lane의 중심축과 출구 위치를 이용해 방향 화살표를 일정하게 배치한다.
 - entrance, exit, ramp_up, ramp_down의 rotation도 기본 오른쪽 진행 방향을 기준으로 한다. label은 빈 문자열로 두며 앱이 고정된 벡터 기호와 한글 표기를 그린다.
-- arrow는 w 6 이상, h 4 이상으로 잡고 entrance/exit는 w 7 이상, h 7 이상으로 잡아 기호가 알아볼 수 있는 크기가 되게 한다. 작은 글자나 이모지를 elements로 만들지 않는다.
+- entrance/exit는 w 7 이상, h 7 이상으로 잡아 기호가 알아볼 수 있는 크기가 되게 한다. 작은 글자나 이모지를 elements로 만들지 않는다.
 - 모든 element에는 사진에서 실제로 확인한 정도를 confidence 0~1로 넣는다. arrow, entrance, exit, ramp 계열은 바닥 도색·차단기·연결 도로처럼 직접 보이는 근거가 있어 confidence가 0.82 이상일 때만 만든다. 진행 방향을 추측해서 화살표를 추가하지 않는다.
 - 기울어진 벽이나 요소는 rotation에 각도를 넣는다. 외곽 전체를 하나의 큰 사각형으로 덮어 구조를 숨기면 안 된다.
 - 사선 완충 구역과 방향 화살표는 사진 바닥에 실제로 그려져 있을 때만 만든다. CCTV 오버레이의 선이나 숫자를 구조물로 해석하지 않는다.
@@ -3991,7 +4071,7 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 벽은 wall 또는 boundary, 차량 통행 공간은 lane, 출입구는 entrance/exit, 경사로는 ramp_up/ramp_down/ramp, 기둥은 column으로 구분한다.
 - 결과는 색칠된 칸 표가 아니라 건축 도면이어야 한다. 비주차 실은 흰 공간, 주차 구역은 별도 zone, 벽은 가는 이중선, 주차면은 얇은 경계선으로 읽혀야 한다.
 - lane은 주차면 아래에 넓은 면으로 배치하고 arrow는 lane 위에 둔다. 주차면과 차로가 겹치면 안 된다.
-- arrow는 주차면과 절대 겹치지 않게 차로의 빈 중심에 둔다. 같은 직선 차로에는 진행 방향을 보여 주는 대표 화살표 1개만 두며, 서로 가까운 중복 화살표를 만들지 않는다.
+- lane은 주차면과 겹치지 않는 실제 차로 중심을 길고 단순한 사각 영역으로 기록한다. 같은 직선 차로를 여러 조각으로 중복 생성하지 않는다.
 - entrance와 exit는 주차면 열 바깥의 실제 출입 통로에 두고 서로 겹치지 않게 최소 8 좌표 단위 이상 떨어뜨린다.
 - 슬롯 번호나 임의의 숫자는 elements에 추가하지 않는다.
 - 모든 zone과 wall/divider/boundary에는 label을 넣지 않는다.
@@ -4140,6 +4220,11 @@ function expandGeneratedRows(rows) {
     if (![startX, startY, endX, endY, rawW, rawH].every(Number.isFinite)) return;
     const shortSide = Math.min(rawW, rawH);
     const longSide = clamp(Math.max(rawW, rawH), shortSide * 1.8, shortSide * 2.4);
+    const rowDeltaX = (endX - startX) * FLOOR_PLAN_X_SCALE;
+    const rowDeltaY = endY - startY;
+    const rowRotation = count > 1 && Math.hypot(rowDeltaX, rowDeltaY) > 1
+      ? Math.atan2(rowDeltaY, rowDeltaX) * 180 / Math.PI
+      : clamp(Number(row.rotation) || 0, -180, 180);
 
     for (let index = 0; index < count && slots.length < 240; index += 1) {
       const progress = count === 1 ? 0 : index / (count - 1);
@@ -4155,7 +4240,7 @@ function expandGeneratedRows(rows) {
         y: centerY - longSide / 2,
         w: slotWidth,
         h: longSide,
-        rotation: row.rotation,
+        rotation: rowRotation,
         rowIndex,
         rowPosition: index
       });
