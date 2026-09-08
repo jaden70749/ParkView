@@ -3087,6 +3087,8 @@ function renderFloorPlan(container, floorOrSlots, editable) {
   const elements = Array.isArray(floor.elements) ? floor.elements : [];
   const zones = Array.isArray(floor.zones) ? floor.zones : [];
   const outline = resolveFloorOutline(floor, slots, elements);
+  const displaySlots = standardizeFloorPlanSlots(slots, outline);
+  const drawableElements = prepareDrawableFloorElements(elements, displaySlots);
   const hasPlan = slots.length > 0 || elements.length > 0 || zones.length > 0;
 
   container.replaceChildren();
@@ -3096,26 +3098,20 @@ function renderFloorPlan(container, floorOrSlots, editable) {
   const svgId = `floor-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const svg = createSvgElement("svg", {
     class: "floor-plan-svg",
-    viewBox: "0 0 160 100",
+    viewBox: floorPlanViewBox(outline),
     preserveAspectRatio: "xMidYMid meet",
     role: "img",
     "aria-label": `${floor.name || "주차장"} 건축 평면도`
   });
   const defs = createSvgElement("defs");
-  const gridPattern = createSvgElement("pattern", {
-    id: `${svgId}-grid`, width: 4, height: 4, patternUnits: "userSpaceOnUse"
-  });
-  gridPattern.appendChild(createSvgElement("path", {
-    d: "M 4 0 L 0 0 0 4", class: "floor-grid-line"
-  }));
   const stripePattern = createSvgElement("pattern", {
     id: `${svgId}-stripe`, width: 5, height: 5, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)"
   });
   stripePattern.appendChild(createSvgElement("rect", { width: 2.2, height: 5, class: "floor-stripe-fill" }));
-  defs.append(gridPattern, stripePattern);
+  defs.append(stripePattern);
   svg.appendChild(defs);
   svg.appendChild(createSvgElement("rect", {
-    x: 0, y: 0, width: 160, height: 100, fill: `url(#${svgId}-grid)`, class: "floor-canvas"
+    x: 0, y: 0, width: 160, height: 100, class: "floor-canvas"
   }));
 
   const footprint = createSvgElement("polygon", {
@@ -3124,7 +3120,7 @@ function renderFloorPlan(container, floorOrSlots, editable) {
   });
   svg.appendChild(footprint);
 
-  zones.forEach((zone) => {
+  zones.filter((zone) => ["room", "core"].includes(zone.type)).forEach((zone) => {
     const polygon = createSvgElement("polygon", {
       points: svgPoints(zone.points),
       class: `floor-zone floor-zone-${zone.type}`
@@ -3139,12 +3135,12 @@ function renderFloorPlan(container, floorOrSlots, editable) {
   });
 
   const backgroundTypes = new Set(["lane", "room", "stair", "elevator", "stripe", "ramp", "ramp_up", "ramp_down"]);
-  const drawableElements = elements.filter((element) => element.type !== "boundary");
   drawableElements.filter((element) => backgroundTypes.has(element.type)).forEach((element) => {
     renderSvgPlanElement(svg, element, `${svgId}-stripe`);
   });
 
-  slots.forEach((slot, index) => {
+  displaySlots.forEach((slot, index) => {
+    const sourceSlot = slots[index];
     const orientation = slot.w >= slot.h ? "horizontal" : "vertical";
     const group = createSvgElement("g", {
       class: `floor-slot floor-slot-${slot.kind} floor-slot-${slot.status} ${orientation}`,
@@ -3161,25 +3157,9 @@ function renderFloorPlan(container, floorOrSlots, editable) {
       group.setAttribute("transform", `rotate(${rotation} ${x + width / 2} ${y + height / 2})`);
     }
     group.appendChild(createSvgElement("rect", { x, y, width, height, class: "floor-slot-body" }));
-    if (orientation === "vertical") {
-      group.appendChild(createSvgElement("line", {
-        x1: x + width * 0.18, x2: x + width * 0.82,
-        y1: y + height * 0.86, y2: y + height * 0.86,
-        class: "floor-wheel-stop"
-      }));
-    } else {
-      group.appendChild(createSvgElement("line", {
-        x1: x + width * 0.86, x2: x + width * 0.86,
-        y1: y + height * 0.18, y2: y + height * 0.82,
-        class: "floor-wheel-stop"
-      }));
-    }
-    if (slot.status === "occupied") appendFloorVehicle(group, x, y, width, height, orientation);
-    if (slot.kind === "disabled") appendAccessibleFloorSymbol(group, x, y, width, height);
-    if (slot.kind === "pregnant") appendPregnantFloorSymbol(group, x, y, width, height);
     if (editable) {
       const toggle = () => {
-        slot.status = slot.status === "available" ? "occupied" : "available";
+        sourceSlot.status = sourceSlot.status === "available" ? "occupied" : "available";
         syncSelectedLotFromAdmin();
         if (state.adminView === "management") renderManagement();
         else renderAdminFloor();
@@ -3206,75 +3186,178 @@ function renderFloorPlan(container, floorOrSlots, editable) {
   container.appendChild(svg);
 }
 
-function appendFloorVehicle(group, x, y, width, height, orientation) {
-  const horizontal = orientation === "horizontal";
-  const carX = x + width * (horizontal ? 0.14 : 0.24);
-  const carY = y + height * (horizontal ? 0.24 : 0.14);
-  const carWidth = width * (horizontal ? 0.66 : 0.52);
-  const carHeight = height * (horizontal ? 0.52 : 0.66);
-  group.appendChild(createSvgElement("rect", {
-    x: carX,
-    y: carY,
-    width: carWidth,
-    height: carHeight,
-    rx: Math.min(carWidth, carHeight) * 0.22,
-    class: "floor-vehicle-mark"
-  }));
-  if (horizontal) {
-    group.appendChild(createSvgElement("line", {
-      x1: carX + carWidth * 0.34, x2: carX + carWidth * 0.34,
-      y1: carY + carHeight * 0.12, y2: carY + carHeight * 0.88,
-      class: "floor-vehicle-window"
-    }));
-    group.appendChild(createSvgElement("line", {
-      x1: carX + carWidth * 0.68, x2: carX + carWidth * 0.68,
-      y1: carY + carHeight * 0.12, y2: carY + carHeight * 0.88,
-      class: "floor-vehicle-window"
-    }));
+function floorPlanViewBox(outline) {
+  const xs = outline.map((point) => toSvgX(point.x));
+  const ys = outline.map((point) => point.y);
+  let minX = Math.min(...xs) - 9;
+  let maxX = Math.max(...xs) + 9;
+  let minY = Math.min(...ys) - 9;
+  let maxY = Math.max(...ys) + 9;
+  const targetRatio = 1.6;
+  const width = maxX - minX;
+  const height = maxY - minY;
+  if (width / height < targetRatio) {
+    const extra = height * targetRatio - width;
+    minX -= extra / 2;
+    maxX += extra / 2;
   } else {
-    group.appendChild(createSvgElement("line", {
-      x1: carX + carWidth * 0.12, x2: carX + carWidth * 0.88,
-      y1: carY + carHeight * 0.34, y2: carY + carHeight * 0.34,
-      class: "floor-vehicle-window"
-    }));
-    group.appendChild(createSvgElement("line", {
-      x1: carX + carWidth * 0.12, x2: carX + carWidth * 0.88,
-      y1: carY + carHeight * 0.68, y2: carY + carHeight * 0.68,
-      class: "floor-vehicle-window"
-    }));
+    const extra = width / targetRatio - height;
+    minY -= extra / 2;
+    maxY += extra / 2;
   }
+  return `${minX} ${minY} ${maxX - minX} ${maxY - minY}`;
 }
 
-function appendAccessibleFloorSymbol(group, x, y, width, height) {
-  const centerX = x + width / 2;
-  const centerY = y + height / 2;
-  const scale = Math.max(0.52, Math.min(width, height) / 5.2);
-  group.appendChild(createSvgElement("circle", {
-    cx: centerX - scale * 0.35, cy: centerY - scale * 1.15, r: scale * 0.34,
-    class: "floor-accessible-symbol"
+function standardizeFloorPlanSlots(slots, outline) {
+  if (!slots.length) return [];
+  const centers = slots.map((slot) => ({
+    x: toSvgX(Number(slot.x) + Number(slot.w) / 2),
+    y: Number(slot.y) + Number(slot.h) / 2
   }));
-  group.appendChild(createSvgElement("path", {
-    d: `M ${centerX - scale * 0.35} ${centerY - scale * 0.7} L ${centerX - scale * 0.12} ${centerY + scale * 0.05} L ${centerX + scale * 0.72} ${centerY + scale * 0.05} M ${centerX - scale * 0.12} ${centerY + scale * 0.05} L ${centerX + scale * 0.35} ${centerY + scale * 0.82}`,
-    class: "floor-accessible-symbol"
-  }));
-  group.appendChild(createSvgElement("circle", {
-    cx: centerX - scale * 0.22, cy: centerY + scale * 0.46, r: scale * 0.82,
-    class: "floor-accessible-wheel"
+  const nearestDistances = centers.map((center, index) => {
+    const distances = centers
+      .map((other, otherIndex) => otherIndex === index ? Infinity : Math.hypot(center.x - other.x, center.y - other.y))
+      .filter((distance) => distance > 1.5 && distance < 20);
+    return distances.length ? Math.min(...distances) : NaN;
+  }).filter(Number.isFinite).sort((a, b) => a - b);
+  const middle = Math.floor(nearestDistances.length / 2);
+  const medianSpacing = nearestDistances.length
+    ? (nearestDistances.length % 2 ? nearestDistances[middle] : (nearestDistances[middle - 1] + nearestDistances[middle]) / 2)
+    : 7.5;
+  const shortSide = clamp(medianSpacing * 0.82, 5.5, 7.5);
+  const longSide = shortSide * 1.72;
+  const rawWidth = shortSide / FLOOR_PLAN_X_SCALE;
+
+  const outlineSvg = outline.map((point) => ({ x: toSvgX(point.x), y: point.y }));
+  return slots.map((slot, index) => keepDisplaySlotInsideOutline({
+    ...slot,
+    x: centers[index].x / FLOOR_PLAN_X_SCALE - rawWidth / 2,
+    y: centers[index].y - longSide / 2,
+    w: rawWidth,
+    h: longSide
+  }, outlineSvg));
+}
+
+function keepDisplaySlotInsideOutline(slot, outline) {
+  if (outline.length < 3) return slot;
+  const polygonCenterPoint = {
+    x: outline.reduce((sum, point) => sum + point.x, 0) / outline.length,
+    y: outline.reduce((sum, point) => sum + point.y, 0) / outline.length
+  };
+  let centerX = toSvgX(slot.x + slot.w / 2);
+  let centerY = slot.y + slot.h / 2;
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const corners = rotatedSlotCorners(centerX, centerY, toSvgX(slot.w), slot.h, slot.rotation);
+    if (corners.every((corner) => pointInsideFloorPolygon(corner, outline))) break;
+    centerX += (polygonCenterPoint.x - centerX) * 0.08;
+    centerY += (polygonCenterPoint.y - centerY) * 0.08;
+  }
+  return {
+    ...slot,
+    x: centerX / FLOOR_PLAN_X_SCALE - slot.w / 2,
+    y: centerY - slot.h / 2
+  };
+}
+
+function rotatedSlotCorners(centerX, centerY, width, height, rotation = 0) {
+  const radians = Number(rotation) * Math.PI / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  return [
+    [-width / 2, -height / 2],
+    [width / 2, -height / 2],
+    [width / 2, height / 2],
+    [-width / 2, height / 2]
+  ].map(([x, y]) => ({
+    x: centerX + x * cosine - y * sine,
+    y: centerY + x * sine + y * cosine
   }));
 }
 
-function appendPregnantFloorSymbol(group, x, y, width, height) {
-  const centerX = x + width / 2;
-  const centerY = y + height / 2;
-  const scale = Math.max(0.55, Math.min(width, height) / 5.2);
-  group.appendChild(createSvgElement("circle", {
-    cx: centerX, cy: centerY - scale * 1.18, r: scale * 0.34,
-    class: "floor-pregnant-symbol"
-  }));
-  group.appendChild(createSvgElement("path", {
-    d: `M ${centerX - scale * 0.32} ${centerY - scale * 0.68} C ${centerX + scale * 0.65} ${centerY - scale * 0.5}, ${centerX + scale * 0.78} ${centerY + scale * 0.38}, ${centerX + scale * 0.2} ${centerY + scale * 0.55} L ${centerX + scale * 0.34} ${centerY + scale * 1.15} M ${centerX - scale * 0.16} ${centerY + scale * 0.48} L ${centerX - scale * 0.32} ${centerY + scale * 1.15}`,
-    class: "floor-pregnant-symbol"
-  }));
+function pointInsideFloorPolygon(point, polygon) {
+  let inside = false;
+  for (let current = 0, previous = polygon.length - 1; current < polygon.length; previous = current, current += 1) {
+    const a = polygon[current];
+    const b = polygon[previous];
+    const crosses = (a.y > point.y) !== (b.y > point.y)
+      && point.x < ((b.x - a.x) * (point.y - a.y)) / ((b.y - a.y) || Number.EPSILON) + a.x;
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
+function prepareDrawableFloorElements(elements, slots) {
+  const prepared = [];
+  const arrowCenters = [];
+  const overlapSensitiveTypes = new Set(["room", "stair", "elevator", "door", "ramp", "ramp_up", "ramp_down", "column", "camera", "obstacle", "stripe"]);
+  let arrowCount = 0;
+
+  elements.forEach((element) => {
+    if (!element || ["boundary", "label", "lane"].includes(element.type)) return;
+    if (element.type !== "arrow") {
+      if (overlapSensitiveTypes.has(element.type) && floorElementOverlapsSlots(element, slots, 0.8)) return;
+      prepared.push(element);
+      return;
+    }
+    if (arrowCount >= 6) return;
+    const placedArrow = placeFloorArrow(element, slots);
+    if (!placedArrow) return;
+    const center = {
+      x: toSvgX(placedArrow.x + placedArrow.w / 2),
+      y: placedArrow.y + placedArrow.h / 2
+    };
+    const duplicatesArrow = arrowCenters.some((existing) => Math.hypot(center.x - existing.x, center.y - existing.y) < 11);
+    if (duplicatesArrow) return;
+    arrowCenters.push(center);
+    arrowCount += 1;
+    prepared.push(placedArrow);
+  });
+
+  return prepared;
+}
+
+function placeFloorArrow(element, slots) {
+  const offsets = [[0, 0], [0, -8], [0, 8], [-9, 0], [9, 0], [0, -15], [0, 15], [-16, 0], [16, 0]];
+  const centerX = toSvgX(element.x + element.w / 2);
+  const centerY = element.y + element.h / 2;
+  for (const [offsetX, offsetY] of offsets) {
+    const candidate = {
+      ...element,
+      x: (centerX + offsetX) / FLOOR_PLAN_X_SCALE - element.w / 2,
+      y: centerY + offsetY - element.h / 2
+    };
+    if (!floorArrowOverlapsSlots(candidate, slots)) return candidate;
+  }
+  return null;
+}
+
+function floorArrowOverlapsSlots(element, slots) {
+  const centerX = toSvgX(element.x + element.w / 2);
+  const centerY = element.y + element.h / 2;
+  const arrowRadius = Math.max(Math.max(toSvgX(element.w), 10), Math.max(element.h, 5.5)) / 2;
+  return slots.some((slot) => {
+    const slotCenterX = toSvgX(slot.x + slot.w / 2);
+    const slotCenterY = slot.y + slot.h / 2;
+    const slotRadius = Math.hypot(toSvgX(slot.w), slot.h) / 2;
+    return Math.hypot(centerX - slotCenterX, centerY - slotCenterY) < arrowRadius + slotRadius + 1.2;
+  });
+}
+
+function floorElementOverlapsSlots(element, slots, padding = 0) {
+  const elementX = toSvgX(element.x);
+  const elementY = element.y;
+  const elementWidth = toSvgX(element.w);
+  const elementHeight = element.h;
+  return slots.some((slot) => {
+    const slotX = toSvgX(slot.x);
+    const slotY = slot.y;
+    const slotWidth = toSvgX(slot.w);
+    const slotHeight = slot.h;
+    return elementX < slotX + slotWidth + padding
+      && elementX + elementWidth + padding > slotX
+      && elementY < slotY + slotHeight + padding
+      && elementY + elementHeight + padding > slotY;
+  });
 }
 
 function createSvgElement(name, attributes = {}, text = "") {
@@ -3426,12 +3509,12 @@ function appendFloorDirectionArrow(group, x, y, width, height, className) {
   const startX = x + width * 0.18;
   const tipX = x + width * 0.82;
   const headX = x + width * 0.62;
-  const headHalfHeight = Math.max(1.15, Math.min(height * 0.3, width * 0.13));
+  const headHalfHeight = Math.max(1.45, Math.min(height * 0.34, width * 0.15));
   group.appendChild(createSvgElement("line", {
     x1: startX, y1: centerY, x2: tipX, y2: centerY,
     class: `${className}-line`
   }));
-  group.appendChild(createSvgElement("polyline", {
+  group.appendChild(createSvgElement("polygon", {
     points: `${headX},${centerY - headHalfHeight} ${tipX},${centerY} ${headX},${centerY + headHalfHeight}`,
     class: `${className}-head`
   }));
@@ -3441,12 +3524,7 @@ function appendFloorGate(group, box, type, rotation = 0) {
   const symbol = createSvgElement("g", rotation ? {
     transform: `rotate(${rotation} ${box.centerX} ${box.centerY})`
   } : {});
-  const postTop = box.y + box.height * 0.12;
-  const postBottom = box.y + box.height * 0.88;
-  [box.x + box.width * 0.12, box.x + box.width * 0.88].forEach((postX) => {
-    symbol.appendChild(createSvgElement("line", { x1: postX, x2: postX, y1: postTop, y2: postBottom, class: "floor-gate-post" }));
-  });
-  appendFloorDirectionArrow(symbol, box.x + box.width * 0.15, box.y + box.height * 0.02, box.width * 0.7, box.height * 0.58, "floor-gate-arrow");
+  appendFloorDirectionArrow(symbol, box.x, box.y, box.width, box.height * 0.62, "floor-gate-arrow");
   group.appendChild(symbol);
   group.appendChild(createSvgElement("text", {
     x: box.centerX,
@@ -3824,6 +3902,7 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - rows 배열에는 사진에서 연속된 주차열 하나당 객체 하나를 넣는다. 곡선이나 방향이 바뀌는 열은 직선 구간별로 나눈다.
 - row의 startX/startY는 첫 번째 주차면 중심, endX/endY는 마지막 주차면 중심의 최종 탑뷰 좌표다.
 - row의 count는 그 열의 전체 면수다. w는 회전 전 주차면의 짧은 폭, h는 긴 깊이이며 항상 w<h로 둔다. rotation은 긴 축이 세로일 때 0도, 가로일 때 90도인 탑뷰 회전 각도다.
+- 같은 층의 모든 row는 동일한 w와 h를 사용한다. 사진 원근 때문에 가까운 칸을 크게, 먼 칸을 작게 만들지 않는다.
 - statuses와 kinds 배열은 첫 칸부터 마지막 칸 순서이며 길이가 반드시 count와 같아야 한다.
 - detectedSlotCount는 모든 rows의 count 합계와 같아야 한다. 반복되는 열을 대표 3~4칸으로 줄이거나 생략하지 않는다.
 - 차량 때문에 주차선이 가려져도 같은 열의 규칙적인 간격과 차량 중심을 사용해 차량 한 대당 주차면 하나를 복원한다. 빈 칸과 차량이 있는 칸을 모두 센다.
@@ -3855,6 +3934,8 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 벽은 wall 또는 boundary, 차량 통행 공간은 lane, 출입구는 entrance/exit, 경사로는 ramp_up/ramp_down/ramp, 기둥은 column으로 구분한다.
 - 결과는 색칠된 칸 표가 아니라 건축 도면이어야 한다. 비주차 실은 흰 공간, 주차 구역은 별도 zone, 벽은 가는 이중선, 주차면은 얇은 경계선으로 읽혀야 한다.
 - lane은 주차면 아래에 넓은 면으로 배치하고 arrow는 lane 위에 둔다. 주차면과 차로가 겹치면 안 된다.
+- arrow는 주차면과 절대 겹치지 않게 차로의 빈 중심에 둔다. 같은 직선 차로에는 진행 방향을 보여 주는 대표 화살표 1개만 두며, 서로 가까운 중복 화살표를 만들지 않는다.
+- entrance와 exit는 주차면 열 바깥의 실제 출입 통로에 두고 서로 겹치지 않게 최소 8 좌표 단위 이상 떨어뜨린다.
 - 슬롯 번호나 임의의 숫자는 elements에 추가하지 않는다.
 - 모든 zone과 wall/divider/boundary에는 label을 넣지 않는다.
 - outline이 외곽선을 나타내므로 동일한 외곽을 boundary element로 중복 생성하지 않는다.

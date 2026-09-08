@@ -3400,24 +3400,20 @@ textarea {
 }
 
 .floor-grid-line {
-  fill: none;
-  stroke: #75808a;
-  stroke-opacity: 0.035;
-  stroke-width: 0.24;
+  display: none;
 }
 
 .floor-footprint {
-  fill: #f7f7f5;
-  stroke: #5d6266;
-  stroke-width: 0.85;
+  fill: #ffffff;
+  stroke: none;
   stroke-linejoin: miter;
 }
 
 .floor-outline-stroke {
   fill: none;
   pointer-events: none;
-  stroke: #383d40;
-  stroke-width: 1.6;
+  stroke: #1f2325;
+  stroke-width: 1.15;
   stroke-linejoin: miter;
   vector-effect: non-scaling-stroke;
 }
@@ -3429,8 +3425,8 @@ textarea {
 }
 
 .floor-zone-parking {
-  fill: #f1f2ef;
-  fill-opacity: 1;
+  fill: none;
+  stroke: none;
 }
 
 .floor-zone-room {
@@ -3590,17 +3586,21 @@ textarea {
 }
 
 .floor-direction-arrow-line,
-.floor-direction-arrow-head,
 .floor-gate-arrow-line,
-.floor-gate-arrow-head,
-.floor-ramp-arrow-line,
-.floor-ramp-arrow-head {
+.floor-ramp-arrow-line {
   fill: none;
-  stroke: #4d565b;
+  stroke: #16191b;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 1.05;
+  stroke-width: 2.1;
   vector-effect: non-scaling-stroke;
+}
+
+.floor-direction-arrow-head,
+.floor-gate-arrow-head,
+.floor-ramp-arrow-head {
+  fill: #16191b;
+  stroke: none;
 }
 
 .floor-gate-zone {
@@ -3703,9 +3703,9 @@ textarea {
 }
 
 .floor-slot-body {
-  fill: #ffffff;
-  stroke: #686f73;
-  stroke-width: 0.62;
+  fill: #c4ccd2;
+  stroke: #ffffff;
+  stroke-width: 0.8;
   vector-effect: non-scaling-stroke;
 }
 
@@ -3718,22 +3718,23 @@ textarea {
 }
 
 .floor-slot-available .floor-slot-body {
-  fill: #ffffff;
-  stroke: #598463;
-}
-
-.floor-slot-disabled .floor-slot-body {
-  fill: #edf5fb;
-  stroke: #477baa;
-}
-
-.floor-slot-pregnant .floor-slot-body {
-  fill: #fff2f7;
-  stroke: #a85e83;
+  fill: #48ad55;
+  stroke: #ffffff;
 }
 
 .floor-slot-occupied .floor-slot-body {
-  fill: #f1f2f2;
+  fill: #b9c2c9;
+  stroke: #ffffff;
+}
+
+.floor-slot-disabled .floor-slot-body {
+  fill: #3ea9e8;
+  stroke: #ffffff;
+}
+
+.floor-slot-pregnant .floor-slot-body {
+  fill: #df62c2;
+  stroke: #ffffff;
 }
 
 .floor-wheel-stop {
