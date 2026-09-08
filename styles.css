@@ -3519,6 +3519,13 @@ textarea {
   stroke-width: 0.35;
 }
 
+.floor-lane-shape {
+  fill: #eef0ef;
+  stroke: #cfd3d1;
+  stroke-width: 0.35;
+  vector-effect: non-scaling-stroke;
+}
+
 .floor-lane-center {
   fill: none;
   stroke: #a1a6a8;
@@ -3570,6 +3577,112 @@ textarea {
   fill: #687176;
   font-size: 6.5px;
   font-weight: 850;
+}
+
+.floor-fixed-label {
+  fill: #30363a;
+  font-size: 2.75px;
+  font-weight: 900;
+  letter-spacing: 0;
+  dominant-baseline: middle;
+  text-anchor: middle;
+  user-select: none;
+}
+
+.floor-direction-arrow-line,
+.floor-direction-arrow-head,
+.floor-gate-arrow-line,
+.floor-gate-arrow-head,
+.floor-ramp-arrow-line,
+.floor-ramp-arrow-head {
+  fill: none;
+  stroke: #4d565b;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+  vector-effect: non-scaling-stroke;
+}
+
+.floor-gate-zone {
+  fill: rgba(255, 255, 255, 0.92);
+  stroke: #737a7e;
+  stroke-width: 0.45;
+  vector-effect: non-scaling-stroke;
+}
+
+.floor-gate-entrance {
+  fill: rgba(255, 198, 0, 0.13);
+}
+
+.floor-gate-exit {
+  fill: rgba(65, 126, 196, 0.1);
+}
+
+.floor-gate-post {
+  stroke: #30363a;
+  stroke-linecap: square;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.floor-gate-label,
+.floor-ramp-label {
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.94);
+  stroke-width: 1px;
+}
+
+.floor-ramp-shape {
+  fill: #f3f4f2;
+  stroke: #656d71;
+  stroke-width: 0.6;
+  vector-effect: non-scaling-stroke;
+}
+
+.floor-ramp-stripes {
+  opacity: 0.13;
+}
+
+.floor-elevator-shape {
+  fill: #ffffff;
+  stroke: #555d61;
+  stroke-width: 0.75;
+  vector-effect: non-scaling-stroke;
+}
+
+.floor-elevator-door,
+.floor-door-frame,
+.floor-door-leaf {
+  fill: none;
+  stroke: #555d61;
+  stroke-width: 0.75;
+  vector-effect: non-scaling-stroke;
+}
+
+.floor-door-swing {
+  fill: none;
+  stroke: #8d9498;
+  stroke-dasharray: 1.5 1;
+  stroke-width: 0.45;
+  vector-effect: non-scaling-stroke;
+}
+
+.floor-column-shape {
+  fill: #61686c;
+  stroke: #343a3d;
+  stroke-width: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.floor-camera-body {
+  fill: #4d5559;
+}
+
+.floor-camera-view {
+  fill: rgba(65, 126, 196, 0.14);
+  stroke: #647076;
+  stroke-width: 0.35;
+  vector-effect: non-scaling-stroke;
 }
 
 .floor-stripe {

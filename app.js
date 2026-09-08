@@ -3138,7 +3138,7 @@ function renderFloorPlan(container, floorOrSlots, editable) {
     }
   });
 
-  const backgroundTypes = new Set(["lane", "room", "stair", "elevator", "stripe"]);
+  const backgroundTypes = new Set(["lane", "room", "stair", "elevator", "stripe", "ramp", "ramp_up", "ramp_down"]);
   const drawableElements = elements.filter((element) => element.type !== "boundary");
   drawableElements.filter((element) => backgroundTypes.has(element.type)).forEach((element) => {
     renderSvgPlanElement(svg, element, `${svgId}-stripe`);
@@ -3306,35 +3306,111 @@ function renderSvgPlanElement(svg, element, stripePatternId) {
       class: `floor-structure-line floor-structure-${element.type}`
     }));
   } else if (element.type === "arrow") {
-    group.appendChild(createSvgElement("text", { x: centerX, y: centerY, class: "floor-arrow" }, element.label || "→"));
+    appendFloorDirectionArrow(group, x, y, width, height, "floor-direction-arrow");
   } else if (element.type === "label" && !isGenericPlanLabel(element.label)) {
     group.appendChild(createSvgElement("text", { x: centerX, y: centerY, class: "floor-label" }, element.label));
   } else if (element.type === "stripe") {
     group.appendChild(createSvgElement("rect", { x, y, width, height, fill: `url(#${stripePatternId})`, class: "floor-stripe" }));
+  } else if (element.type === "lane") {
+    group.appendChild(createSvgElement("rect", { x, y, width, height, rx: 0.8, class: "floor-lane-shape" }));
+    if (width >= height) {
+      group.appendChild(createSvgElement("line", { x1: x + 2, x2: x + width - 2, y1: centerY, y2: centerY, class: "floor-lane-center" }));
+    } else {
+      group.appendChild(createSvgElement("line", { x1: centerX, x2: centerX, y1: y + 2, y2: y + height - 2, class: "floor-lane-center" }));
+    }
   } else if (element.type === "stair") {
     group.appendChild(createSvgElement("rect", { x, y, width, height, class: "floor-room-shape" }));
     for (let step = 1; step < 7; step += 1) {
       const lineY = y + (height / 7) * step;
       group.appendChild(createSvgElement("line", { x1: x, x2: x + width, y1: lineY, y2: lineY, class: "floor-stair-line" }));
     }
+  } else if (element.type === "elevator") {
+    group.appendChild(createSvgElement("rect", { x, y, width, height, rx: 0.4, class: "floor-elevator-shape" }));
+    group.appendChild(createSvgElement("line", { x1: centerX, x2: centerX, y1: y + 1, y2: y + height - 1, class: "floor-elevator-door" }));
+    group.appendChild(createSvgElement("text", { x: centerX, y: centerY, class: "floor-fixed-label" }, "EV"));
+  } else if (element.type === "column") {
+    const radius = Math.max(1.2, Math.min(width, height) * 0.32);
+    group.appendChild(createSvgElement("circle", { cx: centerX, cy: centerY, r: radius, class: "floor-column-shape" }));
+  } else if (element.type === "door") {
+    const radius = Math.max(2, Math.min(width, height));
+    group.appendChild(createSvgElement("line", { x1: x, y1: y, x2: x + radius, y2: y, class: "floor-door-frame" }));
+    group.appendChild(createSvgElement("line", { x1: x, y1: y, x2: x, y2: y + radius, class: "floor-door-leaf" }));
+    group.appendChild(createSvgElement("path", {
+      d: `M ${x + radius} ${y} A ${radius} ${radius} 0 0 0 ${x} ${y + radius}`,
+      class: "floor-door-swing"
+    }));
+  } else if (["entrance", "exit"].includes(element.type)) {
+    appendFloorGate(group, x, y, width, height, element.type);
+  } else if (["ramp", "ramp_up", "ramp_down"].includes(element.type)) {
+    appendFloorRamp(group, x, y, width, height, element.type, stripePatternId);
+  } else if (element.type === "camera") {
+    const radius = Math.max(1.1, Math.min(width, height) * 0.2);
+    group.appendChild(createSvgElement("circle", { cx: x + width * 0.32, cy: centerY, r: radius, class: "floor-camera-body" }));
+    group.appendChild(createSvgElement("path", {
+      d: `M ${x + width * 0.42} ${centerY - radius} L ${x + width * 0.82} ${y + height * 0.18} L ${x + width * 0.82} ${y + height * 0.82} L ${x + width * 0.42} ${centerY + radius} Z`,
+      class: "floor-camera-view"
+    }));
   } else {
     group.appendChild(createSvgElement("rect", { x, y, width, height, class: "floor-element-shape" }));
-    if (element.type === "lane") {
-      if (width >= height) {
-        group.appendChild(createSvgElement("line", { x1: x + 2, x2: x + width - 2, y1: centerY, y2: centerY, class: "floor-lane-center" }));
-      } else {
-        group.appendChild(createSvgElement("line", { x1: centerX, x2: centerX, y1: y + 2, y2: y + height - 2, class: "floor-lane-center" }));
-      }
-    }
-    const labeledTypes = new Set(["room", "stair", "elevator", "entrance", "exit", "ramp", "column", "camera", "obstacle"]);
-    const fallbackLabel = element.type === "elevator"
-      ? "EV"
-      : labeledTypes.has(element.type) ? element.label : "";
+    const labeledTypes = new Set(["room", "obstacle"]);
+    const fallbackLabel = labeledTypes.has(element.type) ? element.label : "";
     if (fallbackLabel) {
       group.appendChild(createSvgElement("text", { x: centerX, y: centerY, class: "floor-element-label" }, fallbackLabel));
     }
   }
   svg.appendChild(group);
+}
+
+function appendFloorDirectionArrow(group, x, y, width, height, className) {
+  const centerY = y + height / 2;
+  const startX = x + width * 0.18;
+  const tipX = x + width * 0.82;
+  const headX = x + width * 0.62;
+  const headHalfHeight = Math.max(1.8, Math.min(height * 0.32, width * 0.16));
+  group.appendChild(createSvgElement("line", {
+    x1: startX, y1: centerY, x2: tipX, y2: centerY,
+    class: `${className}-line`
+  }));
+  group.appendChild(createSvgElement("polyline", {
+    points: `${headX},${centerY - headHalfHeight} ${tipX},${centerY} ${headX},${centerY + headHalfHeight}`,
+    class: `${className}-head`
+  }));
+}
+
+function appendFloorGate(group, x, y, width, height, type) {
+  const centerY = y + height / 2;
+  const postTop = y + height * 0.12;
+  const postBottom = y + height * 0.88;
+  group.appendChild(createSvgElement("rect", { x, y, width, height, rx: 0.7, class: `floor-gate-zone floor-gate-${type}` }));
+  [x + width * 0.12, x + width * 0.88].forEach((postX) => {
+    group.appendChild(createSvgElement("line", { x1: postX, x2: postX, y1: postTop, y2: postBottom, class: "floor-gate-post" }));
+  });
+  appendFloorDirectionArrow(group, x + width * 0.15, y + height * 0.03, width * 0.7, height * 0.62, "floor-gate-arrow");
+  group.appendChild(createSvgElement("text", {
+    x: x + width / 2,
+    y: centerY + height * 0.28,
+    class: "floor-fixed-label floor-gate-label"
+  }, type === "entrance" ? "입구" : "출구"));
+}
+
+function appendFloorRamp(group, x, y, width, height, type, stripePatternId) {
+  const rampLabel = type === "ramp_up" ? "상행" : type === "ramp_down" ? "하행" : "경사로";
+  group.appendChild(createSvgElement("rect", { x, y, width, height, rx: 0.7, class: "floor-ramp-shape" }));
+  group.appendChild(createSvgElement("rect", {
+    x: x + 0.7,
+    y: y + 0.7,
+    width: Math.max(0.6, width - 1.4),
+    height: Math.max(0.6, height - 1.4),
+    rx: 0.4,
+    fill: `url(#${stripePatternId})`,
+    class: "floor-ramp-stripes"
+  }));
+  appendFloorDirectionArrow(group, x + width * 0.08, y + height * 0.06, width * 0.84, height * 0.58, "floor-ramp-arrow");
+  group.appendChild(createSvgElement("text", {
+    x: x + width / 2,
+    y: y + height * 0.8,
+    class: "floor-fixed-label floor-ramp-label"
+  }, rampLabel));
 }
 
 function renderAdminFloor() {
@@ -3696,8 +3772,11 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 파란 바탕의 휠체어 표시는 disabled로, 분홍 바탕의 특수 주차 표시는 pregnant로 분류한다.
 - 사진에 보이지 않는 구조를 임의로 추가하지 않되, 사진에 보이는 벽과 통행 공간은 반드시 도면 요소로 만든다.
 - 사진 바깥 배경과 주차장 밖의 건물·나무·보행로는 도면 요소로 만들지 않는다.
-- 사진에 보이는 벽, 차로, 입구, 계단, 승강기, 문, 기둥, 장애물만 elements 배열로 만든다. label 타입 element는 사용하지 않는다.
-- elements의 type은 boundary, wall, divider, lane, room, stair, elevator, door, entrance, exit, ramp, column, camera, obstacle, label, stripe, arrow 중 하나다.
+- 사진에 보이는 벽, 차로, 입구, 출구, 상행·하행 경사로, 계단, 승강기, 문, 기둥, 장애물, 바닥 방향 화살표만 elements 배열로 만든다. label 타입 element는 사용하지 않는다.
+- elements의 type은 boundary, wall, divider, lane, room, stair, elevator, door, entrance, exit, ramp, ramp_up, ramp_down, column, camera, obstacle, label, stripe, arrow 중 하나다.
+- 입구와 출구가 보이면 각각 entrance와 exit로 구분한다. 층이 올라가는 경사로는 ramp_up, 내려가는 경사로는 ramp_down, 방향을 확인할 수 없는 경사로만 ramp로 둔다.
+- 바닥에 그려진 모든 차량 진행 화살표는 arrow 요소로 만든다. arrow의 x/y/w/h는 화살표가 차지하는 영역이고 rotation은 기본 오른쪽 진행 방향을 기준으로 한 시계 방향 각도다.
+- entrance, exit, ramp_up, ramp_down의 rotation도 기본 오른쪽 진행 방향을 기준으로 한다. label은 빈 문자열로 두며 앱이 고정된 벡터 기호와 한글 표기를 그린다.
 - 기울어진 벽이나 요소는 rotation에 각도를 넣는다. 외곽 전체를 하나의 큰 사각형으로 덮어 구조를 숨기면 안 된다.
 - 사선 완충 구역과 방향 화살표는 사진 바닥에 실제로 그려져 있을 때만 만든다. CCTV 오버레이의 선이나 숫자를 구조물로 해석하지 않는다.
 - 주차면은 사진에서 보이는 위치와 방향을 우선한다. 앱이 보기 좋게 만들려고 임의로 상단/하단/좌우 템플릿에 맞추지 않는다.
@@ -3707,7 +3786,7 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 주차면끼리 절대 겹치지 않게 배치한다.
 - 장애인/임산부 특수 주차면도 사진에 보이는 실제 위치에 둔다.
 - 보드가 가로로 길면 도면도 가로형으로 구성하고, 중앙 차로가 넓으면 그 비율을 줄이지 않는다.
-- 벽은 wall 또는 boundary, 차량 통행 공간은 lane, 출입구는 entrance/exit, 경사로는 ramp, 기둥은 column으로 구분한다.
+- 벽은 wall 또는 boundary, 차량 통행 공간은 lane, 출입구는 entrance/exit, 경사로는 ramp_up/ramp_down/ramp, 기둥은 column으로 구분한다.
 - 결과는 색칠된 칸 표가 아니라 건축 도면이어야 한다. 비주차 실은 흰 공간, 주차 구역은 별도 zone, 벽은 가는 이중선, 주차면은 얇은 경계선으로 읽혀야 한다.
 - lane은 주차면 아래에 넓은 면으로 배치하고 arrow는 lane 위에 둔다. 주차면과 차로가 겹치면 안 된다.
 - 슬롯 번호나 임의의 숫자는 elements에 추가하지 않는다.
@@ -3772,7 +3851,7 @@ function floorPlanSchema() {
               items: {
                 type: "OBJECT",
                 properties: {
-                  type: { type: "STRING", enum: ["boundary", "wall", "divider", "lane", "room", "stair", "elevator", "door", "entrance", "exit", "ramp", "column", "camera", "obstacle", "label", "stripe", "arrow"] },
+                  type: { type: "STRING", enum: ["boundary", "wall", "divider", "lane", "room", "stair", "elevator", "door", "entrance", "exit", "ramp", "ramp_up", "ramp_down", "column", "camera", "obstacle", "label", "stripe", "arrow"] },
                   label: { type: "STRING" },
                   x: { type: "NUMBER" },
                   y: { type: "NUMBER" },
@@ -3881,7 +3960,7 @@ function expandGeneratedRows(rows) {
 }
 
 function normalizeGeneratedElement(element) {
-  const type = ["boundary", "wall", "divider", "lane", "room", "stair", "elevator", "door", "entrance", "exit", "ramp", "column", "camera", "obstacle", "label", "stripe", "arrow"].includes(element.type)
+  const type = ["boundary", "wall", "divider", "lane", "room", "stair", "elevator", "door", "entrance", "exit", "ramp", "ramp_up", "ramp_down", "column", "camera", "obstacle", "label", "stripe", "arrow"].includes(element.type)
     ? element.type
     : "obstacle";
   const x = clamp(Number(element.x), 0, 98);
@@ -3975,7 +4054,7 @@ function polishGeneratedFloor(floor) {
 function cleanGeneratedElement(element) {
   if (!element || element.type === "boundary") return null;
   if (element.type === "label") return null;
-  if (["wall", "divider", "lane", "stripe"].includes(element.type)) {
+  if (["wall", "divider", "lane", "stripe", "arrow", "entrance", "exit", "ramp", "ramp_up", "ramp_down"].includes(element.type)) {
     return { ...element, label: "" };
   }
   return element;
