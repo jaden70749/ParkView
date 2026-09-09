@@ -3277,11 +3277,7 @@ textarea {
   overflow: hidden;
   border: 2px solid #424850;
   border-radius: 4px;
-  background:
-    linear-gradient(rgba(72, 91, 106, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(72, 91, 106, 0.045) 1px, transparent 1px),
-    #f9fbfa;
-  background-size: 12px 12px;
+  background: #787878;
   box-shadow: none;
 }
 
@@ -3392,11 +3388,11 @@ textarea {
   width: 100%;
   height: 100%;
   overflow: visible;
-  background: #ffffff;
+  background: #787878;
 }
 
 .floor-canvas {
-  fill: #ffffff;
+  fill: #787878;
 }
 
 .floor-grid-line {
@@ -3404,7 +3400,7 @@ textarea {
 }
 
 .floor-footprint {
-  fill: #ffffff;
+  fill: #787878;
   stroke: none;
   stroke-linejoin: miter;
 }
@@ -3412,8 +3408,8 @@ textarea {
 .floor-outline-stroke {
   fill: none;
   pointer-events: none;
-  stroke: #1f2325;
-  stroke-width: 1.15;
+  stroke: #111111;
+  stroke-width: 2.2;
   stroke-linejoin: miter;
   vector-effect: non-scaling-stroke;
 }
@@ -3430,11 +3426,11 @@ textarea {
 }
 
 .floor-zone-room {
-  fill: #ffffff;
+  fill: #8b8b8b;
 }
 
 .floor-zone-core {
-  fill: #e9ebea;
+  fill: #686868;
 }
 
 .floor-zone-outdoor {
@@ -3703,9 +3699,9 @@ textarea {
 }
 
 .floor-slot-body {
-  fill: #c4ccd2;
+  fill: #c5ccd1;
   stroke: #ffffff;
-  stroke-width: 0.8;
+  stroke-width: 2.2;
   vector-effect: non-scaling-stroke;
 }
 
@@ -3718,22 +3714,22 @@ textarea {
 }
 
 .floor-slot-available .floor-slot-body {
-  fill: #48ad55;
+  fill: #00c875;
   stroke: #ffffff;
 }
 
 .floor-slot-occupied .floor-slot-body {
-  fill: #b9c2c9;
+  fill: #aeb7bd;
   stroke: #ffffff;
 }
 
 .floor-slot-disabled .floor-slot-body {
-  fill: #3ea9e8;
+  fill: #3aaef2;
   stroke: #ffffff;
 }
 
 .floor-slot-pregnant .floor-slot-body {
-  fill: #df62c2;
+  fill: #e45bc6;
   stroke: #ffffff;
 }
 

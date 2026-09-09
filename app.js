@@ -1333,6 +1333,8 @@ function normalizeStoredFloor(floor, floorIndex = 0) {
       w: Number(slot.w),
       h: Number(slot.h),
       rotation: clamp(Number(slot.rotation) || 0, -180, 180),
+      rowIndex: Number.isInteger(slot.rowIndex) ? slot.rowIndex : null,
+      rowPosition: Number.isInteger(slot.rowPosition) ? slot.rowPosition : null,
       sourcePolygon: normalizeFloorPoints(slot.sourcePolygon, 4).slice(0, 4),
       adjacentSlots: Array.isArray(slot.adjacentSlots)
         ? slot.adjacentSlots.map(Number).filter((value) => Number.isInteger(value) && value > 0).slice(0, 8)
@@ -3086,7 +3088,7 @@ function renderFloorPlan(container, floorOrSlots, editable) {
   const slots = Array.isArray(floor.slots) ? floor.slots : [];
   const elements = Array.isArray(floor.elements) ? floor.elements : [];
   const zones = Array.isArray(floor.zones) ? floor.zones : [];
-  const outline = resolveFloorOutline(floor, slots, elements);
+  const outline = simplifyFloorOutline(resolveFloorOutline(floor, slots, elements));
   const displaySlots = standardizeFloorPlanSlots(slots, outline);
   const drawableElements = prepareDrawableFloorElements(elements, displaySlots);
   const hasPlan = slots.length > 0 || elements.length > 0 || zones.length > 0;
@@ -3111,7 +3113,7 @@ function renderFloorPlan(container, floorOrSlots, editable) {
   defs.append(stripePattern);
   svg.appendChild(defs);
   svg.appendChild(createSvgElement("rect", {
-    x: 0, y: 0, width: 160, height: 100, class: "floor-canvas"
+    x: -20, y: -20, width: 200, height: 140, class: "floor-canvas"
   }));
 
   const footprint = createSvgElement("polygon", {
@@ -3179,32 +3181,17 @@ function renderFloorPlan(container, floorOrSlots, editable) {
   drawableElements.filter((element) => !backgroundTypes.has(element.type)).forEach((element) => {
     renderSvgPlanElement(svg, element, `${svgId}-stripe`);
   });
-  svg.appendChild(createSvgElement("polygon", {
-    points: svgPoints(outline),
-    class: "floor-outline-stroke"
-  }));
+  appendFloorOutline(svg, outline, drawableElements);
   container.appendChild(svg);
 }
 
 function floorPlanViewBox(outline) {
   const xs = outline.map((point) => toSvgX(point.x));
   const ys = outline.map((point) => point.y);
-  let minX = Math.min(...xs) - 9;
-  let maxX = Math.max(...xs) + 9;
-  let minY = Math.min(...ys) - 9;
-  let maxY = Math.max(...ys) + 9;
-  const targetRatio = 1.6;
-  const width = maxX - minX;
-  const height = maxY - minY;
-  if (width / height < targetRatio) {
-    const extra = height * targetRatio - width;
-    minX -= extra / 2;
-    maxX += extra / 2;
-  } else {
-    const extra = width / targetRatio - height;
-    minY -= extra / 2;
-    maxY += extra / 2;
-  }
+  const minX = Math.min(...xs) - 4;
+  const maxX = Math.max(...xs) + 4;
+  const minY = Math.min(...ys) - 4;
+  const maxY = Math.max(...ys) + 4;
   return `${minX} ${minY} ${maxX - minX} ${maxY - minY}`;
 }
 
@@ -3214,18 +3201,16 @@ function standardizeFloorPlanSlots(slots, outline) {
     x: toSvgX(Number(slot.x) + Number(slot.w) / 2),
     y: Number(slot.y) + Number(slot.h) / 2
   }));
-  const nearestDistances = centers.map((center, index) => {
-    const distances = centers
-      .map((other, otherIndex) => otherIndex === index ? Infinity : Math.hypot(center.x - other.x, center.y - other.y))
-      .filter((distance) => distance > 1.5 && distance < 20);
-    return distances.length ? Math.min(...distances) : NaN;
-  }).filter(Number.isFinite).sort((a, b) => a - b);
-  const middle = Math.floor(nearestDistances.length / 2);
-  const medianSpacing = nearestDistances.length
-    ? (nearestDistances.length % 2 ? nearestDistances[middle] : (nearestDistances[middle - 1] + nearestDistances[middle]) / 2)
+  const rowDistances = floorSlotRowDistances(slots, centers).sort((a, b) => a - b);
+  const middle = Math.floor(rowDistances.length / 2);
+  const medianSpacing = rowDistances.length
+    ? (rowDistances.length % 2 ? rowDistances[middle] : (rowDistances[middle - 1] + rowDistances[middle]) / 2)
     : 7.5;
-  const shortSide = clamp(medianSpacing * 0.78, 4.6, 6.8);
-  const longSide = shortSide * 1.72;
+  const tightSpacing = rowDistances.length
+    ? rowDistances[Math.floor((rowDistances.length - 1) * 0.15)]
+    : medianSpacing;
+  const shortSide = clamp(Math.min(medianSpacing * 0.84, tightSpacing * 0.84), 4.4, 8.8);
+  const longSide = shortSide * 1.78;
   const rawWidth = shortSide / FLOOR_PLAN_X_SCALE;
 
   const outlineSvg = outline.map((point) => ({ x: toSvgX(point.x), y: point.y }));
@@ -3241,6 +3226,26 @@ function standardizeFloorPlanSlots(slots, outline) {
     shiftDisplaySlotRowInsideOutline(indexes, standardized, outlineSvg);
   });
   return standardized;
+}
+
+function floorSlotRowDistances(slots, centers) {
+  return groupDisplaySlotsByRow(slots).flatMap((indexes) => {
+    if (indexes.length < 2) return [];
+    const angle = Number(slots[indexes[0]].rotation) || 0;
+    const radians = angle * Math.PI / 180;
+    const axis = { x: Math.cos(radians), y: Math.sin(radians) };
+    const ordered = indexes.map((index) => ({
+      index,
+      position: Number.isInteger(slots[index].rowPosition)
+        ? slots[index].rowPosition
+        : centers[index].x * axis.x + centers[index].y * axis.y
+    })).sort((a, b) => a.position - b.position);
+    return ordered.slice(1).map((item, index) => {
+      const current = centers[item.index];
+      const previous = centers[ordered[index].index];
+      return Math.hypot(current.x - previous.x, current.y - previous.y);
+    }).filter((distance) => distance > 2.5 && distance < 22);
+  });
 }
 
 function alignDisplaySlotRow(indexes, slots) {
@@ -3352,34 +3357,13 @@ function pointInsideFloorPolygon(point, polygon) {
 
 function prepareDrawableFloorElements(elements, slots) {
   const prepared = [];
-  const arrowCenters = [];
   const overlapSensitiveTypes = new Set(["room", "stair", "elevator", "door", "ramp", "ramp_up", "ramp_down", "column", "camera", "obstacle", "stripe"]);
-  let arrowCount = 0;
   const normalizedElements = alignFloorAccessPair(elements);
-  const laneArrows = buildLaneDirectionArrows(normalizedElements, slots);
-  const drawableElements = [
-    ...normalizedElements.filter((element) => element.type !== "arrow"),
-    ...laneArrows
-  ];
 
-  drawableElements.forEach((element) => {
-    if (!element || ["boundary", "label", "lane", "wall", "divider"].includes(element.type)) return;
-    if (["arrow", "entrance", "exit", "ramp", "ramp_up", "ramp_down"].includes(element.type) && element.confidence < 0.82) return;
-    if (element.type !== "arrow") {
-      if (overlapSensitiveTypes.has(element.type) && floorElementOverlapsSlots(element, slots, 0.8)) return;
-      prepared.push(element);
-      return;
-    }
-    if (arrowCount >= 6) return;
-    if (floorArrowOverlapsSlots(element, slots)) return;
-    const center = {
-      x: toSvgX(element.x + element.w / 2),
-      y: element.y + element.h / 2
-    };
-    const duplicatesArrow = arrowCenters.some((existing) => Math.hypot(center.x - existing.x, center.y - existing.y) < 11);
-    if (duplicatesArrow) return;
-    arrowCenters.push(center);
-    arrowCount += 1;
+  normalizedElements.forEach((element) => {
+    if (!element || ["arrow", "boundary", "label", "lane", "wall", "divider"].includes(element.type)) return;
+    if (["entrance", "exit", "ramp", "ramp_up", "ramp_down"].includes(element.type) && element.confidence < 0.82) return;
+    if (overlapSensitiveTypes.has(element.type) && floorElementOverlapsSlots(element, slots, 0.8)) return;
     prepared.push(element);
   });
 
@@ -3396,15 +3380,7 @@ function alignFloorAccessPair(elements) {
     const counterpart = pairedAccessElement(anchor, counterpartType, exit ? -1 : 1);
     return [...elements, counterpart];
   }
-  const entranceCenter = { x: toSvgX(entrance.x + entrance.w / 2), y: entrance.y + entrance.h / 2 };
-  const exitCenter = { x: toSvgX(exit.x + exit.w / 2), y: exit.y + exit.h / 2 };
-  if (Math.hypot(entranceCenter.x - exitCenter.x, entranceCenter.y - exitCenter.y) <= 28) {
-    const alignedEntrance = { ...entrance, rotation: ((Number(exit.rotation) + 180) % 360 + 360) % 360 };
-    return elements.map((element) => element === entrance ? alignedEntrance : element);
-  }
-
-  const pairedEntrance = pairedAccessElement(exit, "entrance", -1, entrance);
-  return elements.map((element) => element === entrance ? pairedEntrance : element);
+  return elements;
 }
 
 function pairedAccessElement(anchor, type, side, source = anchor) {
@@ -3427,56 +3403,6 @@ function pairedAccessElement(anchor, type, side, source = anchor) {
     y: pairedCenter.y - source.h / 2,
     rotation: ((rotation + 180) % 360 + 360) % 360
   };
-}
-
-function buildLaneDirectionArrows(elements, slots) {
-  const exit = elements.find((element) => element.type === "exit");
-  if (!exit) return [];
-  const exitCenter = {
-    x: toSvgX(exit.x + exit.w / 2),
-    y: exit.y + exit.h / 2
-  };
-  return elements.filter((element) => element.type === "lane").slice(0, 6).flatMap((lane) => {
-    const renderedWidth = toSvgX(lane.w);
-    const baseAngle = renderedWidth >= lane.h ? 0 : 90;
-    let rotation = baseAngle + (Number(lane.rotation) || 0);
-    const laneCenter = { x: toSvgX(lane.x + lane.w / 2), y: lane.y + lane.h / 2 };
-    const radians = rotation * Math.PI / 180;
-    const direction = { x: Math.cos(radians), y: Math.sin(radians) };
-    const towardExit = { x: exitCenter.x - laneCenter.x, y: exitCenter.y - laneCenter.y };
-    if (direction.x * towardExit.x + direction.y * towardExit.y < 0) rotation += 180;
-    const axisRadians = (baseAngle + (Number(lane.rotation) || 0)) * Math.PI / 180;
-    const halfTravel = Math.max(renderedWidth, lane.h) * 0.34;
-    const candidates = [0, -0.62, 0.62].map((offset) => {
-      const center = {
-        x: laneCenter.x + Math.cos(axisRadians) * halfTravel * offset,
-        y: laneCenter.y + Math.sin(axisRadians) * halfTravel * offset
-      };
-      return {
-        type: "arrow",
-        label: "",
-        x: center.x / FLOOR_PLAN_X_SCALE - 2.75,
-        y: center.y - 2.25,
-        w: 5.5,
-        h: 4.5,
-        rotation,
-        confidence: 1
-      };
-    });
-    return candidates.find((arrow) => !floorArrowOverlapsSlots(arrow, slots)) || [];
-  });
-}
-
-function floorArrowOverlapsSlots(element, slots) {
-  const centerX = toSvgX(element.x + element.w / 2);
-  const centerY = element.y + element.h / 2;
-  const arrowRadius = Math.max(2.5, Math.min(toSvgX(element.w), element.h) / 2);
-  return slots.some((slot) => {
-    const slotCenterX = toSvgX(slot.x + slot.w / 2);
-    const slotCenterY = slot.y + slot.h / 2;
-    const slotRadius = Math.min(toSvgX(slot.w), slot.h) / 2;
-    return Math.hypot(centerX - slotCenterX, centerY - slotCenterY) < arrowRadius + slotRadius + 1;
-  });
 }
 
 function floorElementOverlapsSlots(element, slots, padding = 0) {
@@ -3540,6 +3466,99 @@ function resolveFloorOutline(floor, slots, elements) {
   return [{ x: minX, y: minY }, { x: maxX, y: minY }, { x: maxX, y: maxY }, { x: minX, y: maxY }];
 }
 
+function simplifyFloorOutline(points) {
+  if (points.length <= 4) return points;
+  let simplified = points.filter((point, index) => {
+    const previous = points[(index - 1 + points.length) % points.length];
+    return Math.hypot(toSvgX(point.x - previous.x), point.y - previous.y) >= 2.5;
+  });
+  if (simplified.length < 3) return points;
+
+  let changed = true;
+  while (changed && simplified.length > 4) {
+    changed = false;
+    simplified = simplified.filter((point, index) => {
+      const previous = simplified[(index - 1 + simplified.length) % simplified.length];
+      const next = simplified[(index + 1) % simplified.length];
+      const firstAngle = Math.atan2(point.y - previous.y, toSvgX(point.x - previous.x));
+      const secondAngle = Math.atan2(next.y - point.y, toSvgX(next.x - point.x));
+      const delta = Math.abs(Math.atan2(Math.sin(secondAngle - firstAngle), Math.cos(secondAngle - firstAngle)));
+      if (delta < 0.08) {
+        changed = true;
+        return false;
+      }
+      return true;
+    });
+  }
+  return simplified.slice(0, 14);
+}
+
+function appendFloorOutline(svg, outline, elements) {
+  const points = outline.map((point) => ({ x: toSvgX(point.x), y: point.y }));
+  const edgeOpenings = points.map(() => []);
+  elements.filter((element) => ["entrance", "exit"].includes(element.type)).forEach((access) => {
+    const center = { x: toSvgX(access.x + access.w / 2), y: access.y + access.h / 2 };
+    let nearest = null;
+    points.forEach((start, edgeIndex) => {
+      const end = points[(edgeIndex + 1) % points.length];
+      const projection = projectPointToSegment(center, start, end);
+      if (!nearest || projection.distance < nearest.distance) nearest = { ...projection, edgeIndex };
+    });
+    if (!nearest || nearest.distance > 18) return;
+    const edgeStart = points[nearest.edgeIndex];
+    const edgeEnd = points[(nearest.edgeIndex + 1) % points.length];
+    const edgeLength = Math.hypot(edgeEnd.x - edgeStart.x, edgeEnd.y - edgeStart.y);
+    const halfGap = clamp(Math.max(toSvgX(access.w), access.h) * 0.42, 4.2, 7.2);
+    edgeOpenings[nearest.edgeIndex].push({
+      start: clamp(nearest.t - halfGap / edgeLength, 0, 1),
+      end: clamp(nearest.t + halfGap / edgeLength, 0, 1)
+    });
+  });
+
+  points.forEach((start, edgeIndex) => {
+    const end = points[(edgeIndex + 1) % points.length];
+    const openings = mergeFloorIntervals(edgeOpenings[edgeIndex]);
+    let cursor = 0;
+    openings.forEach((opening) => {
+      appendFloorOutlineSegment(svg, start, end, cursor, opening.start);
+      cursor = Math.max(cursor, opening.end);
+    });
+    appendFloorOutlineSegment(svg, start, end, cursor, 1);
+  });
+}
+
+function projectPointToSegment(point, start, end) {
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  const lengthSquared = deltaX * deltaX + deltaY * deltaY;
+  const t = lengthSquared
+    ? clamp(((point.x - start.x) * deltaX + (point.y - start.y) * deltaY) / lengthSquared, 0, 1)
+    : 0;
+  const projected = { x: start.x + deltaX * t, y: start.y + deltaY * t };
+  return { t, distance: Math.hypot(point.x - projected.x, point.y - projected.y) };
+}
+
+function mergeFloorIntervals(intervals) {
+  const sorted = [...intervals].sort((a, b) => a.start - b.start);
+  return sorted.reduce((merged, interval) => {
+    const previous = merged[merged.length - 1];
+    if (previous && interval.start <= previous.end) previous.end = Math.max(previous.end, interval.end);
+    else merged.push({ ...interval });
+    return merged;
+  }, []);
+}
+
+function appendFloorOutlineSegment(svg, start, end, from, to) {
+  if (to - from < 0.015) return;
+  svg.appendChild(createSvgElement("line", {
+    x1: start.x + (end.x - start.x) * from,
+    y1: start.y + (end.y - start.y) * from,
+    x2: start.x + (end.x - start.x) * to,
+    y2: start.y + (end.y - start.y) * to,
+    class: "floor-outline-stroke"
+  }));
+}
+
 function renderSvgPlanElement(svg, element, stripePatternId) {
   const x = toSvgX(element.x);
   const y = element.y;
@@ -3563,9 +3582,6 @@ function renderSvgPlanElement(svg, element, stripePatternId) {
       y2: horizontal ? centerY : y + height,
       class: `floor-structure-line floor-structure-${element.type}`
     }));
-  } else if (element.type === "arrow") {
-    const box = fitFloorSymbolBox(x, y, width, height, 10, 5.5);
-    appendFloorDirectionArrow(group, box.x, box.y, box.width, box.height, "floor-direction-arrow");
   } else if (element.type === "label" && !isGenericPlanLabel(element.label)) {
     group.appendChild(createSvgElement("text", { x: centerX, y: centerY, class: "floor-label" }, element.label));
   } else if (element.type === "stripe") {
@@ -3601,7 +3617,7 @@ function renderSvgPlanElement(svg, element, stripePatternId) {
     }));
   } else if (["entrance", "exit"].includes(element.type)) {
     const box = fitFloorSymbolBox(x, y, width, height, 12, 8);
-    appendFloorGate(group, box, element.type, element.rotation);
+    appendFloorGate(group, box, element.type);
   } else if (["ramp", "ramp_up", "ramp_down"].includes(element.type)) {
     const box = fitFloorSymbolBox(x, y, width, height, 15, 10);
     appendFloorRamp(group, box, element.type, stripePatternId, element.rotation);
@@ -3640,31 +3656,10 @@ function fitFloorSymbolBox(x, y, width, height, minWidth, minHeight) {
   };
 }
 
-function appendFloorDirectionArrow(group, x, y, width, height, className) {
-  const centerY = y + height / 2;
-  const startX = x + width * 0.18;
-  const tipX = x + width * 0.82;
-  const headX = x + width * 0.62;
-  const headHalfHeight = Math.max(1.45, Math.min(height * 0.34, width * 0.15));
-  group.appendChild(createSvgElement("line", {
-    x1: startX, y1: centerY, x2: tipX, y2: centerY,
-    class: `${className}-line`
-  }));
-  group.appendChild(createSvgElement("polygon", {
-    points: `${headX},${centerY - headHalfHeight} ${tipX},${centerY} ${headX},${centerY + headHalfHeight}`,
-    class: `${className}-head`
-  }));
-}
-
-function appendFloorGate(group, box, type, rotation = 0) {
-  const symbol = createSvgElement("g", rotation ? {
-    transform: `rotate(${rotation} ${box.centerX} ${box.centerY})`
-  } : {});
-  appendFloorDirectionArrow(symbol, box.x, box.y, box.width, box.height * 0.62, "floor-gate-arrow");
-  group.appendChild(symbol);
+function appendFloorGate(group, box, type) {
   group.appendChild(createSvgElement("text", {
     x: box.centerX,
-    y: box.y + box.height * 0.82,
+    y: box.centerY,
     class: "floor-fixed-label floor-gate-label"
   }, type === "entrance" ? "입구" : "출구"));
 }
@@ -3683,7 +3678,6 @@ function appendFloorRamp(group, box, type, stripePatternId, rotation = 0) {
     fill: `url(#${stripePatternId})`,
     class: "floor-ramp-stripes"
   }));
-  appendFloorDirectionArrow(symbol, box.x + box.width * 0.08, box.y + box.height * 0.05, box.width * 0.84, box.height * 0.56, "floor-ramp-arrow");
   group.appendChild(symbol);
   group.appendChild(createSvgElement("text", {
     x: box.centerX,
@@ -3972,6 +3966,12 @@ async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
     }
   ]);
 
+  const generationConfig = {
+    temperature: 0,
+    maxOutputTokens: 32768,
+    responseMimeType: "application/json",
+    responseSchema: floorPlanSchema()
+  };
   const payload = await requestGeminiGeneration({
     contents: [
       {
@@ -3982,18 +3982,39 @@ async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
         ]
       }
     ],
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 32768,
-      responseMimeType: "application/json",
-      responseSchema: floorPlanSchema()
-    }
+    generationConfig
   });
 
   const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
   if (!text) throw new Error("응답에 도면 JSON이 없습니다.");
   const parsed = JSON.parse(stripJsonFence(text));
-  return validateGeneratedFloors(parsed);
+  const draftFloors = validateGeneratedFloors(parsed);
+
+  try {
+    const reviewedPayload = await requestGeminiGeneration({
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: geminiPlanReviewPrompt(floorName, parsed) },
+            ...imageParts
+          ]
+        }
+      ],
+      generationConfig
+    });
+    const reviewedText = reviewedPayload.candidates?.[0]?.content?.parts
+      ?.map((part) => part.text || "")
+      .join("")
+      .trim();
+    if (reviewedText) {
+      const reviewed = JSON.parse(stripJsonFence(reviewedText));
+      return validateGeneratedFloors(reviewed);
+    }
+  } catch (error) {
+    console.warn("[ParkView] floor plan review skipped", error);
+  }
+  return draftFloors;
 }
 
 async function requestGeminiGeneration(payload) {
@@ -4030,13 +4051,13 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 첨부 사진이 여러 장이면 같은 장소를 다른 방향에서 본 보조 사진으로 취급한다. 가장 넓은 전경을 기준 좌표계로 사용하고, 다른 사진은 가려진 칸과 특수 표식을 확인하는 데만 사용한다. 중복 주차면을 두 번 세거나 서로 모순되는 별도 구조를 이어 붙이지 않는다.
 - 먼저 각 사진에서 독립된 주차열을 찾고, 각 열의 면수·방향·맞은편 열·사이 차로·출입구 순서를 내부적으로 표로 정리한 다음 JSON 좌표를 작성한다.
 - 모든 x/y/w/h/rotation은 카메라 화면의 원근 좌표가 아니라 원근을 제거한 최종 탑뷰 좌표다. 좌상단이 0,0이고 우하단이 100,100이다.
-- outline은 사진에서 확인되는 주차장 포장면의 경계를 시계방향으로 기록한다. 보이지 않는 건물 뒤나 수목 아래의 굴곡을 추측하지 말고, 근거가 없으면 단순한 경계로 둔다.
+- outline은 사진에서 확인되는 주차장 포장면의 외벽을 시계방향으로 기록한다. 핵심 모서리 4~12개만 사용하고, 짧은 꺾임·톱니 모양·차량 윤곽을 외벽으로 만들지 않는다. 출입구가 있어도 polygon은 닫되 entrance/exit의 중심을 실제 외벽 개구부 위에 정확히 둔다. 앱이 그 좌표에서 외벽을 끊는다.
 - zones에는 parking, room, core, outdoor 구역을 다각형으로 분리해 넣는다. parking은 실제 차량 통행·주차 영역, room/core는 계단실·승강기실·기계실 같은 비주차 공간이다.
 - 모든 zone의 label은 빈 문자열로 둔다. 사진 내용을 영어 설명으로 번역하거나 Building, Trees, Slope, Walkway 같은 추측 라벨을 만들지 않는다.
 - JSON을 작성하기 전에 소실점과 평행 방향을 찾고, 도로 경계와 주차선이 탑뷰에서 평행·직각이 되도록 원근을 제거한다.
 - 빨강/초록 테두리와 0/1은 슬롯 경계와 점유 상태를 읽는 참고 정보일 뿐, 도면에 색 면·숫자·장식으로 그리지 않는다.
 - rows 배열에는 사진에서 연속된 주차열 하나당 객체 하나를 넣는다. 곡선이나 방향이 바뀌는 열은 직선 구간별로 나눈다.
-- row의 startX/startY는 첫 번째 주차면 중심, endX/endY는 마지막 주차면 중심의 최종 탑뷰 좌표다.
+- row의 startX/startY는 첫 번째 주차면 중심, endX/endY는 마지막 주차면 중심의 최종 탑뷰 좌표다. 두 점을 잇는 선은 주차열의 진행축이며 모든 칸 중심이 그 직선 위에 동일 간격으로 놓여야 한다.
 - row의 count는 그 열의 전체 면수다. w는 회전 전 주차면의 짧은 폭, h는 긴 깊이이며 항상 w<h로 둔다. rotation은 긴 축이 세로일 때 0도, 가로일 때 90도인 탑뷰 회전 각도다.
 - 같은 층의 모든 row는 동일한 w와 h를 사용한다. 사진 원근 때문에 가까운 칸을 크게, 먼 칸을 작게 만들지 않는다.
 - statuses와 kinds 배열은 첫 칸부터 마지막 칸 순서이며 길이가 반드시 count와 같아야 한다.
@@ -4050,17 +4071,17 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 임산부/여성 우선 주차면은 실제 바닥 도색이나 표지가 보일 때만 pregnant로 둔다.
 - 사용자 입력에 장애인·임산부 숫자가 있어도 사진에서 위치를 확인할 수 없으면 일반 칸을 임의로 특수 칸으로 바꾸지 않는다.
 - 파란 바탕의 휠체어 표시는 disabled로, 분홍 바탕의 특수 주차 표시는 pregnant로 분류한다.
-- 사진에 보이지 않는 구조를 임의로 추가하지 않되, 사진에 보이는 벽과 통행 공간은 반드시 도면 요소로 만든다.
+- 사진에 보이지 않는 구조를 임의로 추가하지 않는다. 사진에 보이는 외벽은 outline에, 통행 공간과 출입구는 elements에 기록한다.
 - 사진 바깥 배경과 주차장 밖의 건물·나무·보행로는 도면 요소로 만들지 않는다.
-- 사진에 보이는 벽, 차로, 입구, 출구, 상행·하행 경사로, 계단, 승강기, 문, 기둥, 장애물, 바닥 방향 화살표만 elements 배열로 만든다. label 타입 element는 사용하지 않는다.
-- elements의 type은 boundary, wall, divider, lane, room, stair, elevator, door, entrance, exit, ramp, ramp_up, ramp_down, column, camera, obstacle, label, stripe, arrow 중 하나다.
+- 사진에 보이는 차로, 입구, 출구, 상행·하행 경사로, 계단, 승강기, 문, 기둥, 장애물만 elements 배열로 만든다. 외벽은 outline만 사용하고 wall/divider/label/arrow 타입은 생성하지 않는다.
+- elements의 type은 lane, room, stair, elevator, door, entrance, exit, ramp, ramp_up, ramp_down, column, camera, obstacle, stripe 중 하나다.
 - 입구와 출구가 보이면 각각 entrance와 exit로 구분한다. 층이 올라가는 경사로는 ramp_up, 내려가는 경사로는 ramp_down, 방향을 확인할 수 없는 경사로만 ramp로 둔다.
-- 차량 진행 화살표를 arrow 요소로 직접 만들지 않는다. 사진에서 확인되는 차량 통행 공간만 lane으로 정확히 표시하며, 앱이 lane의 중심축과 출구 위치를 이용해 방향 화살표를 일정하게 배치한다.
+- 차량 진행 화살표는 사진에 보여도 완전히 무시하며 arrow 요소를 절대 생성하지 않는다. 사진에서 확인되는 차량 통행 공간만 lane으로 기록한다.
 - entrance, exit, ramp_up, ramp_down의 rotation도 기본 오른쪽 진행 방향을 기준으로 한다. label은 빈 문자열로 두며 앱이 고정된 벡터 기호와 한글 표기를 그린다.
-- entrance/exit는 w 7 이상, h 7 이상으로 잡아 기호가 알아볼 수 있는 크기가 되게 한다. 작은 글자나 이모지를 elements로 만들지 않는다.
-- 모든 element에는 사진에서 실제로 확인한 정도를 confidence 0~1로 넣는다. arrow, entrance, exit, ramp 계열은 바닥 도색·차단기·연결 도로처럼 직접 보이는 근거가 있어 confidence가 0.82 이상일 때만 만든다. 진행 방향을 추측해서 화살표를 추가하지 않는다.
-- 기울어진 벽이나 요소는 rotation에 각도를 넣는다. 외곽 전체를 하나의 큰 사각형으로 덮어 구조를 숨기면 안 된다.
-- 사선 완충 구역과 방향 화살표는 사진 바닥에 실제로 그려져 있을 때만 만든다. CCTV 오버레이의 선이나 숫자를 구조물로 해석하지 않는다.
+- entrance와 exit는 서로 독립적으로 실제 위치를 판독한다. 각각의 중심은 outline의 실제 개구부 선분 위에 두고 w/h는 차량 통로의 개구 폭을 나타내게 한다. 한쪽 위치를 기준으로 다른 쪽을 임의 생성하거나 둘을 같은 위치로 합치지 않는다.
+- 모든 element에는 사진에서 실제로 확인한 정도를 confidence 0~1로 넣는다. entrance, exit, ramp 계열은 바닥 도색·차단기·연결 도로처럼 직접 보이는 근거가 있어 confidence가 0.82 이상일 때만 만든다. 진행 방향을 추측하지 않는다.
+- 기울어진 요소는 rotation에 각도를 넣는다. 외곽 전체를 하나의 큰 사각형으로 덮어 구조를 숨기면 안 된다.
+- 사선 완충 구역은 사진 바닥에 실제로 그려져 있을 때만 만든다. CCTV 오버레이의 선이나 숫자를 구조물로 해석하지 않는다.
 - 주차면은 사진에서 보이는 위치와 방향을 우선한다. 앱이 보기 좋게 만들려고 임의로 상단/하단/좌우 템플릿에 맞추지 않는다.
 - 주차면이 행(row)이나 열(column)을 이루면 개수, 앞뒤·좌우 순서, 간격, 방향을 그대로 유지한다. 사진의 깊이 방향 배치를 임의의 가로 한 줄로 펴지 않는다.
 - 주차면 하나는 실제 약 2.3~2.5m × 5m 비율처럼 짧은 변 대비 긴 변이 1.8~2.4배인 직사각형이어야 한다. 정사각형이나 작은 막대로 만들지 않는다.
@@ -4068,11 +4089,11 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 주차면끼리 절대 겹치지 않게 배치한다.
 - 장애인/임산부 특수 주차면도 사진에 보이는 실제 위치에 둔다.
 - 보드가 가로로 길면 도면도 가로형으로 구성하고, 중앙 차로가 넓으면 그 비율을 줄이지 않는다.
-- 벽은 wall 또는 boundary, 차량 통행 공간은 lane, 출입구는 entrance/exit, 경사로는 ramp_up/ramp_down/ramp, 기둥은 column으로 구분한다.
-- 결과는 색칠된 칸 표가 아니라 건축 도면이어야 한다. 비주차 실은 흰 공간, 주차 구역은 별도 zone, 벽은 가는 이중선, 주차면은 얇은 경계선으로 읽혀야 한다.
-- lane은 주차면 아래에 넓은 면으로 배치하고 arrow는 lane 위에 둔다. 주차면과 차로가 겹치면 안 된다.
+- 차량 통행 공간은 lane, 출입구는 entrance/exit, 경사로는 ramp_up/ramp_down/ramp, 기둥은 column으로 구분한다.
+- 결과 좌표는 단순한 탑뷰 배치도여야 한다. 장식보다 외곽 모양, 주차열 위치, 각도, 칸 수, 동일 간격을 우선한다.
+- lane은 주차면 아래의 빈 통행 공간에 배치하며 주차면과 겹치면 안 된다.
 - lane은 주차면과 겹치지 않는 실제 차로 중심을 길고 단순한 사각 영역으로 기록한다. 같은 직선 차로를 여러 조각으로 중복 생성하지 않는다.
-- entrance와 exit는 주차면 열 바깥의 실제 출입 통로에 두고 서로 겹치지 않게 최소 8 좌표 단위 이상 떨어뜨린다.
+- entrance와 exit는 주차면 열 바깥의 실제 외벽 개구부에 두고, 각 중심과 가장 가까운 outline 선분 사이 거리가 2 좌표 단위 이하여야 한다.
 - 슬롯 번호나 임의의 숫자는 elements에 추가하지 않는다.
 - 모든 zone과 wall/divider/boundary에는 label을 넣지 않는다.
 - outline이 외곽선을 나타내므로 동일한 외곽을 boundary element로 중복 생성하지 않는다.
@@ -4081,6 +4102,28 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 
 내부 지시:
 ${instruction}
+`;
+}
+
+function geminiPlanReviewPrompt(floorName, draft) {
+  return `
+너는 2D 주차장 도면의 최종 검수자다. 아래 초안 JSON과 첨부된 원본 사진을 다시 대조하고, 틀린 좌표를 고친 완전한 대체 JSON만 반환해라.
+
+검수 대상 층: ${floorName}
+초안 JSON:
+${JSON.stringify(draft)}
+
+검수 순서:
+1. 사진에서 독립된 주차열을 다시 찾고 각 열의 실제 칸 수를 처음부터 센다.
+2. 각 열의 첫 칸 중심과 마지막 칸 중심, 열의 각도, 맞은편 열과의 거리를 사진의 원근을 제거한 탑뷰 좌표로 다시 맞춘다.
+3. 같은 열의 모든 칸은 동일 크기, 동일 각도, 동일 중심 간격이어야 한다. 서로 겹치거나 외벽 밖으로 나가면 좌표를 수정한다.
+4. outline은 차량이나 나무 윤곽이 아니라 실제 포장면 외벽의 핵심 모서리 4~12개만 사용한다.
+5. entrance와 exit를 사진에서 각각 독립적으로 찾고, 각 중심을 실제 outline 개구부 선분 위에 둔다. 둘을 한곳에 합치거나 임의 위치로 옮기지 않는다.
+6. arrow, wall, divider, boundary, label 요소는 절대 만들지 않는다. 진행 화살표는 모두 제외한다.
+7. statuses와 kinds는 사진에서 확인되는 경우에만 수정하고, 장식이나 추측 구조물을 추가하지 않는다.
+8. detectedSlotCount와 모든 rows의 count 합계가 반드시 같아야 한다.
+
+초안이 맞는 부분은 유지하되, 사진과 다른 칸 수·행 위치·각도·간격·외곽·출입구는 반드시 교정한다. floors에는 ${floorName} 한 층만 넣고 전체 JSON을 반환한다.
 `;
 }
 
@@ -4135,7 +4178,7 @@ function floorPlanSchema() {
               items: {
                 type: "OBJECT",
                 properties: {
-                  type: { type: "STRING", enum: ["boundary", "wall", "divider", "lane", "room", "stair", "elevator", "door", "entrance", "exit", "ramp", "ramp_up", "ramp_down", "column", "camera", "obstacle", "label", "stripe", "arrow"] },
+                  type: { type: "STRING", enum: ["lane", "room", "stair", "elevator", "door", "entrance", "exit", "ramp", "ramp_up", "ramp_down", "column", "camera", "obstacle", "stripe"] },
                   label: { type: "STRING" },
                   x: { type: "NUMBER" },
                   y: { type: "NUMBER" },
@@ -4175,7 +4218,7 @@ function floorPlanSchema() {
               }
             }
           },
-          required: ["name", "outline", "zones", "detectedSlotCount", "rows"]
+          required: ["name", "outline", "zones", "elements", "detectedSlotCount", "rows"]
         }
       }
     },
