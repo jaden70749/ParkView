@@ -40,6 +40,7 @@ GEMINI_MODELS = tuple(
     for model in dict.fromkeys((*BUILTIN_GEMINI_MODELS, GEMINI_MODEL, *GEMINI_FALLBACK_MODELS))
     if model not in RETIRED_GEMINI_MODELS
 )
+ACTIVE_GEMINI_MODEL = GEMINI_MODELS[0]
 GEMINI_RETRY_ATTEMPTS = max(1, int(os.environ.get("GEMINI_RETRY_ATTEMPTS", "2")))
 BUILD_COMMIT = os.environ.get("RENDER_GIT_COMMIT", "local").strip()[:7]
 ALLOWED_ORIGINS = {
@@ -215,7 +216,8 @@ class EdgeApiHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "service": "parkview-plan-api",
                     "geminiConfigured": bool(GEMINI_API_KEY),
-                    "geminiModel": GEMINI_MODEL,
+                    "geminiModel": ACTIVE_GEMINI_MODEL,
+                    "geminiModels": GEMINI_MODELS,
                     "build": BUILD_COMMIT,
                 },
             )
@@ -226,7 +228,7 @@ class EdgeApiHandler(BaseHTTPRequestHandler):
                 {
                     "geminiConfigured": bool(GEMINI_API_KEY),
                     "backendConnected": True,
-                    "geminiModel": GEMINI_MODEL,
+                    "geminiModel": ACTIVE_GEMINI_MODEL,
                     "geminiModels": GEMINI_MODELS,
                     "build": BUILD_COMMIT,
                 },

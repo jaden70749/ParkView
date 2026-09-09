@@ -42,6 +42,14 @@ class EdgeApiTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertNotIn("server-secret", body)
 
+    def test_health_reports_the_effective_non_retired_model(self):
+        response = self.request("/api/health")
+        body = json.loads(response.read().decode())
+
+        self.assertEqual(body["geminiModel"], edge_api.GEMINI_MODELS[0])
+        self.assertNotIn(body["geminiModel"], edge_api.RETIRED_GEMINI_MODELS)
+        self.assertTrue(set(body["geminiModels"]).isdisjoint(edge_api.RETIRED_GEMINI_MODELS))
+
     def test_allowed_origin_can_generate(self):
         payload = {"contents": [{"parts": [{"text": "test"}]}]}
         with mock.patch.object(edge_api, "ALLOWED_ORIGINS", {"https://app.example"}), mock.patch.object(
