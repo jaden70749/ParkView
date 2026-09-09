@@ -154,7 +154,8 @@ test("access labels inside the parking rows are rejected", () => {
 test("rendering a saved compressed floor fills the plan and preserves statuses", () => {
   const context = loadAppContext();
   const container = new FakeElement("div");
-  const statuses = ["available", "available", "occupied", "available"];
+  const slotPositions = [10, 18, 26, 38, 46, 54, 62, 74, 82, 90, 91];
+  const statuses = slotPositions.map((_, index) => (index === 4 ? "occupied" : "available"));
   context.renderContainer = container;
   context.savedFloor = {
     name: "1F",
@@ -165,8 +166,8 @@ test("rendering a saved compressed floor fills the plan and preserves statuses",
       { type: "entrance", x: 46, y: 47, w: 5, h: 5, rotation: 0, confidence: 0.99 }
     ],
     slots: statuses.flatMap((status, index) => [
-      { kind: "normal", status, x: 10 + index * 12, y: 37, w: 5, h: 10, rotation: 0, rowIndex: 0, rowPosition: index },
-      { kind: "normal", status: "available", x: 10 + index * 12, y: 53, w: 5, h: 10, rotation: 0, rowIndex: 1, rowPosition: index }
+      { kind: "normal", status, x: slotPositions[index], y: 37, w: 5, h: 10, rotation: 0, rowIndex: index, rowPosition: 0 },
+      { kind: "normal", status: "available", x: slotPositions[index], y: 53, w: 5, h: 10, rotation: 0, rowIndex: index + 4, rowPosition: 0 }
     ])
   };
 
@@ -187,7 +188,7 @@ test("rendering a saved compressed floor fills the plan and preserves statuses",
   ));
 
   assert.equal(container.style.values.get("--floor-plan-aspect"), "2.35");
-  assert.equal(slotGroups.length, 8);
+  assert.equal(slotGroups.length, 22);
   assert.equal(slotGroups.filter((element) => element.attributes.get("class").includes("floor-slot-occupied")).length, 1);
   const footprintPoints = footprint.attributes.get("points").split(" ").map((pair) => pair.split(",").map(Number));
   assert.ok(Math.abs(Math.min(...footprintPoints.map(([x]) => x)) - 9.4) < 0.001);
@@ -195,4 +196,26 @@ test("rendering a saved compressed floor fills the plan and preserves statuses",
   assert.equal(Math.min(...footprintPoints.map(([, y]) => y)), 4);
   assert.equal(Math.max(...footprintPoints.map(([, y]) => y)), 96);
   assert.equal(accessLabels.length, 0);
+
+  const slotBodies = slotGroups
+    .map((group) => group.children.find((child) => child.attributes.get("class") === "floor-slot-body"))
+    .sort((a, b) => (
+      Number(a.attributes.get("y")) + Number(a.attributes.get("height")) / 2
+      - Number(b.attributes.get("y")) - Number(b.attributes.get("height")) / 2
+    ));
+  const topSlotBodies = slotBodies
+    .slice(0, slotBodies.length / 2)
+    .sort((a, b) => Number(a.attributes.get("x")) - Number(b.attributes.get("x")));
+  const slotWidth = Number(topSlotBodies[0].attributes.get("width"));
+  const centers = topSlotBodies.map((slot) => Number(slot.attributes.get("x")) + slotWidth / 2);
+  const spacings = centers.slice(1).map((center, index) => center - centers[index]);
+  const regularSpacings = spacings.filter((_, index) => ![2, 6].includes(index));
+  const groupSpacings = spacings.filter((_, index) => [2, 6].includes(index));
+  assert.ok(slotWidth / regularSpacings[0] >= 0.88);
+  assert.ok(
+    Math.max(...regularSpacings) - Math.min(...regularSpacings) < 0.001,
+    `regular spacings: ${regularSpacings.join(", ")}`
+  );
+  assert.ok(groupSpacings.every((spacing) => spacing > regularSpacings[0] * 1.35));
+  assert.ok(Number(topSlotBodies[0].attributes.get("height")) / slotWidth >= 1.89);
 });

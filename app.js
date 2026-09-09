@@ -3217,12 +3217,9 @@ function standardizeFloorPlanSlots(slots, outline) {
   const middle = Math.floor(rowDistances.length / 2);
   const medianSpacing = rowDistances.length
     ? (rowDistances.length % 2 ? rowDistances[middle] : (rowDistances[middle - 1] + rowDistances[middle]) / 2)
-    : 7.5;
-  const tightSpacing = rowDistances.length
-    ? rowDistances[Math.floor((rowDistances.length - 1) * 0.15)]
-    : medianSpacing;
-  const shortSide = clamp(Math.min(medianSpacing * 0.84, tightSpacing * 0.84), 4.4, 8.8);
-  const longSide = shortSide * 1.78;
+    : 11;
+  const shortSide = clamp(medianSpacing * 0.9, 6.5, 22);
+  const longSide = shortSide * 1.9;
   const rawWidth = shortSide / activeFloorPlanXScale;
 
   const outlineSvg = outline.map((point) => ({ x: toSvgX(point.x), y: point.y }));
@@ -3234,10 +3231,41 @@ function standardizeFloorPlanSlots(slots, outline) {
     h: longSide
   }));
   groupDisplaySlotsByRow(standardized).forEach((indexes) => {
+    normalizeDisplaySlotSpacing(indexes, standardized);
     alignDisplaySlotRow(indexes, standardized);
     shiftDisplaySlotRowInsideOutline(indexes, standardized, outlineSvg);
   });
   return standardized;
+}
+
+function normalizeDisplaySlotSpacing(indexes, slots) {
+  if (indexes.length < 3) return;
+  const angle = Number(slots[indexes[0]].rotation) || 0;
+  const radians = angle * Math.PI / 180;
+  const axis = { x: Math.cos(radians), y: Math.sin(radians) };
+  const ordered = indexes.map((index) => ({
+    index,
+    position: toSvgX(slots[index].x + slots[index].w / 2) * axis.x
+      + (slots[index].y + slots[index].h / 2) * axis.y
+  })).sort((a, b) => a.position - b.position);
+  const gaps = ordered.slice(1)
+    .map((item, index) => item.position - ordered[index].position)
+    .filter((gap) => gap > 2.5 && gap < 55)
+    .sort((a, b) => a - b);
+  if (!gaps.length) return;
+  const middle = Math.floor(gaps.length / 2);
+  const typicalGap = gaps.length % 2
+    ? gaps[middle]
+    : (gaps[middle - 1] + gaps[middle]) / 2;
+  let targetPosition = ordered[0].position;
+  ordered.slice(1).forEach((item, offset) => {
+    const rawGap = item.position - ordered[offset].position;
+    const desiredGap = rawGap < typicalGap * 1.45 ? typicalGap : rawGap;
+    targetPosition += desiredGap;
+    const shift = targetPosition - item.position;
+    slots[item.index].x += axis.x * shift / activeFloorPlanXScale;
+    slots[item.index].y += axis.y * shift;
+  });
 }
 
 function floorSlotRowDistances(slots, centers) {
@@ -3248,24 +3276,27 @@ function floorSlotRowDistances(slots, centers) {
     const axis = { x: Math.cos(radians), y: Math.sin(radians) };
     const ordered = indexes.map((index) => ({
       index,
-      position: Number.isInteger(slots[index].rowPosition)
-        ? slots[index].rowPosition
-        : centers[index].x * axis.x + centers[index].y * axis.y
+      position: centers[index].x * axis.x + centers[index].y * axis.y
     })).sort((a, b) => a.position - b.position);
     return ordered.slice(1).map((item, index) => {
       const current = centers[item.index];
       const previous = centers[ordered[index].index];
       return Math.hypot(current.x - previous.x, current.y - previous.y);
-    }).filter((distance) => distance > 2.5 && distance < 22);
+    }).filter((distance) => distance > 2.5 && distance < 55);
   });
 }
 
 function alignDisplaySlotRow(indexes, slots) {
   if (indexes.length < 2) return;
+  const sourceAngle = Number(slots[indexes[0]].rotation) || 0;
+  const sourceRadians = sourceAngle * Math.PI / 180;
+  const sourceAxis = { x: Math.cos(sourceRadians), y: Math.sin(sourceRadians) };
   const ordered = [...indexes].sort((a, b) => {
-    const aPosition = Number(slots[a].rowPosition);
-    const bPosition = Number(slots[b].rowPosition);
-    return Number.isFinite(aPosition) && Number.isFinite(bPosition) ? aPosition - bPosition : a - b;
+    const aPosition = toSvgX(slots[a].x + slots[a].w / 2) * sourceAxis.x
+      + (slots[a].y + slots[a].h / 2) * sourceAxis.y;
+    const bPosition = toSvgX(slots[b].x + slots[b].w / 2) * sourceAxis.x
+      + (slots[b].y + slots[b].h / 2) * sourceAxis.y;
+    return aPosition - bPosition;
   });
   const first = slots[ordered[0]];
   const last = slots[ordered[ordered.length - 1]];
@@ -3285,18 +3316,16 @@ function groupDisplaySlotsByRow(slots) {
     const angle = ((Number(slot.rotation) || 0) % 180 + 180) % 180;
     const radians = angle * Math.PI / 180;
     const normal = { x: -Math.sin(radians), y: Math.cos(radians) };
-    let group = Number.isInteger(slot.rowIndex)
-      ? groups.find((candidate) => candidate.rowIndex === slot.rowIndex)
-      : groups.find((candidate) => {
-        const angleDifference = Math.abs(candidate.angle - angle);
-        const wrappedDifference = Math.min(angleDifference, 180 - angleDifference);
-        const deltaX = center.x - candidate.anchor.x;
-        const deltaY = center.y - candidate.anchor.y;
-        return wrappedDifference < 8 && Math.abs(deltaX * candidate.normal.x + deltaY * candidate.normal.y) < 3.2;
-      });
+    let group = groups.find((candidate) => {
+      const angleDifference = Math.abs(candidate.angle - angle);
+      const wrappedDifference = Math.min(angleDifference, 180 - angleDifference);
+      const deltaX = center.x - candidate.anchor.x;
+      const deltaY = center.y - candidate.anchor.y;
+      return wrappedDifference < 8
+        && Math.abs(deltaX * candidate.normal.x + deltaY * candidate.normal.y) < 5.5;
+    });
     if (!group) {
       group = {
-        rowIndex: Number.isInteger(slot.rowIndex) ? slot.rowIndex : null,
         angle,
         normal,
         anchor: center,
@@ -3305,6 +3334,11 @@ function groupDisplaySlotsByRow(slots) {
       groups.push(group);
     }
     group.indexes.push(index);
+    const count = group.indexes.length;
+    group.anchor = {
+      x: group.anchor.x + (center.x - group.anchor.x) / count,
+      y: group.anchor.y + (center.y - group.anchor.y) / count
+    };
   });
   return groups.map((group) => group.indexes);
 }
