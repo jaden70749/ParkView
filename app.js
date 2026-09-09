@@ -3104,17 +3104,19 @@ function makeSlots(seed = 1, highlightAvailable = false) {
 
 function renderFloorPlan(container, floorOrSlots, editable) {
   if (!container) return;
-  const floor = Array.isArray(floorOrSlots)
+  const sourceFloor = Array.isArray(floorOrSlots)
     ? { slots: floorOrSlots, elements: [], outline: [], zones: [] }
     : floorOrSlots || { slots: [], elements: [], outline: [], zones: [] };
-  activeFloorPlanXScale = normalizeFloorAspectRatio(floor.aspectRatio);
+  activeFloorPlanXScale = normalizeFloorAspectRatio(sourceFloor.aspectRatio);
   container.style.setProperty("--floor-plan-aspect", String(activeFloorPlanXScale));
+  const sourceSlots = Array.isArray(sourceFloor.slots) ? sourceFloor.slots : [];
+  const floor = fitFloorToDrawingBounds(sourceFloor);
   const slots = Array.isArray(floor.slots) ? floor.slots : [];
   const elements = Array.isArray(floor.elements) ? floor.elements : [];
   const zones = Array.isArray(floor.zones) ? floor.zones : [];
   const outline = simplifyFloorOutline(resolveFloorOutline(floor, slots, elements));
   const displaySlots = standardizeFloorPlanSlots(slots, outline);
-  const drawableElements = prepareDrawableFloorElements(elements, displaySlots);
+  const drawableElements = prepareDrawableFloorElements(elements, displaySlots, outline);
   const hasPlan = slots.length > 0 || elements.length > 0 || zones.length > 0;
 
   container.replaceChildren();
@@ -3152,7 +3154,7 @@ function renderFloorPlan(container, floorOrSlots, editable) {
   });
 
   displaySlots.forEach((slot, index) => {
-    const sourceSlot = slots[index];
+    const sourceSlot = sourceSlots[index];
     const orientation = slot.w >= slot.h ? "horizontal" : "vertical";
     const group = createSvgElement("g", {
       class: `floor-slot floor-slot-${slot.kind} floor-slot-${slot.status} ${orientation}`,
@@ -3365,13 +3367,38 @@ function pointInsideFloorPolygon(point, polygon) {
   return inside;
 }
 
-function prepareDrawableFloorElements(elements, slots) {
-  void slots;
-  return elements.filter((element) => (
-    element
-    && ["entrance", "exit"].includes(element.type)
-    && element.confidence >= 0.82
-  ));
+function prepareDrawableFloorElements(elements, slots, outline = []) {
+  const accepted = [];
+  [...elements]
+    .filter((element) => element && ["entrance", "exit"].includes(element.type))
+    .sort((a, b) => b.confidence - a.confidence)
+    .forEach((element) => {
+      if (element.confidence < 0.9) return;
+      if (accepted.some((candidate) => candidate.type === element.type)) return;
+      if (floorElementOverlapsSlots(element, slots, 1.2)) return;
+      if (floorElementDistanceFromOutline(element, outline) > 4) return;
+      const center = { x: toSvgX(element.x + element.w / 2), y: element.y + element.h / 2 };
+      if (accepted.some((candidate) => {
+        const candidateCenter = {
+          x: toSvgX(candidate.x + candidate.w / 2),
+          y: candidate.y + candidate.h / 2
+        };
+        return Math.hypot(center.x - candidateCenter.x, center.y - candidateCenter.y) < 8;
+      })) return;
+      accepted.push(element);
+    });
+  return accepted;
+}
+
+function floorElementDistanceFromOutline(element, outline) {
+  if (outline.length < 3) return Number.POSITIVE_INFINITY;
+  const center = { x: toSvgX(element.x + element.w / 2), y: element.y + element.h / 2 };
+  return outline.reduce((nearest, point, index) => {
+    const start = { x: toSvgX(point.x), y: point.y };
+    const next = outline[(index + 1) % outline.length];
+    const end = { x: toSvgX(next.x), y: next.y };
+    return Math.min(nearest, projectPointToSegment(center, start, end).distance);
+  }, Number.POSITIVE_INFINITY);
 }
 
 function floorElementOverlapsSlots(element, slots, padding = 0) {
@@ -3404,6 +3431,53 @@ function toSvgX(value) {
 
 function normalizeFloorAspectRatio(value) {
   return clamp(Number(value) || FLOOR_PLAN_X_SCALE, 1, 3.2);
+}
+
+function fitFloorToDrawingBounds(floor) {
+  const outline = normalizeFloorPoints(floor.outline, 3);
+  if (outline.length < 3) return floor;
+  const minX = Math.min(...outline.map((point) => point.x));
+  const maxX = Math.max(...outline.map((point) => point.x));
+  const minY = Math.min(...outline.map((point) => point.y));
+  const maxY = Math.max(...outline.map((point) => point.y));
+  const sourceWidth = maxX - minX;
+  const sourceHeight = maxY - minY;
+  if (sourceWidth < 1 || sourceHeight < 1) return floor;
+
+  const targetMin = 4;
+  const targetSize = 92;
+  const scaleX = targetSize / sourceWidth;
+  const scaleY = targetSize / sourceHeight;
+  const transformPoint = (point) => ({
+    x: targetMin + (Number(point.x) - minX) * scaleX,
+    y: targetMin + (Number(point.y) - minY) * scaleY
+  });
+  const transformRect = (item) => {
+    const center = transformPoint({
+      x: Number(item.x) + Number(item.w) / 2,
+      y: Number(item.y) + Number(item.h) / 2
+    });
+    const width = Number(item.w) * scaleX;
+    const height = Number(item.h) * scaleY;
+    return {
+      ...item,
+      x: center.x - width / 2,
+      y: center.y - height / 2,
+      w: width,
+      h: height
+    };
+  };
+
+  return {
+    ...floor,
+    outline: outline.map(transformPoint),
+    zones: (floor.zones || []).map((zone) => ({
+      ...zone,
+      points: (zone.points || []).map(transformPoint)
+    })),
+    elements: (floor.elements || []).map(transformRect),
+    slots: (floor.slots || []).map(transformRect)
+  };
 }
 
 function svgPoints(points) {
@@ -4046,6 +4120,7 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 임산부/여성 우선 주차면은 실제 바닥 도색이나 표지가 보일 때만 pregnant로 둔다.
 - 사용자 입력에 장애인·임산부 숫자가 있어도 사진에서 위치를 확인할 수 없으면 일반 칸을 임의로 특수 칸으로 바꾸지 않는다.
 - 파란 바탕의 휠체어 표시는 disabled로, 분홍 바탕의 특수 주차 표시는 pregnant로 분류한다.
+- 실제 사진이 아니라 색으로 구분된 주차 배치도라면 초록 칸은 available, 회색 칸은 occupied로 그대로 분류한다. 파랑과 분홍 칸의 점유 상태는 색만으로 추측하지 말고, 특수 주차면 종류는 각각 disabled와 pregnant로 보존한다.
 - 사진에 보이지 않는 구조를 임의로 추가하지 않는다. 사진에 보이는 외벽은 outline에 기록하고, 실제 출입구가 선명하게 보일 때만 elements에 기록한다.
 - 사진 바깥 배경과 주차장 밖의 건물·나무·보행로는 도면 요소로 만들지 않는다.
 - elements에는 실제 외벽 개구부가 보이는 경우에만 entrance 또는 exit를 넣는다. 그 밖의 lane, stripe, arrow, wall, divider, room, obstacle 요소는 절대 생성하지 않는다.
@@ -4056,6 +4131,7 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 사선 완충 구역과 CCTV 오버레이의 선·숫자는 모두 무시한다.
 - 주차면은 사진에서 보이는 위치와 방향을 우선한다. 앱이 보기 좋게 만들려고 임의로 상단/하단/좌우 템플릿에 맞추지 않는다.
 - 주차면이 행(row)이나 열(column)을 이루면 개수, 앞뒤·좌우 순서, 간격, 방향을 그대로 유지한다. 사진의 깊이 방향 배치를 임의의 가로 한 줄로 펴지 않는다.
+- 서로 마주 보는 열은 각각 독립적으로 센다. detectedSlotCount 총합을 맞추려고 위쪽 열에서 빠진 칸을 아래쪽 열에 추가하거나 반대로 옮기지 않는다.
 - 주차면 하나는 실제 약 2.3~2.5m × 5m 비율처럼 짧은 변 대비 긴 변이 1.8~2.4배인 직사각형이어야 한다. 정사각형이나 작은 막대로 만들지 않는다.
 - 사진 중앙이 비어 있으면 그대로 빈 공간으로 남긴다.
 - 주차면끼리 절대 겹치지 않게 배치한다.
@@ -4084,14 +4160,14 @@ ${JSON.stringify(draft)}
 
 검수 순서:
 1. 사진에서 독립된 주차열을 다시 찾고 각 열의 실제 칸 수를 처음부터 센다.
-2. 흰색 세로 경계로 닫힌 차량 한 대 크기의 직사각형만 센다. 사선 빗금 완충 구역과 화살표는 주차면도 element도 아니다. 인쇄 판이 3칸·4칸·4칸으로 나뉘면 각 구간 수와 총 11칸을 모두 보존한다.
+2. 흰색 세로 경계로 닫힌 차량 한 대 크기의 직사각형만 센다. 사선 빗금 완충 구역과 화살표는 주차면도 element도 아니다. 인쇄 판이 3칸·4칸·4칸으로 나뉘면 각 구간 수와 총 11칸을 모두 보존한다. 위쪽과 아래쪽 열의 칸 수는 따로 검산하며 총합을 맞추기 위해 칸을 반대편으로 옮기지 않는다.
 3. 각 열의 첫 칸 중심과 마지막 칸 중심, 열의 각도, 맞은편 열과의 거리를 사진의 원근을 제거한 탑뷰 좌표로 다시 맞춘다.
 4. 같은 열의 모든 칸은 동일 크기, 동일 각도, 동일 중심 간격이어야 한다. 서로 겹치거나 외벽 밖으로 나가면 좌표를 수정한다.
 5. aspectRatio는 사진 전체가 아니라 원근을 제거한 실제 주차 배치의 가로÷세로 비율로 다시 측정한다. 긴 배치를 정사각형으로 압축하지 않는다.
 6. outline은 차량이나 나무 윤곽이 아니라 실제 포장면 외벽의 핵심 모서리 4~12개만 사용한다.
 7. entrance와 exit를 사진에서 각각 독립적으로 찾고, 각 중심을 실제 outline 개구부 선분 위에 둔다. 사진에 없으면 elements를 빈 배열로 둔다.
 8. elements와 zones에는 주차칸 외의 사선 구역·차로·화살표·벽·보행 공간을 만들지 않는다.
-9. statuses와 kinds는 사진에서 확인되는 경우에만 수정하고, 장식이나 추측 구조물을 추가하지 않는다.
+9. statuses와 kinds는 사진에서 확인되는 경우에만 수정한다. 색상 배치도에서는 초록=available, 회색=occupied, 파랑=disabled, 분홍=pregnant를 보존하고 장식이나 추측 구조물을 추가하지 않는다.
 10. detectedSlotCount와 모든 rows의 count 합계가 반드시 같아야 한다.
 
 초안이 맞는 부분은 유지하되, 사진과 다른 칸 수·행 위치·각도·간격·외곽·출입구는 반드시 교정한다. floors에는 ${floorName} 한 층만 넣고 전체 JSON을 반환한다.
