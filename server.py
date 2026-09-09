@@ -716,16 +716,20 @@ class AnalysisWorker:
         self._consecutive_camera_failures = 0
         self._stable_status: dict[str, str] = {}
         self._empty_streak: dict[str, int] = {}
+        self._camera_url = CAMERA_URL
+        self._camera_name = CAMERA_NAME
+        self._floor_id = FLOOR_ID
 
     def start(self) -> None:
-        if not CAMERA_URL or self._thread is not None:
-            return
-        self._thread = threading.Thread(
-            target=self._run,
-            name="parkview-analysis",
-            daemon=True,
-        )
-        self._thread.start()
+        with self._lock:
+            if not self._camera_url or self._thread is not None:
+                return
+            self._thread = threading.Thread(
+                target=self._run,
+                name="parkview-analysis",
+                daemon=True,
+            )
+            self._thread.start()
 
     def stop(self) -> None:
         self._stop.set()
@@ -754,8 +758,11 @@ class AnalysisWorker:
         attempted_at = utc_now()
         with self._lock:
             self._last_camera_attempt_at = attempted_at
+            camera_url = self._camera_url
+        if not camera_url:
+            raise RuntimeError("RTSP 카메라 주소가 설정되지 않았습니다")
         try:
-            image_bytes = capture_camera_frame(CAMERA_URL)
+            image_bytes = capture_camera_frame(camera_url)
             frame = describe_camera_frame(image_bytes)
             if DEBUG_ENABLED or always_save:
                 save_latest_camera_frame(image_bytes)
@@ -775,8 +782,8 @@ class AnalysisWorker:
             raise
 
     def test_camera(self) -> dict[str, Any]:
-        if not CAMERA_URL:
-            raise RuntimeError("PARKVIEW_CAMERA_URL이 설정되지 않았습니다")
+        if not self._camera_url:
+            raise RuntimeError("RTSP 카메라 주소가 설정되지 않았습니다")
         if not self._analysis_lock.acquire(blocking=False):
             raise RuntimeError("이미 카메라 분석 중입니다")
         started = time.perf_counter()
@@ -790,6 +797,8 @@ class AnalysisWorker:
             )
             return {
                 "connected": True,
+                "camera": self._camera_name,
+                "floor_id": self._floor_id,
                 "captured_at": self._last_camera_success_at,
                 "image": frame,
                 "elapsed_ms": elapsed_ms,
@@ -804,10 +813,58 @@ class AnalysisWorker:
         finally:
             self._analysis_lock.release()
 
+    def configure_camera(self, payload: dict[str, Any]) -> dict[str, Any]:
+        camera_url = str(payload.get("url", "")).strip()
+        if len(camera_url) > 2048:
+            raise ValueError("RTSP 주소가 너무 깁니다")
+        parsed = urllib.parse.urlsplit(camera_url)
+        if parsed.scheme.lower() not in {"rtsp", "rtsps"}:
+            raise ValueError("rtsp:// 또는 rtsps:// 주소를 입력해 주세요")
+        camera_network_endpoint(camera_url)
+        if not self._analysis_lock.acquire(blocking=False):
+            raise RuntimeError("이미 카메라 분석 중입니다")
+        started = time.perf_counter()
+        try:
+            image_bytes = capture_camera_frame(camera_url)
+            frame = describe_camera_frame(image_bytes)
+            save_latest_camera_frame(image_bytes)
+            connected_at = utc_now()
+            with self._lock:
+                self._camera_url = camera_url
+                self._camera_name = str(payload.get("name", "")).strip()[:80] or "주차장 CCTV"
+                self._floor_id = str(payload.get("floor_id", "")).strip()[:24] or "B1"
+                self._camera_connected = True
+                self._last_camera_error = None
+                self._last_camera_attempt_at = connected_at
+                self._last_camera_success_at = connected_at
+                self._last_frame = frame
+                self._consecutive_camera_failures = 0
+            result = {
+                "connected": True,
+                "camera": self._camera_name,
+                "floor_id": self._floor_id,
+                "captured_at": connected_at,
+                "image": frame,
+                "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
+            }
+        finally:
+            self._analysis_lock.release()
+        self.start()
+        return result
+
+    def preview_frame(self) -> bytes:
+        if not self._analysis_lock.acquire(blocking=False):
+            raise RuntimeError("이미 카메라 분석 중입니다")
+        try:
+            image_bytes, _frame = self._capture(always_save=True)
+            return image_bytes
+        finally:
+            self._analysis_lock.release()
+
     def run_once(self) -> dict[str, Any]:
-        if not CAMERA_URL:
+        if not self._camera_url:
             raise RuntimeError(
-                "PARKVIEW_CAMERA_URL이 설정되지 않았습니다"
+                "RTSP 카메라 주소가 설정되지 않았습니다"
             )
         if not self._analysis_lock.acquire(blocking=False):
             raise RuntimeError("이미 분석 중입니다")
@@ -816,6 +873,7 @@ class AnalysisWorker:
             payload = detect_objects(
                 image_bytes, debug=True
             )
+            payload["floor_id"] = self._floor_id
             payload["slot_results"] = self._stabilize(
                 payload["slot_results"]
             )
@@ -890,8 +948,8 @@ class AnalysisWorker:
                 ),
                 "debug": DEBUG_ENABLED,
                 "camera": {
-                    "name": CAMERA_NAME,
-                    "configured": bool(CAMERA_URL),
+                    "name": self._camera_name,
+                    "configured": bool(self._camera_url),
                     "connected": self._camera_connected,
                     "last_attempt_at": self._last_camera_attempt_at,
                     "last_success_at": self._last_camera_success_at,
@@ -901,7 +959,7 @@ class AnalysisWorker:
                 },
                 "analysis_error": self._last_analysis_error,
                 "site_id": SITE_ID,
-                "floor_id": FLOOR_ID,
+                "floor_id": self._floor_id,
                 "last_analysis_at": (
                     self._last_result.get("analyzed_at")
                     if self._last_result
@@ -1001,11 +1059,9 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
             try:
                 if not CALIBRATION_MODE:
                     raise PermissionError("캘리브레이션 모드가 꺼져 있습니다")
-                if not CAMERA_URL:
-                    raise RuntimeError("PARKVIEW_CAMERA_URL이 설정되지 않았습니다")
                 self.send_bytes(
                     HTTPStatus.OK,
-                    capture_camera_frame(CAMERA_URL),
+                    worker.preview_frame(),
                     "image/jpeg",
                 )
             except Exception as error:
@@ -1044,6 +1100,19 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
                     return
                 self.send_json(
                     HTTPStatus.OK, worker.test_camera()
+                )
+                return
+            if path == "/api/camera/configure":
+                if not self.require_admin():
+                    return
+                payload = json.loads(
+                    self.read_body(MAX_JSON_BYTES).decode("utf-8")
+                )
+                if not isinstance(payload, dict):
+                    raise ValueError("카메라 설정 형식이 올바르지 않습니다")
+                self.send_json(
+                    HTTPStatus.OK,
+                    worker.configure_camera(payload),
                 )
                 return
             if (

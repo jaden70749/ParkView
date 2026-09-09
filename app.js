@@ -8,10 +8,21 @@ const KOREA_BOUNDS = {
 const EDGE_API_BASE_URL = String(
   window.PARKVIEW_CONFIG?.edgeApiBaseUrl || ""
 ).trim().replace(/\/+$/, "");
+const CAMERA_API_BASE_URL = String(
+  window.PARKVIEW_CONFIG?.cameraApiBaseUrl || ""
+).trim().replace(/\/+$/, "");
+const CAMERA_ADMIN_TOKEN_SESSION = "parkview.cameraAdminToken.session";
 
 function edgeApiUrl(path) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${EDGE_API_BASE_URL}${normalizedPath}`;
+}
+
+function cameraApiUrl(path) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  if (CAMERA_API_BASE_URL) return `${CAMERA_API_BASE_URL}${normalizedPath}`;
+  const isLocalApp = !window.location.hostname.endsWith(".github.io") && !EDGE_API_BASE_URL;
+  return isLocalApp ? normalizedPath : "";
 }
 
 async function loadRuntimeConfig() {
@@ -115,6 +126,7 @@ const LOCATION_PERMISSION_MESSAGE = "현재 위치는 거리 계산과 주변 �
 const MICROPHONE_PERMISSION_MESSAGE = "마이크는 장소를 음성으로 검색할 때만 사용됩니다.";
 const DEFAULT_PLAN_INSTRUCTION = "아크릴 주차장 사진을 보고 일반 주차면, 장애인 주차면, 임산부 주차면, 중앙 통로가 보이도록 깨끗한 2D 도면을 만들어줘.";
 const FLOOR_PLAN_X_SCALE = 1.6;
+let activeFloorPlanXScale = FLOOR_PLAN_X_SCALE;
 const SETUP_STEPS = ["plan", "detect", "review"];
 const REGISTRATION_STEPS = [
   { id: "info", title: "기본 정보", next: "위치 지정" },
@@ -325,6 +337,12 @@ function bindElements() {
     cameraStatus: document.querySelector("#cameraStatus"),
     analysisStatus: document.querySelector("#analysisStatus"),
     objectStatus: document.querySelector("#objectStatus"),
+    cameraSetupToggle: document.querySelector("#cameraSetupToggle"),
+    cameraConnectionForm: document.querySelector("#cameraConnectionForm"),
+    cameraRtspUrl: document.querySelector("#cameraRtspUrl"),
+    cameraAdminToken: document.querySelector("#cameraAdminToken"),
+    cameraConnectButton: document.querySelector("#cameraConnectButton"),
+    cameraConnectFeedback: document.querySelector("#cameraConnectFeedback"),
     planImages: document.querySelector("#planImages"),
     planUploadBox: document.querySelector("#planUploadBox"),
     planImageCount: document.querySelector("#planImageCount"),
@@ -395,6 +413,8 @@ function bindEvents() {
   els.registrationNextButton?.addEventListener("click", () => moveRegistrationStep(1));
   els.managementBackButton?.addEventListener("click", openAdminHome);
   els.deleteLotButton?.addEventListener("click", deleteSelectedLot);
+  els.cameraSetupToggle?.addEventListener("click", toggleCameraConnectionForm);
+  els.cameraConnectionForm?.addEventListener("submit", connectCameraFromAdmin);
   els.registerName?.addEventListener("input", () => {
     if (els.registrationInfoError) els.registrationInfoError.textContent = "";
   });
@@ -1350,6 +1370,7 @@ function normalizeStoredFloor(floor, floorIndex = 0) {
     : [];
   return {
     name: String(floor?.name || `B${floorIndex + 1}`),
+    aspectRatio: normalizeFloorAspectRatio(floor?.aspectRatio),
     outline,
     zones,
     elements,
@@ -1601,6 +1622,7 @@ function renderRegistrationSummary() {
 function saveRegisteredLot() {
   const floors = state.floors.map((floor) => ({
     name: floor.name,
+    aspectRatio: normalizeFloorAspectRatio(floor.aspectRatio),
     outline: clonePoints(floor.outline),
     zones: (floor.zones || []).map((zone) => ({ ...zone, points: clonePoints(zone.points) })),
     elements: (floor.elements || []).map((element) => ({ ...element })),
@@ -3085,6 +3107,8 @@ function renderFloorPlan(container, floorOrSlots, editable) {
   const floor = Array.isArray(floorOrSlots)
     ? { slots: floorOrSlots, elements: [], outline: [], zones: [] }
     : floorOrSlots || { slots: [], elements: [], outline: [], zones: [] };
+  activeFloorPlanXScale = normalizeFloorAspectRatio(floor.aspectRatio);
+  container.style.setProperty("--floor-plan-aspect", String(activeFloorPlanXScale));
   const slots = Array.isArray(floor.slots) ? floor.slots : [];
   const elements = Array.isArray(floor.elements) ? floor.elements : [];
   const zones = Array.isArray(floor.zones) ? floor.zones : [];
@@ -3122,21 +3146,7 @@ function renderFloorPlan(container, floorOrSlots, editable) {
   });
   svg.appendChild(footprint);
 
-  zones.filter((zone) => ["room", "core"].includes(zone.type)).forEach((zone) => {
-    const polygon = createSvgElement("polygon", {
-      points: svgPoints(zone.points),
-      class: `floor-zone floor-zone-${zone.type}`
-    });
-    svg.appendChild(polygon);
-    if (zone.label && zone.type !== "parking") {
-      const center = polygonCenter(zone.points);
-      svg.appendChild(createSvgElement("text", {
-        x: toSvgX(center.x), y: center.y, class: "floor-zone-label room-label"
-      }, zone.label));
-    }
-  });
-
-  const backgroundTypes = new Set(["lane", "room", "stair", "elevator", "stripe", "ramp", "ramp_up", "ramp_down"]);
+  const backgroundTypes = new Set();
   drawableElements.filter((element) => backgroundTypes.has(element.type)).forEach((element) => {
     renderSvgPlanElement(svg, element, `${svgId}-stripe`);
   });
@@ -3211,12 +3221,12 @@ function standardizeFloorPlanSlots(slots, outline) {
     : medianSpacing;
   const shortSide = clamp(Math.min(medianSpacing * 0.84, tightSpacing * 0.84), 4.4, 8.8);
   const longSide = shortSide * 1.78;
-  const rawWidth = shortSide / FLOOR_PLAN_X_SCALE;
+  const rawWidth = shortSide / activeFloorPlanXScale;
 
   const outlineSvg = outline.map((point) => ({ x: toSvgX(point.x), y: point.y }));
   const standardized = slots.map((slot, index) => ({
     ...slot,
-    x: centers[index].x / FLOOR_PLAN_X_SCALE - rawWidth / 2,
+    x: centers[index].x / activeFloorPlanXScale - rawWidth / 2,
     y: centers[index].y - longSide / 2,
     w: rawWidth,
     h: longSide
@@ -3322,7 +3332,7 @@ function shiftDisplaySlotRowInsideOutline(indexes, slots, outline) {
     const shiftX = (polygonCenterPoint.x - rowCenter.x) * 0.08;
     const shiftY = (polygonCenterPoint.y - rowCenter.y) * 0.08;
     indexes.forEach((index) => {
-      slots[index].x += shiftX / FLOOR_PLAN_X_SCALE;
+      slots[index].x += shiftX / activeFloorPlanXScale;
       slots[index].y += shiftY;
     });
   }
@@ -3356,53 +3366,12 @@ function pointInsideFloorPolygon(point, polygon) {
 }
 
 function prepareDrawableFloorElements(elements, slots) {
-  const prepared = [];
-  const overlapSensitiveTypes = new Set(["room", "stair", "elevator", "door", "ramp", "ramp_up", "ramp_down", "column", "camera", "obstacle", "stripe"]);
-  const normalizedElements = alignFloorAccessPair(elements);
-
-  normalizedElements.forEach((element) => {
-    if (!element || ["arrow", "boundary", "label", "lane", "wall", "divider"].includes(element.type)) return;
-    if (["entrance", "exit", "ramp", "ramp_up", "ramp_down"].includes(element.type) && element.confidence < 0.82) return;
-    if (overlapSensitiveTypes.has(element.type) && floorElementOverlapsSlots(element, slots, 0.8)) return;
-    prepared.push(element);
-  });
-
-  return prepared;
-}
-
-function alignFloorAccessPair(elements) {
-  const entrance = elements.find((element) => element.type === "entrance");
-  const exit = elements.find((element) => element.type === "exit");
-  if (!entrance && !exit) return elements;
-  if (!entrance || !exit) {
-    const anchor = exit || entrance;
-    const counterpartType = exit ? "entrance" : "exit";
-    const counterpart = pairedAccessElement(anchor, counterpartType, exit ? -1 : 1);
-    return [...elements, counterpart];
-  }
-  return elements;
-}
-
-function pairedAccessElement(anchor, type, side, source = anchor) {
-  const rotation = Number(anchor.rotation) || 0;
-  const radians = rotation * Math.PI / 180;
-  const perpendicular = { x: -Math.sin(radians), y: Math.cos(radians) };
-  const anchorCenter = {
-    x: toSvgX(anchor.x + anchor.w / 2),
-    y: anchor.y + anchor.h / 2
-  };
-  const pairedCenter = {
-    x: anchorCenter.x + perpendicular.x * 10 * side,
-    y: anchorCenter.y + perpendicular.y * 10 * side
-  };
-  return {
-    ...source,
-    type,
-    label: "",
-    x: pairedCenter.x / FLOOR_PLAN_X_SCALE - source.w / 2,
-    y: pairedCenter.y - source.h / 2,
-    rotation: ((rotation + 180) % 360 + 360) % 360
-  };
+  void slots;
+  return elements.filter((element) => (
+    element
+    && ["entrance", "exit"].includes(element.type)
+    && element.confidence >= 0.82
+  ));
 }
 
 function floorElementOverlapsSlots(element, slots, padding = 0) {
@@ -3430,7 +3399,11 @@ function createSvgElement(name, attributes = {}, text = "") {
 }
 
 function toSvgX(value) {
-  return Number(value) * FLOOR_PLAN_X_SCALE;
+  return Number(value) * activeFloorPlanXScale;
+}
+
+function normalizeFloorAspectRatio(value) {
+  return clamp(Number(value) || FLOOR_PLAN_X_SCALE, 1, 3.2);
 }
 
 function svgPoints(points) {
@@ -4048,15 +4021,17 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 출력은 JSON만 반환한다.
 - 지금 생성할 층은 ${floorName}이다. 전체 ${floorTotal}개 층 중 ${floorIndex + 1}번째다.
 - floors 배열에는 반드시 ${floorName} 한 층만 넣는다.
+- aspectRatio는 원근을 제거한 실제 주차 구역의 가로 길이 ÷ 세로 길이다. 사진 파일 전체나 화면 비율이 아니라 주차선이 놓인 바닥 영역의 실측 비율을 1~3.2 사이로 기록한다. 긴 가로형 배치를 정사각형으로 압축하지 않는다.
 - 첨부 사진이 여러 장이면 같은 장소를 다른 방향에서 본 보조 사진으로 취급한다. 가장 넓은 전경을 기준 좌표계로 사용하고, 다른 사진은 가려진 칸과 특수 표식을 확인하는 데만 사용한다. 중복 주차면을 두 번 세거나 서로 모순되는 별도 구조를 이어 붙이지 않는다.
 - 먼저 각 사진에서 독립된 주차열을 찾고, 각 열의 면수·방향·맞은편 열·사이 차로·출입구 순서를 내부적으로 표로 정리한 다음 JSON 좌표를 작성한다.
 - 모든 x/y/w/h/rotation은 카메라 화면의 원근 좌표가 아니라 원근을 제거한 최종 탑뷰 좌표다. 좌상단이 0,0이고 우하단이 100,100이다.
 - outline은 사진에서 확인되는 주차장 포장면의 외벽을 시계방향으로 기록한다. 핵심 모서리 4~12개만 사용하고, 짧은 꺾임·톱니 모양·차량 윤곽을 외벽으로 만들지 않는다. 출입구가 있어도 polygon은 닫되 entrance/exit의 중심을 실제 외벽 개구부 위에 정확히 둔다. 앱이 그 좌표에서 외벽을 끊는다.
-- zones에는 parking, room, core, outdoor 구역을 다각형으로 분리해 넣는다. parking은 실제 차량 통행·주차 영역, room/core는 계단실·승강기실·기계실 같은 비주차 공간이다.
-- 모든 zone의 label은 빈 문자열로 둔다. 사진 내용을 영어 설명으로 번역하거나 Building, Trees, Slope, Walkway 같은 추측 라벨을 만들지 않는다.
+- zones는 빈 배열로 둔다. 이 도면에서는 주차면 외의 보행로·완충 구역·차로·방·기둥을 그리지 않는다.
 - JSON을 작성하기 전에 소실점과 평행 방향을 찾고, 도로 경계와 주차선이 탑뷰에서 평행·직각이 되도록 원근을 제거한다.
 - 빨강/초록 테두리와 0/1은 슬롯 경계와 점유 상태를 읽는 참고 정보일 뿐, 도면에 색 면·숫자·장식으로 그리지 않는다.
 - rows 배열에는 사진에서 연속된 주차열 하나당 객체 하나를 넣는다. 곡선이나 방향이 바뀌는 열은 직선 구간별로 나눈다.
+- 흰색 주차선으로 양옆 경계가 닫힌 차량 한 대 크기의 직사각형만 주차면으로 센다. 사선 빗금 영역, 휠스토퍼, 보행 통로, 차로 화살표, 종이 연결선은 주차면이 아니다.
+- 인쇄된 여러 판이나 이음선으로 한 주차열이 나뉘어 있으면 판마다 칸을 먼저 센 뒤 합계를 확인한다. 예를 들어 같은 열이 3칸, 4칸, 4칸으로 나뉘면 총 11칸이며 중간 구간 count는 반드시 4다.
 - row의 startX/startY는 첫 번째 주차면 중심, endX/endY는 마지막 주차면 중심의 최종 탑뷰 좌표다. 두 점을 잇는 선은 주차열의 진행축이며 모든 칸 중심이 그 직선 위에 동일 간격으로 놓여야 한다.
 - row의 count는 그 열의 전체 면수다. w는 회전 전 주차면의 짧은 폭, h는 긴 깊이이며 항상 w<h로 둔다. rotation은 긴 축이 세로일 때 0도, 가로일 때 90도인 탑뷰 회전 각도다.
 - 같은 층의 모든 row는 동일한 w와 h를 사용한다. 사진 원근 때문에 가까운 칸을 크게, 먼 칸을 작게 만들지 않는다.
@@ -4071,31 +4046,25 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 임산부/여성 우선 주차면은 실제 바닥 도색이나 표지가 보일 때만 pregnant로 둔다.
 - 사용자 입력에 장애인·임산부 숫자가 있어도 사진에서 위치를 확인할 수 없으면 일반 칸을 임의로 특수 칸으로 바꾸지 않는다.
 - 파란 바탕의 휠체어 표시는 disabled로, 분홍 바탕의 특수 주차 표시는 pregnant로 분류한다.
-- 사진에 보이지 않는 구조를 임의로 추가하지 않는다. 사진에 보이는 외벽은 outline에, 통행 공간과 출입구는 elements에 기록한다.
+- 사진에 보이지 않는 구조를 임의로 추가하지 않는다. 사진에 보이는 외벽은 outline에 기록하고, 실제 출입구가 선명하게 보일 때만 elements에 기록한다.
 - 사진 바깥 배경과 주차장 밖의 건물·나무·보행로는 도면 요소로 만들지 않는다.
-- 사진에 보이는 차로, 입구, 출구, 상행·하행 경사로, 계단, 승강기, 문, 기둥, 장애물만 elements 배열로 만든다. 외벽은 outline만 사용하고 wall/divider/label/arrow 타입은 생성하지 않는다.
-- elements의 type은 lane, room, stair, elevator, door, entrance, exit, ramp, ramp_up, ramp_down, column, camera, obstacle, stripe 중 하나다.
-- 입구와 출구가 보이면 각각 entrance와 exit로 구분한다. 층이 올라가는 경사로는 ramp_up, 내려가는 경사로는 ramp_down, 방향을 확인할 수 없는 경사로만 ramp로 둔다.
-- 차량 진행 화살표는 사진에 보여도 완전히 무시하며 arrow 요소를 절대 생성하지 않는다. 사진에서 확인되는 차량 통행 공간만 lane으로 기록한다.
-- entrance, exit, ramp_up, ramp_down의 rotation도 기본 오른쪽 진행 방향을 기준으로 한다. label은 빈 문자열로 두며 앱이 고정된 벡터 기호와 한글 표기를 그린다.
+- elements에는 실제 외벽 개구부가 보이는 경우에만 entrance 또는 exit를 넣는다. 그 밖의 lane, stripe, arrow, wall, divider, room, obstacle 요소는 절대 생성하지 않는다.
+- 사진 속 차량 진행 화살표와 사선 빗금 완충 구역은 분석 참고 대상에서도 제외한다. 도면에는 주차칸으로도 요소로도 넣지 않는다.
 - entrance와 exit는 서로 독립적으로 실제 위치를 판독한다. 각각의 중심은 outline의 실제 개구부 선분 위에 두고 w/h는 차량 통로의 개구 폭을 나타내게 한다. 한쪽 위치를 기준으로 다른 쪽을 임의 생성하거나 둘을 같은 위치로 합치지 않는다.
-- 모든 element에는 사진에서 실제로 확인한 정도를 confidence 0~1로 넣는다. entrance, exit, ramp 계열은 바닥 도색·차단기·연결 도로처럼 직접 보이는 근거가 있어 confidence가 0.82 이상일 때만 만든다. 진행 방향을 추측하지 않는다.
+- 모든 element에는 사진에서 실제로 확인한 정도를 confidence 0~1로 넣는다. entrance와 exit는 개구부·차단기·연결 도로처럼 직접 보이는 근거가 있어 confidence가 0.82 이상일 때만 만든다. 진행 방향을 추측하지 않는다.
 - 기울어진 요소는 rotation에 각도를 넣는다. 외곽 전체를 하나의 큰 사각형으로 덮어 구조를 숨기면 안 된다.
-- 사선 완충 구역은 사진 바닥에 실제로 그려져 있을 때만 만든다. CCTV 오버레이의 선이나 숫자를 구조물로 해석하지 않는다.
+- 사선 완충 구역과 CCTV 오버레이의 선·숫자는 모두 무시한다.
 - 주차면은 사진에서 보이는 위치와 방향을 우선한다. 앱이 보기 좋게 만들려고 임의로 상단/하단/좌우 템플릿에 맞추지 않는다.
 - 주차면이 행(row)이나 열(column)을 이루면 개수, 앞뒤·좌우 순서, 간격, 방향을 그대로 유지한다. 사진의 깊이 방향 배치를 임의의 가로 한 줄로 펴지 않는다.
 - 주차면 하나는 실제 약 2.3~2.5m × 5m 비율처럼 짧은 변 대비 긴 변이 1.8~2.4배인 직사각형이어야 한다. 정사각형이나 작은 막대로 만들지 않는다.
-- 사진 중앙이 비어 있으면 빈 공간으로 남기고, 실제 구조물이 있으면 obstacle로 표시한다.
+- 사진 중앙이 비어 있으면 그대로 빈 공간으로 남긴다.
 - 주차면끼리 절대 겹치지 않게 배치한다.
 - 장애인/임산부 특수 주차면도 사진에 보이는 실제 위치에 둔다.
 - 보드가 가로로 길면 도면도 가로형으로 구성하고, 중앙 차로가 넓으면 그 비율을 줄이지 않는다.
-- 차량 통행 공간은 lane, 출입구는 entrance/exit, 경사로는 ramp_up/ramp_down/ramp, 기둥은 column으로 구분한다.
 - 결과 좌표는 단순한 탑뷰 배치도여야 한다. 장식보다 외곽 모양, 주차열 위치, 각도, 칸 수, 동일 간격을 우선한다.
-- lane은 주차면 아래의 빈 통행 공간에 배치하며 주차면과 겹치면 안 된다.
-- lane은 주차면과 겹치지 않는 실제 차로 중심을 길고 단순한 사각 영역으로 기록한다. 같은 직선 차로를 여러 조각으로 중복 생성하지 않는다.
 - entrance와 exit는 주차면 열 바깥의 실제 외벽 개구부에 두고, 각 중심과 가장 가까운 outline 선분 사이 거리가 2 좌표 단위 이하여야 한다.
 - 슬롯 번호나 임의의 숫자는 elements에 추가하지 않는다.
-- 모든 zone과 wall/divider/boundary에는 label을 넣지 않는다.
+- zones는 빈 배열이며 모든 element의 label도 빈 문자열이다.
 - outline이 외곽선을 나타내므로 동일한 외곽을 boundary element로 중복 생성하지 않는다.
 - 응답 직전에 detectedSlotCount와 rows의 count 합계가 같은지 다시 확인한다.
 - 사진에서 확인할 수 없는 구조나 층을 복제하지 않는다.
@@ -4115,13 +4084,15 @@ ${JSON.stringify(draft)}
 
 검수 순서:
 1. 사진에서 독립된 주차열을 다시 찾고 각 열의 실제 칸 수를 처음부터 센다.
-2. 각 열의 첫 칸 중심과 마지막 칸 중심, 열의 각도, 맞은편 열과의 거리를 사진의 원근을 제거한 탑뷰 좌표로 다시 맞춘다.
-3. 같은 열의 모든 칸은 동일 크기, 동일 각도, 동일 중심 간격이어야 한다. 서로 겹치거나 외벽 밖으로 나가면 좌표를 수정한다.
-4. outline은 차량이나 나무 윤곽이 아니라 실제 포장면 외벽의 핵심 모서리 4~12개만 사용한다.
-5. entrance와 exit를 사진에서 각각 독립적으로 찾고, 각 중심을 실제 outline 개구부 선분 위에 둔다. 둘을 한곳에 합치거나 임의 위치로 옮기지 않는다.
-6. arrow, wall, divider, boundary, label 요소는 절대 만들지 않는다. 진행 화살표는 모두 제외한다.
-7. statuses와 kinds는 사진에서 확인되는 경우에만 수정하고, 장식이나 추측 구조물을 추가하지 않는다.
-8. detectedSlotCount와 모든 rows의 count 합계가 반드시 같아야 한다.
+2. 흰색 세로 경계로 닫힌 차량 한 대 크기의 직사각형만 센다. 사선 빗금 완충 구역과 화살표는 주차면도 element도 아니다. 인쇄 판이 3칸·4칸·4칸으로 나뉘면 각 구간 수와 총 11칸을 모두 보존한다.
+3. 각 열의 첫 칸 중심과 마지막 칸 중심, 열의 각도, 맞은편 열과의 거리를 사진의 원근을 제거한 탑뷰 좌표로 다시 맞춘다.
+4. 같은 열의 모든 칸은 동일 크기, 동일 각도, 동일 중심 간격이어야 한다. 서로 겹치거나 외벽 밖으로 나가면 좌표를 수정한다.
+5. aspectRatio는 사진 전체가 아니라 원근을 제거한 실제 주차 배치의 가로÷세로 비율로 다시 측정한다. 긴 배치를 정사각형으로 압축하지 않는다.
+6. outline은 차량이나 나무 윤곽이 아니라 실제 포장면 외벽의 핵심 모서리 4~12개만 사용한다.
+7. entrance와 exit를 사진에서 각각 독립적으로 찾고, 각 중심을 실제 outline 개구부 선분 위에 둔다. 사진에 없으면 elements를 빈 배열로 둔다.
+8. elements와 zones에는 주차칸 외의 사선 구역·차로·화살표·벽·보행 공간을 만들지 않는다.
+9. statuses와 kinds는 사진에서 확인되는 경우에만 수정하고, 장식이나 추측 구조물을 추가하지 않는다.
+10. detectedSlotCount와 모든 rows의 count 합계가 반드시 같아야 한다.
 
 초안이 맞는 부분은 유지하되, 사진과 다른 칸 수·행 위치·각도·간격·외곽·출입구는 반드시 교정한다. floors에는 ${floorName} 한 층만 넣고 전체 JSON을 반환한다.
 `;
@@ -4138,6 +4109,7 @@ function floorPlanSchema() {
           type: "OBJECT",
           properties: {
             name: { type: "STRING" },
+            aspectRatio: { type: "NUMBER" },
             outline: {
               type: "ARRAY",
               minItems: 3,
@@ -4178,7 +4150,7 @@ function floorPlanSchema() {
               items: {
                 type: "OBJECT",
                 properties: {
-                  type: { type: "STRING", enum: ["lane", "room", "stair", "elevator", "door", "entrance", "exit", "ramp", "ramp_up", "ramp_down", "column", "camera", "obstacle", "stripe"] },
+                  type: { type: "STRING", enum: ["entrance", "exit"] },
                   label: { type: "STRING" },
                   x: { type: "NUMBER" },
                   y: { type: "NUMBER" },
@@ -4218,7 +4190,7 @@ function floorPlanSchema() {
               }
             }
           },
-          required: ["name", "outline", "zones", "elements", "detectedSlotCount", "rows"]
+          required: ["name", "aspectRatio", "outline", "zones", "elements", "detectedSlotCount", "rows"]
         }
       }
     },
@@ -4229,16 +4201,20 @@ function floorPlanSchema() {
 function validateGeneratedFloors(plan) {
   const floors = Array.isArray(plan?.floors) ? plan.floors : [];
   const validFloors = floors.map((floor, floorIndex) => {
-    const slots = expandGeneratedRows(floor.rows);
+    const aspectRatio = normalizeFloorAspectRatio(floor.aspectRatio);
+    const slots = expandGeneratedRows(floor.rows, aspectRatio);
     return {
       name: String(floor.name || `B${floorIndex + 1}`),
+      aspectRatio,
       detectedSlotCount: slots.length,
       outline: normalizeFloorPoints(floor.outline, 3),
-      zones: Array.isArray(floor.zones)
-        ? floor.zones.map(normalizeGeneratedZone).filter(Boolean)
-        : [],
+      zones: [],
       elements: Array.isArray(floor.elements)
-        ? floor.elements.map(normalizeGeneratedElement).filter(Boolean)
+        ? floor.elements
+          .map(normalizeGeneratedElement)
+          .filter((element) => element
+            && ["entrance", "exit"].includes(element.type)
+            && element.confidence >= 0.82)
         : [],
       slots
     };
@@ -4248,7 +4224,7 @@ function validateGeneratedFloors(plan) {
   return validFloors.slice(0, 8);
 }
 
-function expandGeneratedRows(rows) {
+function expandGeneratedRows(rows, aspectRatio = FLOOR_PLAN_X_SCALE) {
   const slots = [];
   if (!Array.isArray(rows)) return slots;
 
@@ -4263,7 +4239,7 @@ function expandGeneratedRows(rows) {
     if (![startX, startY, endX, endY, rawW, rawH].every(Number.isFinite)) return;
     const shortSide = Math.min(rawW, rawH);
     const longSide = clamp(Math.max(rawW, rawH), shortSide * 1.8, shortSide * 2.4);
-    const rowDeltaX = (endX - startX) * FLOOR_PLAN_X_SCALE;
+    const rowDeltaX = (endX - startX) * aspectRatio;
     const rowDeltaY = endY - startY;
     const rowRotation = count > 1 && Math.hypot(rowDeltaX, rowDeltaY) > 1
       ? Math.atan2(rowDeltaY, rowDeltaX) * 180 / Math.PI
@@ -4275,7 +4251,7 @@ function expandGeneratedRows(rows) {
       const centerY = startY + (endY - startY) * progress;
       const status = row.statuses?.[index] === "available" ? "available" : "occupied";
       const kind = ["disabled", "pregnant"].includes(row.kinds?.[index]) ? row.kinds[index] : "normal";
-      const slotWidth = shortSide / FLOOR_PLAN_X_SCALE;
+      const slotWidth = shortSide / aspectRatio;
       const slot = normalizeGeneratedSlot({
         kind,
         status,
@@ -4383,22 +4359,18 @@ function normalizeParkingSlotRect(rawX, rawY, rawW, rawH) {
 function polishGeneratedFloor(floor) {
   return {
     name: floor.name,
+    aspectRatio: normalizeFloorAspectRatio(floor.aspectRatio),
     outline: normalizeFloorPoints(floor.outline, 3),
-    zones: Array.isArray(floor.zones)
-      ? floor.zones.map(normalizeGeneratedZone).filter(Boolean).map((zone) => ({ ...zone, label: "" }))
-      : [],
+    zones: [],
     elements: (floor.elements || []).map(cleanGeneratedElement).filter(Boolean),
     slots: preserveGeneratedLayout(floor.slots || [])
   };
 }
 
 function cleanGeneratedElement(element) {
-  if (!element || element.type === "boundary") return null;
-  if (element.type === "label") return null;
-  if (["wall", "divider", "lane", "stripe", "arrow", "entrance", "exit", "ramp", "ramp_up", "ramp_down"].includes(element.type)) {
-    return { ...element, label: "" };
-  }
-  return element;
+  if (!element || !["entrance", "exit"].includes(element.type)) return null;
+  if (element.confidence < 0.82) return null;
+  return { ...element, label: "" };
 }
 
 function preserveGeneratedLayout(slots) {
@@ -4686,11 +4658,99 @@ function syncSelectedLotFromAdmin() {
   }
 }
 
+function toggleCameraConnectionForm() {
+  if (!els.cameraConnectionForm || !els.cameraSetupToggle) return;
+  const opening = els.cameraConnectionForm.hidden;
+  els.cameraConnectionForm.hidden = !opening;
+  els.cameraSetupToggle.setAttribute("aria-expanded", String(opening));
+  if (!opening) return;
+  try {
+    els.cameraAdminToken.value = sessionStorage.getItem(CAMERA_ADMIN_TOKEN_SESSION) || "";
+  } catch (_error) {
+    els.cameraAdminToken.value = "";
+  }
+  window.setTimeout(() => els.cameraRtspUrl?.focus(), 0);
+}
+
+function setCameraConnectFeedback(message, status = "") {
+  if (!els.cameraConnectFeedback) return;
+  els.cameraConnectFeedback.textContent = message;
+  els.cameraConnectFeedback.classList.toggle("is-error", status === "error");
+  els.cameraConnectFeedback.classList.toggle("is-success", status === "success");
+}
+
+async function connectCameraFromAdmin(event) {
+  event.preventDefault();
+  const url = String(els.cameraRtspUrl?.value || "").trim();
+  const token = String(els.cameraAdminToken?.value || "").trim();
+  const endpoint = cameraApiUrl(url ? "/api/camera/configure" : "/api/camera/test");
+  if (!endpoint) {
+    setCameraConnectFeedback("카메라는 관리자 PC의 로컬 ParkView 서버에서 연결해 주세요.", "error");
+    return;
+  }
+  if (url && !/^rtsps?:\/\//i.test(url)) {
+    setCameraConnectFeedback("rtsp:// 또는 rtsps:// 주소를 입력해 주세요.", "error");
+    els.cameraRtspUrl?.focus();
+    return;
+  }
+  if (token.length < 20) {
+    setCameraConnectFeedback("로컬 서버의 관리자 토큰을 입력해 주세요.", "error");
+    els.cameraAdminToken?.focus();
+    return;
+  }
+
+  const label = els.cameraConnectButton?.querySelector("span");
+  const previousLabel = label?.textContent || "연결 및 테스트";
+  if (els.cameraConnectButton) els.cameraConnectButton.disabled = true;
+  if (label) label.textContent = "연결 확인 중";
+  setCameraConnectFeedback("RTSP 프레임을 확인하고 있습니다.");
+  try {
+    const floor = state.floors[state.floorIndex];
+    const request = {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json"
+      }
+    };
+    if (url) {
+      request.headers["Content-Type"] = "application/json";
+      request.body = JSON.stringify({
+        url,
+        name: `${state.selectedLot?.name || "주차장"} CCTV`,
+        floor_id: floor?.name || "B1"
+      });
+    }
+    const response = await fetch(endpoint, request);
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `카메라 서버 HTTP ${response.status}`);
+    try {
+      sessionStorage.setItem(CAMERA_ADMIN_TOKEN_SESSION, token);
+    } catch (_error) {
+      // Session storage can be unavailable in restricted web views.
+    }
+    els.cameraRtspUrl.value = "";
+    const resolution = result.image?.width && result.image?.height
+      ? `${result.image.width}×${result.image.height}`
+      : "프레임 수신";
+    setCameraConnectFeedback(`${resolution} 확인 완료 · ${result.floor_id || floor?.name || "B1"}`, "success");
+    await refreshEdgeStatus();
+  } catch (error) {
+    setCameraConnectFeedback(`연결 실패: ${error.message}`, "error");
+  } finally {
+    if (els.cameraConnectButton) els.cameraConnectButton.disabled = false;
+    if (label) label.textContent = previousLabel;
+  }
+}
+
 async function refreshEdgeStatus() {
   try {
+    const healthUrl = cameraApiUrl("/api/health");
+    const resultUrl = cameraApiUrl("/api/result");
+    if (!healthUrl || !resultUrl) throw new Error("로컬 카메라 서버가 연결되지 않았습니다");
     const [healthResponse, resultResponse] = await Promise.all([
-      fetch(edgeApiUrl("/api/health"), { cache: "no-store" }),
-      fetch(edgeApiUrl("/api/result"), { cache: "no-store" })
+      fetch(healthUrl, { cache: "no-store" }),
+      fetch(resultUrl, { cache: "no-store" })
     ]);
     if (!healthResponse.ok) throw new Error(`분석 서버 HTTP ${healthResponse.status}`);
 

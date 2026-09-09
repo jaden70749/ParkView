@@ -100,10 +100,9 @@ class CameraRuntimeTests(unittest.TestCase):
 
     def test_camera_probe_saves_latest_frame_without_running_yolo(self):
         worker = server.AnalysisWorker()
+        worker._camera_url = "rtsp://camera.local/stream"
         image_bytes = self.jpeg_frame()
         with tempfile.TemporaryDirectory() as directory, mock.patch.object(
-            server, "CAMERA_URL", "rtsp://camera.local/stream"
-        ), mock.patch.object(
             server, "DEBUG_DIR", Path(directory)
         ), mock.patch.object(
             server, "capture_camera_frame", return_value=image_bytes
@@ -117,10 +116,9 @@ class CameraRuntimeTests(unittest.TestCase):
 
     def test_analysis_failure_does_not_report_camera_disconnected(self):
         worker = server.AnalysisWorker()
+        worker._camera_url = "rtsp://camera.local/stream"
         image_bytes = self.jpeg_frame()
         with mock.patch.object(
-            server, "CAMERA_URL", "rtsp://camera.local/stream"
-        ), mock.patch.object(
             server, "DEBUG_ENABLED", False
         ), mock.patch.object(
             server, "capture_camera_frame", return_value=image_bytes
@@ -137,9 +135,8 @@ class CameraRuntimeTests(unittest.TestCase):
 
     def test_capture_failure_updates_camera_health(self):
         worker = server.AnalysisWorker()
+        worker._camera_url = "rtsp://camera.local/stream"
         with mock.patch.object(
-            server, "CAMERA_URL", "rtsp://camera.local/stream"
-        ), mock.patch.object(
             server,
             "capture_camera_frame",
             side_effect=ConnectionError("camera offline"),
@@ -151,6 +148,28 @@ class CameraRuntimeTests(unittest.TestCase):
         self.assertFalse(camera["connected"])
         self.assertEqual(camera["consecutive_failures"], 1)
         self.assertEqual(camera["last_error"], "camera offline")
+
+    def test_runtime_camera_configuration_tests_before_connecting(self):
+        worker = server.AnalysisWorker()
+        worker._camera_url = ""
+        image_bytes = self.jpeg_frame(640, 360)
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            server, "DEBUG_DIR", Path(directory)
+        ), mock.patch.object(
+            server, "capture_camera_frame", return_value=image_bytes
+        ), mock.patch.object(worker, "start") as start:
+            result = worker.configure_camera({
+                "url": "rtsp://user:secret@192.168.0.26:554/stream",
+                "name": "입구 CCTV",
+                "floor_id": "1F",
+            })
+
+        self.assertTrue(result["connected"])
+        self.assertEqual(result["image"]["width"], 640)
+        self.assertEqual(worker.health()["camera"]["name"], "입구 CCTV")
+        self.assertEqual(worker.health()["floor_id"], "1F")
+        self.assertNotIn("secret", str(worker.health()))
+        start.assert_called_once()
 
 
 class RuntimeSecurityTests(unittest.TestCase):

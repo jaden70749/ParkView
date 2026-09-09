@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-title" content="ParkView">
   <title>ParkView</title>
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=102">
+  <link rel="stylesheet" href="./styles.css?v=103">
 </head>
 <body>
   <main id="app" class="app-shell">
@@ -420,6 +420,26 @@
               <strong id="analysisStatus">대기 중</strong>
             </div>
           </div>
+          <button id="cameraSetupToggle" class="camera-setup-toggle" type="button" aria-expanded="false" aria-controls="cameraConnectionForm">
+            <i data-lucide="cctv" aria-hidden="true"></i>
+            <span>카메라 연결</span>
+            <i data-lucide="chevron-down" aria-hidden="true"></i>
+          </button>
+          <form id="cameraConnectionForm" class="camera-connection-form" hidden>
+            <label class="form-field">
+              <span>RTSP 주소 <span class="optional-label">새 연결</span></span>
+              <input id="cameraRtspUrl" type="password" placeholder="rtsp://사용자:비밀번호@카메라-IP:554/..." autocomplete="off" spellcheck="false">
+            </label>
+            <label class="form-field">
+              관리자 토큰
+              <input id="cameraAdminToken" type="password" placeholder="PARKVIEW_ADMIN_TOKEN" autocomplete="off" spellcheck="false">
+            </label>
+            <button id="cameraConnectButton" class="primary-button full-width-button" type="submit">
+              <i data-lucide="plug-zap" aria-hidden="true"></i>
+              <span>연결 및 테스트</span>
+            </button>
+            <p id="cameraConnectFeedback" class="camera-inline-status" role="status" aria-live="polite"></p>
+          </form>
           <p id="objectStatus" class="edge-system-message">분석 서비스를 확인하고 있습니다.</p>
         </section>
 
@@ -432,12 +452,12 @@
   </main>
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" crossorigin="anonymous"></script>
-  <script src="./config.js?v=3"></script>
+  <script src="./config.js?v=4"></script>
   <script>
     if (window.Capacitor?.isNativePlatform?.()) {
       document.write('<script src="./native-bridge-source.js?v=100"><\/script>');
     }
   </script>
-  <script src="./app.js?v=108"></script>
+  <script src="./app.js?v=109"></script>
 </body>
 </html>

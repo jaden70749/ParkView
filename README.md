@@ -39,6 +39,8 @@ python3 server.py --host 0.0.0.0 --port 5180
 
 RTSP 주소는 저장소에 커밋하지 말고 `.env`의 `PARKVIEW_CAMERA_URL`에만 입력합니다. 서버는 30초마다 새 프레임을 열어 분석하므로 연결이 끊겼다가 복구되어도 다음 주기에 다시 연결합니다.
 
+관리자 화면의 `현장 분석 > 카메라 연결`에서도 RTSP 주소와 `PARKVIEW_ADMIN_TOKEN`을 입력해 연결할 수 있습니다. 주소는 연결 테스트가 성공한 뒤 현장 서버 메모리에만 보관되며 브라우저 저장소, GitHub Pages, Render에는 저장하거나 전송하지 않습니다. 이 버튼은 `server.py`로 띄운 현장 앱 또는 별도로 지정한 신뢰할 수 있는 카메라 API 서버에서만 동작합니다.
+
 ```bash
 curl -X POST http://127.0.0.1:5180/api/camera/test \
   -H "Authorization: Bearer $PARKVIEW_ADMIN_TOKEN"

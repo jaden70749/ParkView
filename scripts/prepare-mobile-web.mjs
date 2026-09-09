@@ -45,6 +45,7 @@ function envValue(name) {
 
 const config = {
   edgeApiBaseUrl: envValue("PARKVIEW_EDGE_API_BASE_URL"),
+  cameraApiBaseUrl: envValue("PARKVIEW_CAMERA_API_BASE_URL"),
   kakaoJavaScriptKey: envValue("KAKAO_JAVASCRIPT_KEY")
 };
 await writeFile(
