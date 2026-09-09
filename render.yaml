@@ -5,6 +5,7 @@ services:
     plan: free
     buildCommand: python3 -m compileall -q edge_api.py
     startCommand: python3 edge_api.py
+    autoDeployTrigger: commit
     healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION
