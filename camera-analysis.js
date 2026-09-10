@@ -240,10 +240,6 @@ function getCameraAdminToken() {
 async function startCctvCamera() {
   const previewUrl = getCameraPreviewUrl();
   const token = getCameraAdminToken();
-  if (!token) {
-    setStatus("CCTV 관리자 토큰을 먼저 입력하고 연결 및 테스트를 실행해 주세요.", true);
-    return;
-  }
   prepareForNewSource();
   state.sourceType = "cctv";
   state.running = true;
@@ -267,9 +263,10 @@ async function startCctvCamera() {
 }
 
 async function loadCctvFrame(previewUrl, token) {
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
   const response = await fetch(`${previewUrl}?t=${Date.now()}`, {
     cache: "no-store",
-    headers: { Authorization: `Bearer ${token}` }
+    headers
   });
   if (!response.ok) {
     const detail = await response.json().catch(() => ({}));

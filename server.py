@@ -1081,7 +1081,7 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
                 )
             return
         if path == "/api/camera/preview":
-            if not self.require_admin():
+            if not self.require_camera_preview():
                 return
             try:
                 self.send_bytes(
@@ -1204,6 +1204,19 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
         self.send_json(
             HTTPStatus.UNAUTHORIZED,
             {"error": "관리자 인증이 필요합니다"},
+        )
+        return False
+
+    def require_camera_preview(self) -> bool:
+        authorization = self.headers.get("Authorization", "")
+        provided = authorization.removeprefix("Bearer ").strip()
+        authorized = ADMIN_TOKEN_CONFIGURED and hmac.compare_digest(provided, ADMIN_TOKEN)
+        local_request = AI_ALLOW_PRIVATE_NETWORK and client_is_private(str(self.client_address[0]))
+        if authorized or local_request:
+            return True
+        self.send_json(
+            HTTPStatus.UNAUTHORIZED,
+            {"error": "로컬 CCTV 서버 접근 권한이 필요합니다"},
         )
         return False
 
