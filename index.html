@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-title" content="ParkView">
   <title>ParkView</title>
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=105">
+  <link rel="stylesheet" href="./styles.css?v=106">
 </head>
 <body>
   <main id="app" class="app-shell">
@@ -95,6 +95,7 @@
           <button id="menuAllLots" type="button"><i data-lucide="map" aria-hidden="true"></i><span><strong>전체 주차장</strong><small>지도에서 모든 주차장 보기</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
           <button id="menuFavorites" type="button"><i data-lucide="star" aria-hidden="true"></i><span><strong>즐겨찾기</strong><small id="menuFavoriteCount">저장한 주차장 0개</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
           <button id="menuCurrentLocation" type="button"><i data-lucide="locate-fixed" aria-hidden="true"></i><span><strong>현재 위치</strong><small>내 주변 주차장으로 이동</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+          <button id="menuCameraAnalysis" type="button"><i data-lucide="scan-line" aria-hidden="true"></i><span><strong>현장 카메라 분석</strong><small>기기 카메라로 주차 차량 확인</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
           <button id="adminButton" type="button"><i data-lucide="building-2" aria-hidden="true"></i><span><strong>주차장 관리</strong><small>등록 및 운영 현황 관리</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
         </nav>
         <p class="menu-version">ParkView MVP</p>
@@ -420,9 +421,14 @@
               <strong id="analysisStatus">대기 중</strong>
             </div>
           </div>
+          <a class="device-camera-analysis-link" href="./camera-analysis.html">
+            <i data-lucide="scan-line" aria-hidden="true"></i>
+            <span>기기 카메라 분석</span>
+            <i data-lucide="chevron-right" aria-hidden="true"></i>
+          </a>
           <button id="cameraSetupToggle" class="camera-setup-toggle" type="button" aria-expanded="false" aria-controls="cameraConnectionForm">
             <i data-lucide="cctv" aria-hidden="true"></i>
-            <span>카메라 연결</span>
+            <span>고정 CCTV 설정</span>
             <i data-lucide="chevron-down" aria-hidden="true"></i>
           </button>
           <form id="cameraConnectionForm" class="camera-connection-form" hidden>
@@ -464,6 +470,6 @@
       document.write('<script src="./native-bridge-source.js?v=100"><\/script>');
     }
   </script>
-  <script src="./app.js?v=114"></script>
+  <script src="./app.js?v=115"></script>
 </body>
 </html>

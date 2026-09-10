@@ -3271,13 +3271,41 @@ textarea {
   white-space: pre-line;
 }
 
+.device-camera-analysis-link {
+  width: 100%;
+  min-height: 50px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 0 13px;
+  border: 1px solid #d7aa00;
+  border-radius: 6px;
+  background: #f8c400;
+  color: #1d1a0b;
+  font-size: 13px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.device-camera-analysis-link svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 2;
+}
+
+.device-camera-analysis-link svg:last-child {
+  justify-self: end;
+}
+
 .camera-setup-toggle {
   display: grid;
   grid-template-columns: 20px 1fr 18px;
   align-items: center;
   width: 100%;
   min-height: 48px;
-  margin-top: 14px;
+  margin-top: 10px;
   padding: 0 4px;
   border: 0;
   border-top: 1px solid #e2e3e7;

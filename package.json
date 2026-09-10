@@ -2,9 +2,11 @@
   "name": "parkview",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "build:web": "node scripts/prepare-mobile-web.mjs",
-    "test:web": "node --test tests/test_floor_plan.mjs",
+    "test:web": "node --test tests/test_floor_plan.mjs tests/test_camera_analysis.mjs",
+    "test:model": "node scripts/verify-camera-model.mjs",
     "cap:sync": "npm run build:web && cap sync",
     "cap:ios": "npm run cap:sync && cap open ios",
     "cap:android": "npm run cap:sync && cap open android"
@@ -13,7 +15,8 @@
     "@capacitor/core": "8.5.0",
     "@capacitor/geolocation": "8.2.2",
     "@capgo/capacitor-speech-recognition": "8.2.0",
-    "capacitor-native-settings": "8.2.0"
+    "capacitor-native-settings": "8.2.0",
+    "onnxruntime-web": "1.23.2"
   },
   "devDependencies": {
     "@capacitor/android": "8.5.0",

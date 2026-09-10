@@ -13,6 +13,7 @@ const CAMERA_API_BASE_URL = String(
 ).trim().replace(/\/+$/, "");
 const CAMERA_ADMIN_TOKEN_SESSION = "parkview.cameraAdminToken.session";
 const DIRECT_CAMERA_LINK_SESSION = "parkview.directCameraLink.session";
+const DEVICE_CAMERA_RESULT_STORAGE = "parkview.deviceCamera.latest";
 
 function edgeApiUrl(path) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
@@ -267,6 +268,7 @@ function bindElements() {
     menuFavorites: document.querySelector("#menuFavorites"),
     menuFavoriteCount: document.querySelector("#menuFavoriteCount"),
     menuCurrentLocation: document.querySelector("#menuCurrentLocation"),
+    menuCameraAnalysis: document.querySelector("#menuCameraAnalysis"),
     voiceSearchButton: document.querySelector("#voiceSearchButton"),
     filterButton: document.querySelector("#filterButton"),
     filterPanel: document.querySelector("#filterPanel"),
@@ -373,6 +375,9 @@ function bindEvents() {
   els.menuAllLots.addEventListener("click", showAllLotsFromMenu);
   els.menuFavorites.addEventListener("click", showFavoriteLotsFromMenu);
   els.menuCurrentLocation.addEventListener("click", focusOnCurrentLocation);
+  els.menuCameraAnalysis?.addEventListener("click", () => {
+    window.location.href = "./camera-analysis.html";
+  });
   els.adminButton.addEventListener("click", () => {
     closeMainMenu();
     openAdminHome();
@@ -4834,6 +4839,30 @@ function isDirectCameraMode() {
   return !cameraApiUrl("/api/camera/test");
 }
 
+function loadRecentDeviceCameraResult() {
+  try {
+    const result = JSON.parse(localStorage.getItem(DEVICE_CAMERA_RESULT_STORAGE) || "null");
+    const analyzedAt = new Date(result?.analyzedAt || "").getTime();
+    if (!Number.isFinite(analyzedAt) || Date.now() - analyzedAt > 5 * 60 * 1000) return null;
+    return result;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function renderDeviceCameraStatus() {
+  const result = loadRecentDeviceCameraResult();
+  if (!result) return false;
+  els.cameraConnectionChip.textContent = "기기 내 AI";
+  els.cameraConnectionChip.classList.remove("is-linked", "is-error", "is-manual");
+  els.cameraConnectionChip.classList.add("is-live");
+  els.cameraStatus.textContent = "분석 완료";
+  if (els.cameraIntervalStatus) els.cameraIntervalStatus.textContent = "실시간";
+  els.analysisStatus.textContent = formatAnalysisTime(result.analyzedAt);
+  els.objectStatus.textContent = `기기 카메라에서 차량 ${Number(result.count) || 0}대를 감지했습니다.`;
+  return true;
+}
+
 function renderDirectCameraStatus() {
   if (!state.directCameraUrl) return false;
   els.cameraConnectionChip.textContent = "카메라 링크됨";
@@ -4962,6 +4991,7 @@ async function connectCameraFromAdmin(event) {
 }
 
 async function refreshEdgeStatus() {
+  if (renderDeviceCameraStatus()) return;
   if (isDirectCameraMode() && renderDirectCameraStatus()) return;
   try {
     const healthUrl = cameraApiUrl("/api/health");

@@ -7,15 +7,34 @@ const output = resolve(root, "dist");
 const files = [
   "index.html",
   "styles.css",
+  "camera-analysis.html",
+  "camera-analysis.css",
+  "camera-analysis.js",
+  "camera-analysis-core.js",
   "manifest.webmanifest",
   "sw.js"
 ];
 
 await rm(output, { recursive: true, force: true });
-await mkdir(resolve(output, "data"), { recursive: true });
+await Promise.all([
+  mkdir(resolve(output, "data"), { recursive: true }),
+  mkdir(resolve(output, "models"), { recursive: true }),
+  mkdir(resolve(output, "vendor", "onnxruntime"), { recursive: true })
+]);
 
 await Promise.all(files.map((file) => cp(resolve(root, file), resolve(output, file))));
 await cp(resolve(root, "data", "parking-lots.json"), resolve(output, "data", "parking-lots.json"));
+await cp(
+  resolve(root, "models", "parkview-toycar-v4.onnx"),
+  resolve(output, "models", "parkview-toycar-v4.onnx")
+);
+await Promise.all([
+  "ort.min.js",
+  "ort-wasm-simd-threaded.wasm"
+].map((file) => cp(
+  resolve(root, "vendor", "onnxruntime", file),
+  resolve(output, "vendor", "onnxruntime", file)
+)));
 
 await build({
   entryPoints: [resolve(root, "native-bridge-source.js"), resolve(root, "app.js")],

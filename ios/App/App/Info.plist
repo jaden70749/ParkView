@@ -24,6 +24,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>현장 주차 차량을 기기 내 AI로 분석하기 위해 카메라를 사용합니다.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>내 주변 주차장을 찾고 거리를 계산하기 위해 현재 위치를 사용합니다.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

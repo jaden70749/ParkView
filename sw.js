@@ -1,11 +1,16 @@
-const CACHE_NAME = "parkview-v114";
+const CACHE_NAME = "parkview-v115";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=105",
+  "./styles.css?v=106",
   "./config.js?v=4",
   "./native-bridge-source.js?v=100",
-  "./app.js?v=114",
+  "./app.js?v=115",
+  "./camera-analysis.html",
+  "./camera-analysis.css?v=1",
+  "./camera-analysis.js?v=1",
+  "./camera-analysis-core.js",
+  "./vendor/onnxruntime/ort.min.js?v=1",
   "./manifest.webmanifest"
 ];
 
@@ -26,6 +31,18 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const requestUrl = new URL(event.request.url);
+  const isModelAsset = requestUrl.origin === self.location.origin
+    && (requestUrl.pathname.endsWith(".onnx") || requestUrl.pathname.endsWith(".wasm"));
+  if (isModelAsset) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => cached || fetch(event.request).then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        return response;
+      }))
+    );
+    return;
+  }
   const isCoreAsset = requestUrl.origin === self.location.origin &&
     ["document", "script", "style"].includes(event.request.destination);
   if (isCoreAsset) {

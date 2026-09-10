@@ -1,15 +1,17 @@
 # ParkView
 
-ParkView는 CCTV 영상의 차량을 감지해 주차 칸 점유 상태를 갱신하고, 웹 지도와 2D 도면에 결과를 표시하는 프로토타입입니다.
+ParkView는 기기 카메라 또는 설치형 CCTV 영상의 차량을 감지하고, 웹 지도와 2D 도면에 주차 정보를 표시하는 프로토타입입니다.
 
 ## 구성
 
 - `server.py`: 정적 웹 서버, YOLO 분석, Firebase 전송, Gemini 프록시
 - `app.js`: 사용자 지도, 주차장 상세 화면, 관리자 등록 화면
+- `camera-analysis.html`: 브라우저 안에서 실행되는 정식 현장 카메라 분석 화면
+- `camera-analysis-core.js`: ONNX YOLO 전처리, 좌표 복원, 중복 박스 제거
 - `calibrate.html`: 카메라 ROI와 원근 보정 좌표 등록
 - `models/`: YOLO 모델 파일
 
-현장 분석 서버는 기본적으로 학습 모델 `models/parkview-toycar-v4.pt`와 `toy_car` 클래스를 사용합니다.
+기기 카메라 분석은 `models/parkview-toycar-v4.onnx`, 현장 분석 서버는 같은 모델의 PyTorch 원본인 `models/parkview-toycar-v4.pt`를 사용합니다.
 
 ## 환경변수
 
@@ -37,11 +39,17 @@ python3 server.py --host 0.0.0.0 --port 5180
 
 브라우저에서 `http://localhost:5180/?v=97`을 엽니다. 단순 정적 서버를 사용하면 `/api/public-config`와 AI 프록시가 없으므로 반드시 `server.py`로 실행해야 합니다.
 
-### CCTV 연결 확인
+### 현장 카메라 분석
+
+ParkView 메뉴나 관리자 화면에서 `현장 카메라 분석`을 열면 휴대폰, 태블릿, 노트북 카메라를 바로 사용할 수 있습니다. 영상은 서버로 전송하지 않고 ONNX Runtime Web과 학습된 YOLO 모델로 기기 안에서 처리합니다. RTSP 주소, VLC, 관리자 토큰, 별도 중계 컴퓨터가 필요하지 않습니다. 사진과 영상 파일도 같은 분석 화면에서 선택할 수 있습니다.
+
+첫 실행에는 약 35MB의 모델과 WebAssembly 실행 파일을 내려받습니다. 이후 파일은 서비스 워커 캐시에 저장됩니다. 웹에서는 HTTPS로 배포된 GitHub Pages에서 카메라 권한이 동작하며, iOS와 Android 설치 앱에는 카메라 권한 설명이 포함되어 있습니다.
+
+### 설치형 CCTV 연결
 
 RTSP 주소는 저장소에 커밋하지 말고 `.env`의 `PARKVIEW_CAMERA_URL`에만 입력합니다. 서버는 30초마다 새 프레임을 열어 분석하므로 연결이 끊겼다가 복구되어도 다음 주기에 다시 연결합니다.
 
-관리자 화면의 `현장 분석 > 카메라 연결`에서도 RTSP 주소와 `PARKVIEW_ADMIN_TOKEN`을 입력해 연결할 수 있습니다. 주소는 연결 테스트가 성공한 뒤 현장 서버 메모리에만 보관되며 브라우저 저장소, GitHub Pages, Render에는 저장하거나 전송하지 않습니다. 이 버튼은 `server.py`로 띄운 현장 앱 또는 별도로 지정한 신뢰할 수 있는 카메라 API 서버에서만 동작합니다.
+관리자 화면의 `현장 분석 > 고정 CCTV 설정`은 RTSP를 지원하는 설치형 장비를 위한 보조 연결 방식입니다. RTSP 주소와 `PARKVIEW_ADMIN_TOKEN`을 입력하면 주소는 연결 테스트가 성공한 뒤 현장 서버 메모리에만 보관되며 브라우저 저장소, GitHub Pages, Render에는 저장하거나 전송하지 않습니다. 이 설정은 `server.py`로 띄운 현장 앱 또는 별도로 지정한 신뢰할 수 있는 카메라 API 서버에서만 동작합니다.
 
 카메라 API 서버를 지정하지 않은 GitHub Pages에서는 관리자 토큰 입력란 대신 카메라 링크 하나만 표시합니다. 이 직접 연결 모드는 RTSP/HTTP(S) 링크를 현재 탭 세션에만 보관하며, iPhone의 RTSP 링크는 `VLC로 열기` 버튼으로 VLC에 전달합니다. 브라우저에서 RTSP를 분석하지 않으므로 이 모드의 주차면 상태는 수동으로 관리하며, 자동 점유 분석에는 위 현장 서버 구성이 필요합니다.
 
