@@ -100,6 +100,19 @@ test("direct camera links are validated without exposing an admin token", () => 
   );
 });
 
+test("an iPhone RTSP link launches through VLC without changing the stream to HTTPS", () => {
+  const context = loadAppContext();
+  context.navigator.userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)";
+  context.cameraLink = "rtsp://camera-user:camera-password@192.168.0.26:554/stream";
+
+  const launchUrl = vm.runInContext("directCameraLaunchUrl(cameraLink)", context);
+  const encodedStream = launchUrl.split("url=")[1];
+
+  assert.match(launchUrl, /^vlc-x-callback:\/\/x-callback-url\/stream\?url=/);
+  assert.equal(decodeURIComponent(encodedStream), context.cameraLink);
+  assert.doesNotMatch(launchUrl, /https%3A/i);
+});
+
 test("a direct camera link is shown as linked without claiming automatic analysis", () => {
   const context = loadAppContext();
   const elements = {

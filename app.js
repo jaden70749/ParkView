@@ -4843,8 +4843,22 @@ function renderDirectCameraStatus() {
   if (els.cameraIntervalStatus) els.cameraIntervalStatus.textContent = "직접 보기";
   els.analysisStatus.textContent = "수동";
   els.objectStatus.textContent = "카메라 링크 연결됨 · 주차면 상태는 수동 관리 중";
-  if (els.cameraOpenButton) els.cameraOpenButton.hidden = false;
+  if (els.cameraOpenButton) {
+    els.cameraOpenButton.hidden = false;
+    const label = els.cameraOpenButton.querySelector?.("span");
+    if (label) label.textContent = /^rtsps?:\/\//i.test(state.directCameraUrl) ? "VLC로 열기" : "영상 열기";
+  }
   return true;
+}
+
+function directCameraLaunchUrl(url) {
+  const normalized = normalizeCameraLink(url);
+  const isRtsp = /^rtsps?:\/\//i.test(normalized);
+  const isAppleMobile = /iPad|iPhone|iPod/i.test(navigator.userAgent || "");
+  if (isRtsp && isAppleMobile) {
+    return `vlc-x-callback://x-callback-url/stream?url=${encodeURIComponent(normalized)}`;
+  }
+  return normalized;
 }
 
 function openDirectCameraLink() {
@@ -4852,8 +4866,12 @@ function openDirectCameraLink() {
     setCameraConnectFeedback("먼저 카메라 링크를 연결해 주세요.", "error");
     return;
   }
-  const opened = window.open(state.directCameraUrl, "_blank", "noopener,noreferrer");
-  if (!opened) window.location.assign(state.directCameraUrl);
+  const launchUrl = directCameraLaunchUrl(state.directCameraUrl);
+  if (/^rtsps?:\/\//i.test(state.directCameraUrl) || launchUrl.startsWith("vlc-x-callback:")) {
+    window.location.assign(launchUrl);
+    return;
+  }
+  window.open(launchUrl, "_blank", "noopener,noreferrer");
 }
 
 function setCameraConnectFeedback(message, status = "") {

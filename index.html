@@ -427,8 +427,8 @@
           </button>
           <form id="cameraConnectionForm" class="camera-connection-form" hidden>
             <label class="form-field">
-              <span>카메라 링크</span>
-              <input id="cameraRtspUrl" type="password" placeholder="rtsp://... 또는 https://..." autocomplete="off" spellcheck="false">
+              <span>RTSP 카메라 링크</span>
+              <input id="cameraRtspUrl" type="password" placeholder="rtsp://사용자:비밀번호@카메라-IP:554/..." autocomplete="off" spellcheck="false">
             </label>
             <label id="cameraAdminTokenField" class="form-field" hidden>
               관리자 토큰
@@ -441,7 +441,7 @@
               </button>
               <button id="cameraOpenButton" class="secondary-button full-width-button" type="button" hidden>
                 <i data-lucide="external-link" aria-hidden="true"></i>
-                <span>영상 열기</span>
+                <span>VLC로 열기</span>
               </button>
             </div>
             <p id="cameraConnectFeedback" class="camera-inline-status" role="status" aria-live="polite"></p>
@@ -464,6 +464,6 @@
       document.write('<script src="./native-bridge-source.js?v=100"><\/script>');
     }
   </script>
-  <script src="./app.js?v=113"></script>
+  <script src="./app.js?v=114"></script>
 </body>
 </html>
