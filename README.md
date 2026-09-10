@@ -41,6 +41,19 @@ python3 server.py --host 0.0.0.0 --port 5180
 
 GitHub Pages에서 CCTV를 보려면 `server.py`를 실행한 PC 앞에 Cloudflare Tunnel 같은 공개 HTTPS 중계를 구성하고, 저장소 Actions Secret `PARKVIEW_CAMERA_API_BASE_URL`에 그 HTTPS 주소를 등록해야 합니다. RTSP 주소 자체는 Pages에 넣지 않습니다.
 
+현재 Localtunnel 주소를 복구할 때는 CCTV와 같은 네트워크에 있는 Mac에서 두 터미널을 계속 실행합니다.
+
+```bash
+# 터미널 1: 공개 API 전용 서버 (웹 화면은 GitHub Pages에서 엽니다)
+PARKVIEW_PUBLIC_RELAY=true PARKVIEW_DEBUG=false python3 server.py --host 127.0.0.1 --port 5180
+# 터미널 2: 기존 Pages 설정과 같은 주소 요청
+npx --yes localtunnel --port 5180 --subdomain odd-areas-move --local-host 127.0.0.1
+```
+
+출력된 주소가 `https://odd-areas-move.loca.lt`인지 확인합니다. 다른 주소가 할당되면 Pages의 `PARKVIEW_CAMERA_API_BASE_URL`도 변경하고 재배포해야 합니다. Mac이 잠들거나 서버/터널이 종료되면 연결이 끊어집니다. 공개 모드는 프로젝트 파일과 저장된 캡처를 제공하지 않으며, 영상·설정 요청에는 관리자 토큰이 필요합니다. 상태·분석 결과 API는 공개됩니다.
+
+`503`은 터널 또는 현장 서버 연결 실패, `511`은 Localtunnel 안내 페이지 응답입니다. 웹의 CCTV API 요청에는 `bypass-tunnel-reminder` 헤더가 필요하고, 서버의 OPTIONS 응답에는 허용된 Origin 헤더가 정확히 한 번만 있어야 합니다.
+
 ### 현장 카메라 분석
 
 `주차장 관리 > 등록된 주차장 > 현장 분석 > 기기 카메라 연결`을 누르면 휴대폰, 태블릿, 노트북 카메라 권한을 즉시 요청하고 분석을 시작합니다. 영상은 서버로 전송하지 않고 ONNX Runtime Web과 학습된 YOLO 모델로 기기 안에서 처리합니다. 이 방식에는 RTSP 주소, VLC, 관리자 토큰, 별도 중계 컴퓨터가 필요하지 않습니다. 같은 관리 화면에서 사진과 영상 파일도 선택할 수 있습니다.

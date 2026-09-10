@@ -27,6 +27,13 @@ function cameraApiUrl(path) {
   return isLocalApp ? normalizedPath : "";
 }
 
+function cameraApiHeaders(url, headers = {}) {
+  const hostname = new URL(url, window.location.href).hostname;
+  return hostname.endsWith(".loca.lt")
+    ? { ...headers, "bypass-tunnel-reminder": "true" }
+    : { ...headers };
+}
+
 async function loadRuntimeConfig() {
   const staticKey = String(
     window.PARKVIEW_CONFIG?.kakaoJavaScriptKey || ""
@@ -5000,10 +5007,10 @@ async function connectCameraFromAdmin(event) {
     const floor = state.floors[state.floorIndex];
     const request = {
       method: "POST",
-      headers: {
+      headers: cameraApiHeaders(endpoint, {
         Authorization: `Bearer ${token}`,
         Accept: "application/json"
-      }
+      })
     };
     if (url) {
       request.headers["Content-Type"] = "application/json";
@@ -5068,8 +5075,8 @@ async function refreshEdgeStatus() {
     const resultUrl = cameraApiUrl("/api/result");
     if (!healthUrl || !resultUrl) throw new Error("로컬 카메라 서버가 연결되지 않았습니다");
     const [healthResponse, resultResponse] = await Promise.all([
-      fetch(healthUrl, { cache: "no-store" }),
-      fetch(resultUrl, { cache: "no-store" })
+      fetch(healthUrl, { cache: "no-store", headers: cameraApiHeaders(healthUrl) }),
+      fetch(resultUrl, { cache: "no-store", headers: cameraApiHeaders(resultUrl) })
     ]);
     if (!healthResponse.ok) throw new Error(`분석 서버 HTTP ${healthResponse.status}`);
 

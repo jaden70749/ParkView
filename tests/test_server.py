@@ -1,6 +1,9 @@
 import io
+import http.client
 import tempfile
+import threading
 import unittest
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
@@ -8,6 +11,60 @@ import numpy as np
 from PIL import Image
 
 import server
+
+
+class PublicRelayTests(unittest.TestCase):
+    def setUp(self):
+        self.relay = mock.patch.object(server, "PUBLIC_RELAY_MODE", True)
+        self.relay.start()
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.ParkViewHandler)
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.thread.join(timeout=2)
+        self.relay.stop()
+
+    def request(self, method, path, headers=None):
+        connection = http.client.HTTPConnection("127.0.0.1", self.httpd.server_port, timeout=3)
+        connection.request(method, path, headers=headers or {})
+        response = connection.getresponse()
+        result = (response.status, response.headers, response.read())
+        connection.close()
+        return result
+
+    def test_preflight_has_exactly_one_allowed_origin(self):
+        origin = "https://jaden70749.github.io"
+        with mock.patch.object(server, "allowed_origin_values", return_value=(origin,)):
+            status, headers, _ = self.request("OPTIONS", "/api/camera/configure", {
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization,content-type",
+            })
+        self.assertEqual(status, 204)
+        self.assertEqual(headers.get_all("Access-Control-Allow-Origin"), [origin])
+
+    def test_project_files_and_directory_are_not_published(self):
+        for method in ("GET", "HEAD"):
+            for path in ("/", "/.env", "/%2eenv", "/.git/config", "/debug/latest_capture.jpg"):
+                with self.subTest(method=method, path=path):
+                    self.assertEqual(self.request(method, path)[0], 404)
+
+    def test_relay_cannot_use_localhost_to_bypass_authentication(self):
+        with mock.patch.object(server, "AI_ALLOW_PRIVATE_NETWORK", True):
+            self.assertEqual(self.request("GET", "/api/camera/preview")[0], 401)
+            self.assertEqual(self.request("POST", "/api/gemini/generate")[0], 401)
+            self.assertEqual(self.request("POST", "/api/camera/configure")[0], 401)
+
+    def test_authenticated_preview_and_public_health_still_work(self):
+        with mock.patch.object(server, "ADMIN_TOKEN_CONFIGURED", True), mock.patch.object(
+            server, "ADMIN_TOKEN", "test-token"
+        ), mock.patch.object(server.worker, "preview_frame", return_value=b"test-frame"):
+            status, _, body = self.request("GET", "/api/camera/preview", {"Authorization": "Bearer test-token"})
+        self.assertEqual((status, body), (200, b"test-frame"))
+        self.assertEqual(self.request("GET", "/api/health")[0], 200)
 
 
 class RegionMatchingTests(unittest.TestCase):

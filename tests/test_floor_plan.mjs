@@ -100,6 +100,23 @@ test("direct camera links are validated without exposing an admin token", () => 
   );
 });
 
+test("CCTV relay headers preserve authentication and bypass the tunnel reminder only on localtunnel", () => {
+  const context = loadAppContext();
+  context.window.location.href = "https://jaden70749.github.io/ParkView/";
+  const relayHeaders = vm.runInContext(
+    'cameraApiHeaders("https://odd-areas-move.loca.lt/api/camera/configure", {Authorization: "Bearer test-token", Accept: "application/json"})',
+    context
+  );
+  assert.equal(relayHeaders["bypass-tunnel-reminder"], "true");
+  assert.equal(relayHeaders.Authorization, "Bearer test-token");
+  assert.equal(relayHeaders.Accept, "application/json");
+  for (const url of ["/api/health", "https://camera.example/api/health", "https://loca.lt.evil.example/api/health"]) {
+    context.requestUrl = url;
+    const headers = vm.runInContext("cameraApiHeaders(requestUrl)", context);
+    assert.equal(headers["bypass-tunnel-reminder"], undefined);
+  }
+});
+
 test("an iPhone RTSP link launches through VLC without changing the stream to HTTPS", () => {
   const context = loadAppContext();
   context.navigator.userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)";

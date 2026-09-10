@@ -108,6 +108,9 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash").strip()
 AI_ALLOW_PRIVATE_NETWORK = os.environ.get(
     "PARKVIEW_AI_ALLOW_PRIVATE_NETWORK", "true"
 ).lower() in {"1", "true", "yes", "on"}
+PUBLIC_RELAY_MODE = os.environ.get("PARKVIEW_PUBLIC_RELAY", "false").lower() in {
+    "1", "true", "yes", "on",
+}
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_JSON_BYTES = 1024 * 1024
 MAX_GEMINI_JSON_BYTES = 48 * 1024 * 1024
@@ -1047,12 +1050,7 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_OPTIONS(self) -> None:
-        origin = self.headers.get("Origin", "")
-        matched_origin = resolve_allowed_origin(origin)
         self.send_response(HTTPStatus.NO_CONTENT)
-        if matched_origin:
-            self.send_header("Access-Control-Allow-Origin", matched_origin)
-            self.send_header("Vary", "Origin")
         self.send_header(
             "Access-Control-Allow-Methods",
             "GET, POST, OPTIONS",
@@ -1062,6 +1060,14 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
             "Authorization, Content-Type, bypass-tunnel-reminder",
         )
         self.end_headers()
+
+    def send_head(self):
+        # A public relay serves API routes only. Never publish the project
+        # directory (including .env, debug captures, and repository files).
+        if PUBLIC_RELAY_MODE:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return None
+        return super().send_head()
 
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
@@ -1214,6 +1220,7 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
         client_address = str(self.client_address[0])
         if (
             AI_ALLOW_PRIVATE_NETWORK
+            and not PUBLIC_RELAY_MODE
             and client_is_private(client_address)
         ):
             return True
@@ -1235,7 +1242,11 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
         authorization = self.headers.get("Authorization", "")
         provided = authorization.removeprefix("Bearer ").strip()
         authorized = ADMIN_TOKEN_CONFIGURED and hmac.compare_digest(provided, ADMIN_TOKEN)
-        local_request = AI_ALLOW_PRIVATE_NETWORK and client_is_private(str(self.client_address[0]))
+        local_request = (
+            AI_ALLOW_PRIVATE_NETWORK
+            and not PUBLIC_RELAY_MODE
+            and client_is_private(str(self.client_address[0]))
+        )
         if authorized or local_request:
             return True
         self.send_json(
