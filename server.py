@@ -120,6 +120,30 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def allowed_origin_values() -> tuple[str, ...]:
+    raw = os.environ.get(
+        "PARKVIEW_ALLOWED_ORIGINS",
+        os.environ.get("PARKVIEW_ALLOWED_ORIGIN", "https://jaden70749.github.io"),
+    )
+    values = []
+    for item in str(raw).split(","):
+        value = item.strip()
+        if value:
+            values.append(value)
+    if not values:
+        values = ["https://jaden70749.github.io"]
+    return tuple(values)
+
+
+def resolve_allowed_origin(origin: str) -> str | None:
+    if not origin:
+        return None
+    allowed = allowed_origin_values()
+    if origin in allowed:
+        return origin
+    return None
+
+
 def public_runtime_config() -> dict[str, Any]:
     return {
         "mapProvider": "kakao" if KAKAO_JAVASCRIPT_KEY else "fallback",
@@ -1015,20 +1039,20 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
 
     def end_headers(self) -> None:
         origin = self.headers.get("Origin", "")
-        allowed_origin = os.environ.get(
-            "PARKVIEW_ALLOWED_ORIGIN", "https://jaden70749.github.io"
-        )
-        if origin == allowed_origin or origin in {
-            "http://localhost:5180",
-            "http://127.0.0.1:5180",
-        }:
-            self.send_header("Access-Control-Allow-Origin", origin)
+        matched_origin = resolve_allowed_origin(origin)
+        if matched_origin:
+            self.send_header("Access-Control-Allow-Origin", matched_origin)
             self.send_header("Vary", "Origin")
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
     def do_OPTIONS(self) -> None:
+        origin = self.headers.get("Origin", "")
+        matched_origin = resolve_allowed_origin(origin)
         self.send_response(HTTPStatus.NO_CONTENT)
+        if matched_origin:
+            self.send_header("Access-Control-Allow-Origin", matched_origin)
+            self.send_header("Vary", "Origin")
         self.send_header(
             "Access-Control-Allow-Methods",
             "GET, POST, OPTIONS",

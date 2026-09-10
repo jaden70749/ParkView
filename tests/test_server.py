@@ -200,6 +200,22 @@ class RuntimeSecurityTests(unittest.TestCase):
         self.assertTrue(server.client_is_private("192.168.0.20"))
         self.assertFalse(server.client_is_private("8.8.8.8"))
 
+    def test_allowed_origin_parsing_accepts_multiple_sources(self):
+        with mock.patch.dict(
+            server.os.environ,
+            {
+                "PARKVIEW_ALLOWED_ORIGINS": "https://jaden70749.github.io,http://localhost:5180,http://127.0.0.1:5180",
+                "PARKVIEW_ALLOWED_ORIGIN": "https://other.example",
+            },
+            clear=False,
+        ):
+            origins = server.allowed_origin_values()
+            self.assertIn("https://jaden70749.github.io", origins)
+            self.assertIn("http://localhost:5180", origins)
+            self.assertIn("http://127.0.0.1:5180", origins)
+            self.assertEqual(server.resolve_allowed_origin("https://jaden70749.github.io"), "https://jaden70749.github.io")
+            self.assertIsNone(server.resolve_allowed_origin("https://blocked.example"))
+
 
 if __name__ == "__main__":
     unittest.main()
