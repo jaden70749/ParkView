@@ -24,6 +24,7 @@ const state = {
   runId: 0,
   previewFrame: 0,
   cctvFrameBusy: false,
+  cctvTimer: 0,
   confidence: DEFAULT_CONFIDENCE
 };
 
@@ -177,6 +178,10 @@ async function loadModel() {
 }
 
 async function startDeviceCamera({ keepFacingMode = false } = {}) {
+  if (getCameraPreviewUrl()) {
+    await startCctvCamera();
+    return;
+  }
   if (!navigator.mediaDevices?.getUserMedia) {
     setStatus("이 환경에서는 기기 카메라를 사용할 수 없습니다.", true);
     return;
@@ -215,6 +220,87 @@ async function startDeviceCamera({ keepFacingMode = false } = {}) {
   } finally {
     els.startCameraButton.disabled = false;
   }
+}
+
+function getCameraPreviewUrl() {
+  const configuredBase = String(window.PARKVIEW_CONFIG?.cameraApiBaseUrl || "").trim().replace(/\/+$/, "");
+  const isLocalApp = !window.location.hostname.endsWith(".github.io");
+  if (!configuredBase && !isLocalApp) return "";
+  return `${configuredBase}/api/camera/preview`;
+}
+
+function getCameraAdminToken() {
+  try {
+    return sessionStorage.getItem("parkview.cameraAdminToken.session") || "";
+  } catch (_error) {
+    return "";
+  }
+}
+
+async function startCctvCamera() {
+  const previewUrl = getCameraPreviewUrl();
+  const token = getCameraAdminToken();
+  if (!token) {
+    setStatus("CCTV 관리자 토큰을 먼저 입력하고 연결 및 테스트를 실행해 주세요.", true);
+    return;
+  }
+  prepareForNewSource();
+  state.sourceType = "cctv";
+  state.running = true;
+  setModelState("loading", "CCTV 연결 중");
+  setStatus("CCTV 영상을 받고 있습니다.");
+  els.startCameraButton.disabled = true;
+  els.stopButton.disabled = false;
+  try {
+    await loadCctvFrame(previewUrl, token);
+    showSource("고정 CCTV");
+    await loadModel();
+    await analyzeCurrentFrame();
+    scheduleCctvFrame(previewUrl, token, ++state.runId);
+  } catch (error) {
+    state.running = false;
+    setStatus(`CCTV 연결 실패: ${error.message}`, true);
+    els.stopButton.disabled = true;
+  } finally {
+    els.startCameraButton.disabled = false;
+  }
+}
+
+async function loadCctvFrame(previewUrl, token) {
+  const response = await fetch(`${previewUrl}?t=${Date.now()}`, {
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail.error || `CCTV 서버 HTTP ${response.status}`);
+  }
+  const objectUrl = URL.createObjectURL(await response.blob());
+  try {
+    els.sourceImage.src = objectUrl;
+    await waitForImage(els.sourceImage);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+  state.source = els.sourceImage;
+  drawPreview();
+}
+
+function scheduleCctvFrame(previewUrl, token, runId) {
+  window.clearTimeout(state.cctvTimer);
+  state.cctvTimer = window.setTimeout(async () => {
+    if (!state.running || state.runId !== runId || state.sourceType !== "cctv") return;
+    try {
+      await loadCctvFrame(previewUrl, token);
+      await analyzeCurrentFrame();
+    } catch (error) {
+      state.running = false;
+      setStatus(`CCTV 수신 오류: ${error.message}`, true);
+      els.stopButton.disabled = true;
+      return;
+    }
+    scheduleCctvFrame(previewUrl, token, runId);
+  }, 2000);
 }
 
 async function switchDeviceCamera() {
@@ -402,6 +488,8 @@ function prepareForNewSource() {
   state.runId += 1;
   state.detections = [];
   cancelAnimationFrame(state.previewFrame);
+  window.clearTimeout(state.cctvTimer);
+  state.cctvTimer = 0;
   releaseMediaStream();
   els.sourceVideo.pause();
   els.sourceVideo.removeAttribute("src");

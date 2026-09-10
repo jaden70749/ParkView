@@ -1070,6 +1070,21 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
                     {"error": str(error), "type": type(error).__name__},
                 )
             return
+        if path == "/api/camera/preview":
+            if not self.require_admin():
+                return
+            try:
+                self.send_bytes(
+                    HTTPStatus.OK,
+                    worker.preview_frame(),
+                    "image/jpeg",
+                )
+            except Exception as error:
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": str(error), "type": type(error).__name__},
+                )
+            return
         super().do_GET()
 
     def do_POST(self) -> None:
