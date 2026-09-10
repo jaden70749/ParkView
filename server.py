@@ -1014,6 +1014,16 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
         )
 
     def end_headers(self) -> None:
+        origin = self.headers.get("Origin", "")
+        allowed_origin = os.environ.get(
+            "PARKVIEW_ALLOWED_ORIGIN", "https://jaden70749.github.io"
+        )
+        if origin == allowed_origin or origin in {
+            "http://localhost:5180",
+            "http://127.0.0.1:5180",
+        }:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
@@ -1025,7 +1035,7 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
         )
         self.send_header(
             "Access-Control-Allow-Headers",
-            "Content-Type",
+            "Authorization, Content-Type",
         )
         self.end_headers()
 
