@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-title" content="ParkView">
   <title>ParkView</title>
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=106">
+  <link rel="stylesheet" href="./styles.css?v=107">
 </head>
 <body>
   <main id="app" class="app-shell">
@@ -95,7 +95,6 @@
           <button id="menuAllLots" type="button"><i data-lucide="map" aria-hidden="true"></i><span><strong>전체 주차장</strong><small>지도에서 모든 주차장 보기</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
           <button id="menuFavorites" type="button"><i data-lucide="star" aria-hidden="true"></i><span><strong>즐겨찾기</strong><small id="menuFavoriteCount">저장한 주차장 0개</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
           <button id="menuCurrentLocation" type="button"><i data-lucide="locate-fixed" aria-hidden="true"></i><span><strong>현재 위치</strong><small>내 주변 주차장으로 이동</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
-          <button id="menuCameraAnalysis" type="button"><i data-lucide="scan-line" aria-hidden="true"></i><span><strong>현장 카메라 분석</strong><small>기기 카메라로 주차 차량 확인</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
           <button id="adminButton" type="button"><i data-lucide="building-2" aria-hidden="true"></i><span><strong>주차장 관리</strong><small>등록 및 운영 현황 관리</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
         </nav>
         <p class="menu-version">ParkView MVP</p>
@@ -421,11 +420,73 @@
               <strong id="analysisStatus">대기 중</strong>
             </div>
           </div>
-          <a class="device-camera-analysis-link" href="./camera-analysis.html">
+          <button id="deviceCameraToggle" class="device-camera-toggle" type="button" aria-expanded="false" aria-controls="deviceCameraPanel">
             <i data-lucide="scan-line" aria-hidden="true"></i>
-            <span>기기 카메라 분석</span>
-            <i data-lucide="chevron-right" aria-hidden="true"></i>
-          </a>
+            <span>
+              <strong>기기 카메라 연결</strong>
+              <small>휴대폰 카메라에서 바로 차량 감지</small>
+            </span>
+            <i data-lucide="chevron-down" aria-hidden="true"></i>
+          </button>
+          <section id="deviceCameraPanel" class="device-analysis-panel" aria-label="기기 카메라 차량 분석" hidden>
+            <div class="device-analysis-heading">
+              <div>
+                <strong>실시간 차량 감지</strong>
+                <small>영상은 서버로 전송되지 않습니다.</small>
+              </div>
+              <span id="deviceModelBadge" class="device-model-badge">연결 대기</span>
+            </div>
+
+            <div class="device-analysis-toolbar" aria-label="카메라 입력 선택">
+              <button id="deviceStartCameraButton" class="device-primary-command" type="button">
+                <i data-lucide="camera" aria-hidden="true"></i>
+                <span>카메라 연결</span>
+              </button>
+              <button id="deviceSwitchCameraButton" type="button" disabled>
+                <i data-lucide="switch-camera" aria-hidden="true"></i>
+                <span>전환</span>
+              </button>
+              <label class="device-file-command" for="deviceSourceFile">
+                <i data-lucide="image-up" aria-hidden="true"></i>
+                <span>사진·영상</span>
+              </label>
+              <input id="deviceSourceFile" type="file" accept="image/*,video/*">
+              <button id="deviceStopButton" type="button" disabled>
+                <i data-lucide="square" aria-hidden="true"></i>
+                <span>중지</span>
+              </button>
+            </div>
+
+            <div class="device-analysis-viewport">
+              <video id="deviceSourceVideo" playsinline muted></video>
+              <img id="deviceSourceImage" alt="선택한 분석 이미지">
+              <canvas id="deviceResultCanvas" width="1280" height="720"></canvas>
+              <div id="deviceViewportPlaceholder" class="device-viewport-placeholder">
+                <i data-lucide="camera" aria-hidden="true"></i>
+                <strong>카메라가 연결되지 않았습니다.</strong>
+                <span>카메라 연결을 누르면 권한 요청이 열립니다.</span>
+              </div>
+              <span id="deviceSourceBadge" class="device-source-badge" hidden>기기 카메라</span>
+            </div>
+
+            <p id="deviceAnalysisStatus" class="device-analysis-status" role="status" aria-live="polite">
+              카메라 연결을 눌러 시작하세요.
+            </p>
+
+            <div class="device-analysis-metrics" aria-label="분석 결과">
+              <div><span>감지 차량</span><strong id="deviceVehicleCount">0대</strong></div>
+              <div><span>분석 시간</span><strong id="deviceInferenceTime">-</strong></div>
+              <div><span>처리 방식</span><strong>기기 내 AI</strong></div>
+            </div>
+
+            <div class="device-analysis-settings">
+              <label for="deviceConfidenceRange">
+                <span>감지 기준</span>
+                <strong id="deviceConfidenceValue">25%</strong>
+              </label>
+              <input id="deviceConfidenceRange" type="range" min="15" max="75" step="5" value="25">
+            </div>
+          </section>
           <button id="cameraSetupToggle" class="camera-setup-toggle" type="button" aria-expanded="false" aria-controls="cameraConnectionForm">
             <i data-lucide="cctv" aria-hidden="true"></i>
             <span>고정 CCTV 설정</span>
@@ -470,6 +531,8 @@
       document.write('<script src="./native-bridge-source.js?v=100"><\/script>');
     }
   </script>
-  <script src="./app.js?v=115"></script>
+  <script src="./app.js?v=116"></script>
+  <script src="./vendor/onnxruntime/ort.min.js?v=1"></script>
+  <script type="module" src="./camera-analysis.js?v=2"></script>
 </body>
 </html>

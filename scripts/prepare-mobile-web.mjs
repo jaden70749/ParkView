@@ -7,8 +7,6 @@ const output = resolve(root, "dist");
 const files = [
   "index.html",
   "styles.css",
-  "camera-analysis.html",
-  "camera-analysis.css",
   "camera-analysis.js",
   "camera-analysis-core.js",
   "manifest.webmanifest",

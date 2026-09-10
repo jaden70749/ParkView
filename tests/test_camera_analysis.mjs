@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -48,4 +49,13 @@ test("YOLO channel-first output is mapped back to source coordinates and dedupli
 test("intersection over union handles separate and identical boxes", () => {
   assert.equal(intersectionOverUnion([0, 0, 10, 10], [20, 20, 5, 5]), 0);
   assert.equal(intersectionOverUnion([3, 4, 10, 12], [3, 4, 10, 12]), 1);
+});
+
+test("device camera analysis is integrated into parking management", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(html, /id="deviceCameraToggle"/);
+  assert.match(html, /id="deviceCameraPanel"/);
+  assert.match(html, /id="deviceStartCameraButton"/);
+  assert.match(html, /camera-analysis\.js\?v=2/);
+  assert.doesNotMatch(html, /href="\.\/camera-analysis\.html"/);
 });

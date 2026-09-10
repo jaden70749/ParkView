@@ -268,7 +268,6 @@ function bindElements() {
     menuFavorites: document.querySelector("#menuFavorites"),
     menuFavoriteCount: document.querySelector("#menuFavoriteCount"),
     menuCurrentLocation: document.querySelector("#menuCurrentLocation"),
-    menuCameraAnalysis: document.querySelector("#menuCameraAnalysis"),
     voiceSearchButton: document.querySelector("#voiceSearchButton"),
     filterButton: document.querySelector("#filterButton"),
     filterPanel: document.querySelector("#filterPanel"),
@@ -375,9 +374,6 @@ function bindEvents() {
   els.menuAllLots.addEventListener("click", showAllLotsFromMenu);
   els.menuFavorites.addEventListener("click", showFavoriteLotsFromMenu);
   els.menuCurrentLocation.addEventListener("click", focusOnCurrentLocation);
-  els.menuCameraAnalysis?.addEventListener("click", () => {
-    window.location.href = "./camera-analysis.html";
-  });
   els.adminButton.addEventListener("click", () => {
     closeMainMenu();
     openAdminHome();
@@ -1441,6 +1437,9 @@ function openAdminHome() {
 }
 
 function setAdminView(view) {
+  if (view !== "management") {
+    window.dispatchEvent(new Event("parkview:stop-device-camera"));
+  }
   state.adminView = view;
   els.adminScreen.dataset.view = view;
   const views = {
@@ -5073,6 +5072,9 @@ function stopEdgeStatusPolling() {
 }
 
 function showScreen(screen) {
+  if (screen !== "admin") {
+    window.dispatchEvent(new Event("parkview:stop-device-camera"));
+  }
   els.userScreen.classList.toggle("active", screen === "user");
   els.adminScreen.classList.toggle("active", screen === "admin");
 

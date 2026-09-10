@@ -27,40 +27,40 @@ const state = {
 };
 
 const els = {
-  modelBadge: document.querySelector("#modelBadge"),
-  startCameraButton: document.querySelector("#startCameraButton"),
-  switchCameraButton: document.querySelector("#switchCameraButton"),
-  sourceFile: document.querySelector("#sourceFile"),
-  stopButton: document.querySelector("#stopButton"),
-  sourceVideo: document.querySelector("#sourceVideo"),
-  sourceImage: document.querySelector("#sourceImage"),
-  resultCanvas: document.querySelector("#resultCanvas"),
-  viewportPlaceholder: document.querySelector("#viewportPlaceholder"),
-  sourceBadge: document.querySelector("#sourceBadge"),
-  analysisStatus: document.querySelector("#analysisStatus"),
-  vehicleCount: document.querySelector("#vehicleCount"),
-  inferenceTime: document.querySelector("#inferenceTime"),
-  confidenceRange: document.querySelector("#confidenceRange"),
-  confidenceValue: document.querySelector("#confidenceValue")
+  toggle: document.querySelector("#deviceCameraToggle"),
+  panel: document.querySelector("#deviceCameraPanel"),
+  modelBadge: document.querySelector("#deviceModelBadge"),
+  startCameraButton: document.querySelector("#deviceStartCameraButton"),
+  switchCameraButton: document.querySelector("#deviceSwitchCameraButton"),
+  sourceFile: document.querySelector("#deviceSourceFile"),
+  stopButton: document.querySelector("#deviceStopButton"),
+  sourceVideo: document.querySelector("#deviceSourceVideo"),
+  sourceImage: document.querySelector("#deviceSourceImage"),
+  resultCanvas: document.querySelector("#deviceResultCanvas"),
+  viewportPlaceholder: document.querySelector("#deviceViewportPlaceholder"),
+  sourceBadge: document.querySelector("#deviceSourceBadge"),
+  analysisStatus: document.querySelector("#deviceAnalysisStatus"),
+  vehicleCount: document.querySelector("#deviceVehicleCount"),
+  inferenceTime: document.querySelector("#deviceInferenceTime"),
+  confidenceRange: document.querySelector("#deviceConfidenceRange"),
+  confidenceValue: document.querySelector("#deviceConfidenceValue")
 };
 
-const resultContext = els.resultCanvas.getContext("2d");
+const resultContext = els.resultCanvas?.getContext("2d");
 const inputCanvas = document.createElement("canvas");
 const inputContext = inputCanvas.getContext("2d", { willReadFrequently: true });
 inputCanvas.width = MODEL_INPUT_SIZE;
 inputCanvas.height = MODEL_INPUT_SIZE;
 
-document.addEventListener("DOMContentLoaded", () => {
+if (els.panel && resultContext) {
   bindEvents();
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
-  }
-  loadModel().catch(() => {});
-});
+}
 
 window.addEventListener("pagehide", stopSource);
+window.addEventListener("parkview:stop-device-camera", closeDeviceCameraPanel);
 
 function bindEvents() {
+  els.toggle.addEventListener("click", toggleDeviceCameraPanel);
   els.startCameraButton.addEventListener("click", () => startDeviceCamera());
   els.switchCameraButton.addEventListener("click", switchDeviceCamera);
   els.stopButton.addEventListener("click", stopSource);
@@ -70,6 +70,27 @@ function bindEvents() {
     els.confidenceValue.textContent = `${els.confidenceRange.value}%`;
     if (state.sourceType === "image" && state.source) analyzeCurrentFrame();
   });
+}
+
+async function toggleDeviceCameraPanel() {
+  const opening = els.panel.hidden;
+  els.panel.hidden = !opening;
+  els.toggle.setAttribute("aria-expanded", String(opening));
+  els.toggle.classList.toggle("is-open", opening);
+  if (!opening) {
+    stopSource();
+    return;
+  }
+  els.panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  await startDeviceCamera();
+}
+
+function closeDeviceCameraPanel() {
+  if (!els.panel || els.panel.hidden) return;
+  els.panel.hidden = true;
+  els.toggle.setAttribute("aria-expanded", "false");
+  els.toggle.classList.remove("is-open");
+  stopSource();
 }
 
 async function loadModel() {
@@ -132,6 +153,7 @@ async function startDeviceCamera({ keepFacingMode = false } = {}) {
     state.sourceType = "camera";
     state.running = true;
     showSource(facingMode === "environment" ? "후면 카메라" : "전면 카메라");
+    updateManagementConnection("분석 중");
     els.switchCameraButton.disabled = false;
     els.stopButton.disabled = false;
     startPreviewLoop();
@@ -294,6 +316,7 @@ function updateResult(elapsed) {
   els.vehicleCount.textContent = `${count}대`;
   els.inferenceTime.textContent = `${Math.round(elapsed)}ms`;
   setStatus(count > 0 ? `차량 ${count}대를 감지했습니다.` : "감지된 차량이 없습니다.");
+  updateManagementResult(count);
   const { width, height } = sourceDimensions(state.source);
   const payload = {
     version: 1,
@@ -343,12 +366,13 @@ function prepareForNewSource() {
 }
 
 function stopSource() {
+  if (!els.panel || !resultContext) return;
   prepareForNewSource();
   els.viewportPlaceholder.hidden = false;
   els.sourceBadge.hidden = true;
   resultContext.fillStyle = "#151619";
   resultContext.fillRect(0, 0, els.resultCanvas.width, els.resultCanvas.height);
-  setStatus(state.session ? "카메라를 시작하거나 사진·영상을 선택하세요." : "AI 모델을 불러오고 있습니다.");
+  setStatus(state.session ? "카메라를 연결하거나 사진·영상을 선택하세요." : "카메라 연결을 눌러 시작하세요.");
 }
 
 function releaseMediaStream() {
@@ -398,6 +422,27 @@ function setModelState(kind, label) {
 function setStatus(message, isError = false) {
   els.analysisStatus.textContent = message;
   els.analysisStatus.classList.toggle("is-error", isError);
+}
+
+function updateManagementConnection(label) {
+  const chip = document.querySelector("#cameraConnectionChip");
+  const cameraStatus = document.querySelector("#cameraStatus");
+  const intervalStatus = document.querySelector("#cameraIntervalStatus");
+  if (chip) {
+    chip.textContent = "기기 내 AI";
+    chip.classList.remove("is-linked", "is-error", "is-manual");
+    chip.classList.add("is-live");
+  }
+  if (cameraStatus) cameraStatus.textContent = label;
+  if (intervalStatus) intervalStatus.textContent = "연속";
+}
+
+function updateManagementResult(count) {
+  updateManagementConnection("분석 중");
+  const analysisStatus = document.querySelector("#analysisStatus");
+  const objectStatus = document.querySelector("#objectStatus");
+  if (analysisStatus) analysisStatus.textContent = "방금";
+  if (objectStatus) objectStatus.textContent = `기기 카메라에서 차량 ${count}대를 감지했습니다.`;
 }
 
 function cameraErrorMessage(error) {
