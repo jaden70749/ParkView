@@ -54,7 +54,7 @@ def load_environment_file(path: Path) -> None:
 load_environment_file(ROOT / ".env")
 
 MODEL_PATH = Path(
-    os.environ.get("PARKVIEW_MODEL_PATH", ROOT / "models" / "yolov5su.pt")
+    os.environ.get("PARKVIEW_MODEL_PATH", ROOT / "models" / "parkview-toycar-v4.pt")
 ).expanduser()
 REGIONS_PATH = Path(
     os.environ.get("PARKVIEW_REGIONS_PATH", ROOT / "parking_regions.json")
@@ -75,7 +75,7 @@ MIN_SCORE = float(os.environ.get("PARKVIEW_CONFIDENCE", "0.25"))
 VEHICLE_CLASSES = {
     value.strip().lower()
     for value in os.environ.get(
-        "PARKVIEW_VEHICLE_CLASSES", "car,truck,bus,motorcycle"
+        "PARKVIEW_VEHICLE_CLASSES", "toy_car"
     ).split(",")
     if value.strip()
 }

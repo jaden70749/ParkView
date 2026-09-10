@@ -9,6 +9,8 @@ ParkView는 CCTV 영상의 차량을 감지해 주차 칸 점유 상태를 갱�
 - `calibrate.html`: 카메라 ROI와 원근 보정 좌표 등록
 - `models/`: YOLO 모델 파일
 
+현장 분석 서버는 기본적으로 학습 모델 `models/parkview-toycar-v4.pt`와 `toy_car` 클래스를 사용합니다.
+
 ## 환경변수
 
 저장소에는 API 키를 커밋하지 않습니다. `.env.example`을 참고해 프로젝트 루트에 `.env`를 만들고 값을 입력하세요.
