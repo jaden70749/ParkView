@@ -3346,6 +3346,10 @@ textarea {
   height: 17px;
 }
 
+.camera-connection-form [hidden] {
+  display: none !important;
+}
+
 .camera-inline-status.is-error {
   color: #b92c2c;
 }
