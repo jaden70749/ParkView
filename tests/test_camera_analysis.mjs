@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import vm from "node:vm";
 
 import {
   createLetterboxTransform,
@@ -56,7 +57,7 @@ test("device camera analysis is integrated into parking management", async () =>
   assert.match(html, /id="deviceCameraToggle"/);
   assert.match(html, /id="deviceCameraPanel"/);
   assert.match(html, /id="deviceStartCameraButton"/);
-  assert.match(html, /camera-analysis\.js\?v=3/);
+  assert.match(html, /camera-analysis\.js\?v=\d+/);
   assert.doesNotMatch(html, /href="\.\/camera-analysis\.html"/);
 });
 
@@ -78,4 +79,92 @@ test("iPhone CCTV bridge converts RTSP input to snapshot analysis", async () => 
   assert.match(camera, /sourceType = "cctv"/);
   assert.match(plugin, /ISAPI\/Streaming\/channels\/\\\(channel\)\/picture/);
   assert.match(plugin, /URLSessionConfiguration\.ephemeral/);
+});
+
+async function cameraButtonHarness({ relay = true, enteredToken = "", savedToken = "saved-test-token", status = 200 } = {}) {
+  const source = await readFile(new URL("../camera-analysis.js", import.meta.url), "utf8");
+  const elements = new Map();
+  const requests = [];
+  const timers = [];
+  let permissionRequests = 0;
+  function element() {
+    return {
+      handlers: {}, hidden: true, disabled: false, textContent: "", value: "",
+      classList: { toggle() {}, add() {}, remove() {} },
+      addEventListener(name, handler) { this.handlers[name] = handler; },
+      setAttribute() {}, removeAttribute() {}, pause() {}, load() {}, play: async () => {},
+      getContext: () => ({ drawImage() {} }),
+      complete: true, naturalWidth: 1920, naturalHeight: 1080,
+      readyState: 1, videoWidth: 1280
+    };
+  }
+  const document = {
+    querySelector(selector) {
+      if (!elements.has(selector)) elements.set(selector, element());
+      return elements.get(selector);
+    },
+    createElement: element
+  };
+  document.querySelector("#cameraAdminToken").value = enteredToken;
+  const context = vm.createContext({
+    document, DEFAULT_CONFIDENCE: 0.25, MODEL_INPUT_SIZE: 640,
+    window: {
+      location: { hostname: "jaden70749.github.io", href: "https://jaden70749.github.io/ParkView/" },
+      PARKVIEW_CONFIG: { cameraApiBaseUrl: relay ? "https://odd-areas-move.loca.lt" : "" },
+      addEventListener() {}, clearTimeout() {}, setTimeout(callback) { timers.push(callback); return timers.length; }
+    },
+    sessionStorage: { getItem: () => savedToken },
+    navigator: { mediaDevices: { getUserMedia: async () => { permissionRequests++; return { getTracks: () => [] }; } } },
+    fetch: async (url, options) => {
+      requests.push({ url, options });
+      return { ok: status === 200, status, blob: async () => ({}), json: async () => ({}) };
+    },
+    URL: { createObjectURL: () => "blob:test-frame", revokeObjectURL() {} },
+    HTMLVideoElement: class {}, HTMLMediaElement: { HAVE_METADATA: 1 },
+    cancelAnimationFrame() {}, requestAnimationFrame: () => 1
+  });
+  vm.runInContext(source.replace(/^import\s*\{[\s\S]*?\}\s*from\s*"\.\/camera-analysis-core\.js";\s*/, ""), context);
+  // Exercise the real click, source selection, authentication and frame flow;
+  // ONNX execution is covered separately by the model tests.
+  vm.runInContext("loadModel = async () => ({}); analyzeCurrentFrame = async () => {}; runContinuousAnalysis = async () => {};", context);
+  return { context, elements, requests, timers, permissionRequests: () => permissionRequests,
+    click: () => elements.get("#deviceStartCameraButton").handlers.click() };
+}
+
+test("camera button on GitHub Pages receives a relay frame and schedules the next frame", async () => {
+  const h = await cameraButtonHarness();
+  await h.click();
+  assert.equal(h.requests.length, 1);
+  assert.match(h.requests[0].url, /^https:\/\/odd-areas-move\.loca\.lt\/api\/camera\/preview\?t=/);
+  assert.equal(h.requests[0].options.headers.Authorization, "Bearer saved-test-token");
+  assert.equal(h.requests[0].options.headers["bypass-tunnel-reminder"], "true");
+  assert.equal(h.elements.get("#deviceViewportPlaceholder").hidden, true);
+  assert.equal(h.elements.get("#deviceSourceBadge").textContent, "고정 CCTV");
+  assert.equal(h.permissionRequests(), 0);
+  assert.equal(h.timers.length, 1);
+  await h.timers[0]();
+  assert.equal(h.requests.length, 2);
+});
+
+test("camera button uses the newly entered token even before it is saved", async () => {
+  const h = await cameraButtonHarness({ enteredToken: "new-test-token" });
+  await h.click();
+  assert.equal(h.requests[0].options.headers.Authorization, "Bearer new-test-token");
+});
+
+test("unauthorized CCTV displays the token setup instruction without starting polling", async () => {
+  const h = await cameraButtonHarness({ savedToken: "", status: 401 });
+  await h.click();
+  assert.match(h.elements.get("#deviceAnalysisStatus").textContent, /고정 CCTV 설정.*관리자 토큰/);
+  assert.equal(h.requests[0].options.headers.Authorization, undefined);
+  assert.equal(h.timers.length, 0);
+  assert.equal(h.elements.get("#deviceStartCameraButton").disabled, false);
+});
+
+test("GitHub Pages without a CCTV relay can request the device camera", async () => {
+  const h = await cameraButtonHarness({ relay: false });
+  await h.click();
+  assert.equal(h.permissionRequests(), 1);
+  assert.equal(h.requests.length, 0);
+  assert.equal(vm.runInContext("state.sourceType", h.context), "camera");
 });

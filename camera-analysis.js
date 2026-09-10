@@ -178,10 +178,6 @@ async function loadModel() {
 }
 
 async function startDeviceCamera({ keepFacingMode = false } = {}) {
-  if (window.location.hostname.endsWith(".github.io")) {
-    setStatus("CCTV는 같은 PC의 http://192.168.0.55:5180 주소에서 열어 주세요.", true);
-    return;
-  }
   if (getCameraPreviewUrl()) {
     await startCctvCamera();
     return;
@@ -234,6 +230,8 @@ function getCameraPreviewUrl() {
 }
 
 function getCameraAdminToken() {
+  const enteredToken = String(document.querySelector("#cameraAdminToken")?.value || "").trim();
+  if (enteredToken) return enteredToken;
   try {
     return sessionStorage.getItem("parkview.cameraAdminToken.session") || "";
   } catch (_error) {
@@ -276,6 +274,9 @@ async function loadCctvFrame(previewUrl, token) {
     headers
   });
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error("고정 CCTV 설정에서 관리자 토큰을 입력한 뒤 카메라 연결을 다시 눌러 주세요.");
+    }
     const detail = await response.json().catch(() => ({}));
     throw new Error(detail.error || `CCTV 서버 HTTP ${response.status}`);
   }
