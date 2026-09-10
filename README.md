@@ -39,6 +39,8 @@ python3 server.py --host 0.0.0.0 --port 5180
 
 브라우저에서 CCTV가 연결된 PC의 `http://localhost:5180/?v=97` 또는 같은 네트워크 기기의 `http://PC의-LAN-IP:5180`을 엽니다. GitHub Pages는 HTTPS에서 사설 HTTP RTSP 서버를 호출할 수 없으므로 CCTV 자동 분석에는 사용할 수 없습니다. 단순 정적 서버를 사용하면 `/api/public-config`와 AI 프록시가 없으므로 반드시 `server.py`로 실행해야 합니다.
 
+GitHub Pages에서 CCTV를 보려면 `server.py`를 실행한 PC 앞에 Cloudflare Tunnel 같은 공개 HTTPS 중계를 구성하고, 저장소 Actions Secret `PARKVIEW_CAMERA_API_BASE_URL`에 그 HTTPS 주소를 등록해야 합니다. RTSP 주소 자체는 Pages에 넣지 않습니다.
+
 ### 현장 카메라 분석
 
 `주차장 관리 > 등록된 주차장 > 현장 분석 > 기기 카메라 연결`을 누르면 휴대폰, 태블릿, 노트북 카메라 권한을 즉시 요청하고 분석을 시작합니다. 영상은 서버로 전송하지 않고 ONNX Runtime Web과 학습된 YOLO 모델로 기기 안에서 처리합니다. 이 방식에는 RTSP 주소, VLC, 관리자 토큰, 별도 중계 컴퓨터가 필요하지 않습니다. 같은 관리 화면에서 사진과 영상 파일도 선택할 수 있습니다.
