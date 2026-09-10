@@ -47,6 +47,10 @@ python3 server.py --host 0.0.0.0 --port 5180
 
 ### 설치형 CCTV 연결
 
+iPhone 설치 앱에서는 `주차장 관리 > 등록된 주차장 > 현장 분석 > 고정 CCTV 설정`에 기존 RTSP 주소를 입력하고 `CCTV 직접 연결`을 누릅니다. 앱은 RTSP 주소의 호스트, 계정, 채널 번호를 이용해 Hikvision ISAPI 사진 채널에 직접 접속하고 2초마다 새 프레임을 기기 내 YOLO로 분석합니다. 주소와 비밀번호는 앱 메모리에만 유지되며 화면을 나가거나 분석을 중지하면 삭제됩니다.
+
+예를 들어 `rtsp://USER:PASSWORD@192.168.0.100:554/Streaming/Channels/101`은 iPhone 내부에서 `http://192.168.0.100:80/ISAPI/Streaming/channels/101/picture`로 변환됩니다. iPhone과 CCTV는 같은 Wi-Fi에 있어야 하며, 카메라에서 HTTP/ISAPI 스냅샷과 해당 계정의 조회 권한이 활성화되어 있어야 합니다. 이 직접 연결 기능은 현재 iPhone 앱에서 지원하고 GitHub Pages 웹사이트에서는 지원하지 않습니다.
+
 RTSP 주소는 저장소에 커밋하지 말고 `.env`의 `PARKVIEW_CAMERA_URL`에만 입력합니다. 서버는 30초마다 새 프레임을 열어 분석하므로 연결이 끊겼다가 복구되어도 다음 주기에 다시 연결합니다.
 
 관리자 화면의 `현장 분석 > 고정 CCTV 설정`은 RTSP를 지원하는 설치형 장비를 위한 보조 연결 방식입니다. RTSP 주소와 `PARKVIEW_ADMIN_TOKEN`을 입력하면 주소는 연결 테스트가 성공한 뒤 현장 서버 메모리에만 보관되며 브라우저 저장소, GitHub Pages, Render에는 저장하거나 전송하지 않습니다. 이 설정은 `server.py`로 띄운 현장 앱 또는 별도로 지정한 신뢰할 수 있는 카메라 API 서버에서만 동작합니다.

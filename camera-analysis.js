@@ -23,6 +23,7 @@ const state = {
   running: false,
   runId: 0,
   previewFrame: 0,
+  cctvFrameBusy: false,
   confidence: DEFAULT_CONFIDENCE
 };
 
@@ -58,6 +59,8 @@ if (els.panel && resultContext) {
 
 window.addEventListener("pagehide", stopSource);
 window.addEventListener("parkview:stop-device-camera", closeDeviceCameraPanel);
+window.addEventListener("parkview:cctv-frame", handleCctvFrame);
+window.addEventListener("parkview:cctv-state", handleCctvState);
 
 function bindEvents() {
   els.toggle.addEventListener("click", toggleDeviceCameraPanel);
@@ -91,6 +94,54 @@ function closeDeviceCameraPanel() {
   els.toggle.setAttribute("aria-expanded", "false");
   els.toggle.classList.remove("is-open");
   stopSource();
+}
+
+function openPanelForCctv() {
+  if (!els.panel) return;
+  els.panel.hidden = false;
+  els.toggle.setAttribute("aria-expanded", "true");
+  els.toggle.classList.add("is-open");
+}
+
+function handleCctvState(event) {
+  const detail = event.detail || {};
+  if (detail.status === "connecting") {
+    openPanelForCctv();
+    setModelState("loading", "CCTV 연결 중");
+    setStatus("CCTV의 첫 프레임을 기다리고 있습니다.");
+  } else if (detail.status === "error") {
+    setModelState("error", "CCTV 오류");
+    setStatus(detail.message || "CCTV 프레임을 받지 못했습니다.", true);
+  } else if (detail.status === "disconnected" && state.sourceType === "cctv") {
+    state.sourceType = "";
+    stopSource();
+  }
+}
+
+async function handleCctvFrame(event) {
+  const dataUrl = String(event.detail?.dataUrl || "");
+  if (!dataUrl.startsWith("data:image/") || state.cctvFrameBusy) return;
+  state.cctvFrameBusy = true;
+  try {
+    openPanelForCctv();
+    if (state.sourceType !== "cctv") {
+      prepareForNewSource();
+      state.sourceType = "cctv";
+    }
+    els.sourceImage.src = dataUrl;
+    await waitForImage(els.sourceImage);
+    state.source = els.sourceImage;
+    state.sourceType = "cctv";
+    els.stopButton.disabled = false;
+    showSource("고정 CCTV");
+    await loadModel();
+    drawPreview();
+    await analyzeCurrentFrame();
+  } catch (error) {
+    setStatus(`CCTV 분석 오류: ${error.message}`, true);
+  } finally {
+    state.cctvFrameBusy = false;
+  }
 }
 
 async function loadModel() {
@@ -346,6 +397,7 @@ function updateResult(elapsed) {
 }
 
 function prepareForNewSource() {
+  const stoppingCctv = state.sourceType === "cctv";
   state.running = false;
   state.runId += 1;
   state.detections = [];
@@ -363,6 +415,9 @@ function prepareForNewSource() {
   els.inferenceTime.textContent = "-";
   els.switchCameraButton.disabled = true;
   els.stopButton.disabled = true;
+  if (stoppingCctv) {
+    window.ParkViewNative?.disconnectCctv?.().catch(() => {});
+  }
 }
 
 function stopSource() {
@@ -424,17 +479,18 @@ function setStatus(message, isError = false) {
   els.analysisStatus.classList.toggle("is-error", isError);
 }
 
-function updateManagementConnection(label) {
+function updateManagementConnection(label, sourceType = state.sourceType) {
   const chip = document.querySelector("#cameraConnectionChip");
   const cameraStatus = document.querySelector("#cameraStatus");
   const intervalStatus = document.querySelector("#cameraIntervalStatus");
+  const isCctv = sourceType === "cctv";
   if (chip) {
-    chip.textContent = "기기 내 AI";
+    chip.textContent = isCctv ? "CCTV 직접 연결" : "기기 내 AI";
     chip.classList.remove("is-linked", "is-error", "is-manual");
     chip.classList.add("is-live");
   }
   if (cameraStatus) cameraStatus.textContent = label;
-  if (intervalStatus) intervalStatus.textContent = "연속";
+  if (intervalStatus) intervalStatus.textContent = isCctv ? "2초" : "연속";
 }
 
 function updateManagementResult(count) {
@@ -442,7 +498,10 @@ function updateManagementResult(count) {
   const analysisStatus = document.querySelector("#analysisStatus");
   const objectStatus = document.querySelector("#objectStatus");
   if (analysisStatus) analysisStatus.textContent = "방금";
-  if (objectStatus) objectStatus.textContent = `기기 카메라에서 차량 ${count}대를 감지했습니다.`;
+  if (objectStatus) {
+    const sourceLabel = state.sourceType === "cctv" ? "고정 CCTV" : "기기 카메라";
+    objectStatus.textContent = `${sourceLabel}에서 차량 ${count}대를 감지했습니다.`;
+  }
 }
 
 function cameraErrorMessage(error) {

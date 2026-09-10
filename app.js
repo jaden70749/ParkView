@@ -165,6 +165,7 @@ const state = {
   registrationStep: 0,
   edgeStatusTimer: null,
   directCameraUrl: "",
+  nativeCctvConnected: false,
   runtimeConfig: null,
   mapMode: "fallback",
   mainMap: null,
@@ -368,6 +369,7 @@ function bindElements() {
 }
 
 function bindEvents() {
+  window.addEventListener("parkview:cctv-state", handleNativeCctvState);
   els.menuButton.addEventListener("click", openMainMenu);
   els.menuCloseButton.addEventListener("click", closeMainMenu);
   els.menuScrim.addEventListener("click", closeMainMenu);
@@ -4786,11 +4788,16 @@ function toggleCameraConnectionForm() {
   els.cameraSetupToggle.setAttribute("aria-expanded", String(opening));
   if (!opening) return;
   const directMode = isDirectCameraMode();
-  if (els.cameraAdminTokenField) els.cameraAdminTokenField.hidden = directMode;
-  if (els.cameraOpenButton) els.cameraOpenButton.hidden = !directMode || !state.directCameraUrl;
+  const nativeMode = window.ParkViewNative?.supportsCctv === true;
+  if (els.cameraAdminTokenField) els.cameraAdminTokenField.hidden = nativeMode || directMode;
+  if (els.cameraOpenButton) els.cameraOpenButton.hidden = nativeMode || !directMode || !state.directCameraUrl;
   const label = els.cameraConnectButton?.querySelector("span");
-  if (label) label.textContent = directMode ? "링크 연결" : "연결 및 테스트";
-  if (directMode) {
+  if (label) label.textContent = nativeMode
+    ? "CCTV 직접 연결"
+    : directMode ? "링크 연결" : "연결 및 테스트";
+  if (nativeMode) {
+    els.cameraRtspUrl.value = "";
+  } else if (directMode) {
     els.cameraRtspUrl.value = state.directCameraUrl;
   } else {
     try {
@@ -4852,14 +4859,49 @@ function loadRecentDeviceCameraResult() {
 function renderDeviceCameraStatus() {
   const result = loadRecentDeviceCameraResult();
   if (!result) return false;
-  els.cameraConnectionChip.textContent = "기기 내 AI";
+  const isCctv = result.source === "cctv";
+  els.cameraConnectionChip.textContent = isCctv ? "CCTV 직접 연결" : "기기 내 AI";
   els.cameraConnectionChip.classList.remove("is-linked", "is-error", "is-manual");
   els.cameraConnectionChip.classList.add("is-live");
   els.cameraStatus.textContent = "분석 완료";
   if (els.cameraIntervalStatus) els.cameraIntervalStatus.textContent = "실시간";
   els.analysisStatus.textContent = formatAnalysisTime(result.analyzedAt);
-  els.objectStatus.textContent = `기기 카메라에서 차량 ${Number(result.count) || 0}대를 감지했습니다.`;
+  els.objectStatus.textContent = `${isCctv ? "고정 CCTV" : "기기 카메라"}에서 차량 ${Number(result.count) || 0}대를 감지했습니다.`;
   return true;
+}
+
+function renderNativeCctvStatus() {
+  if (!state.nativeCctvConnected) return false;
+  els.cameraConnectionChip.textContent = "CCTV 직접 연결";
+  els.cameraConnectionChip.classList.remove("is-linked", "is-error", "is-manual");
+  els.cameraConnectionChip.classList.add("is-live");
+  els.cameraStatus.textContent = "프레임 수신 중";
+  if (els.cameraIntervalStatus) els.cameraIntervalStatus.textContent = "2초";
+  els.analysisStatus.textContent = "연결됨";
+  els.objectStatus.textContent = "아이폰이 CCTV 사진을 직접 받아 기기 내 AI로 분석합니다.";
+  return true;
+}
+
+function handleNativeCctvState(event) {
+  const detail = event.detail || {};
+  if (detail.status === "connected") {
+    state.nativeCctvConnected = true;
+    renderNativeCctvStatus();
+    return;
+  }
+  if (detail.status === "connecting") {
+    els.cameraConnectionChip.textContent = "CCTV 연결 중";
+    els.cameraStatus.textContent = "프레임 확인 중";
+    return;
+  }
+  if (detail.status === "error") {
+    state.nativeCctvConnected = false;
+    setCameraConnectFeedback(`CCTV 오류: ${detail.message || "프레임을 받지 못했습니다."}`, "error");
+    return;
+  }
+  if (detail.status === "disconnected") {
+    state.nativeCctvConnected = false;
+  }
 }
 
 function renderDirectCameraStatus() {
@@ -4928,6 +4970,10 @@ async function connectCameraFromAdmin(event) {
       return;
     }
   }
+  if (url && window.ParkViewNative?.supportsCctv) {
+    await connectNativeCctvFromAdmin(url);
+    return;
+  }
   if (!endpoint) {
     saveDirectCameraLink(url);
     renderDirectCameraStatus();
@@ -4989,8 +5035,33 @@ async function connectCameraFromAdmin(event) {
   }
 }
 
+async function connectNativeCctvFromAdmin(url) {
+  const label = els.cameraConnectButton?.querySelector("span");
+  const previousLabel = label?.textContent || "CCTV 직접 연결";
+  if (els.cameraConnectButton) els.cameraConnectButton.disabled = true;
+  if (label) label.textContent = "첫 프레임 확인 중";
+  setCameraConnectFeedback("아이폰에서 CCTV에 직접 연결하고 있습니다.");
+  try {
+    const result = await window.ParkViewNative.connectCctv(url, { intervalMs: 2000 });
+    state.nativeCctvConnected = true;
+    els.cameraRtspUrl.value = "";
+    setCameraConnectFeedback(
+      `CCTV 직접 연결 완료 · ${result.channel || "채널 101"} · 2초마다 분석`,
+      "success"
+    );
+    renderNativeCctvStatus();
+  } catch (error) {
+    state.nativeCctvConnected = false;
+    setCameraConnectFeedback(`직접 연결 실패: ${error.message}`, "error");
+  } finally {
+    if (els.cameraConnectButton) els.cameraConnectButton.disabled = false;
+    if (label) label.textContent = previousLabel;
+  }
+}
+
 async function refreshEdgeStatus() {
   if (renderDeviceCameraStatus()) return;
+  if (renderNativeCctvStatus()) return;
   if (isDirectCameraMode() && renderDirectCameraStatus()) return;
   try {
     const healthUrl = cameraApiUrl("/api/health");

@@ -1,7 +1,11 @@
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
 import { SpeechRecognition } from "@capgo/capacitor-speech-recognition";
 import { AndroidSettings, IOSSettings, NativeSettings } from "capacitor-native-settings";
+
+const ParkViewCctv = registerPlugin("ParkViewCctv");
+let cctvFrameListener = null;
+let cctvStateListener = null;
 
 function permissionGranted(status, keys) {
   return keys.some((key) => status?.[key] === "granted");
@@ -77,12 +81,43 @@ async function recognizeSpeech() {
   return String(result.matches?.[0] || "").trim();
 }
 
+async function connectCctv(url, options = {}) {
+  if (Capacitor.getPlatform() !== "ios") {
+    throw new Error("CCTV 직접 연결은 현재 iPhone 앱에서 지원합니다.");
+  }
+  await disconnectCctv();
+  cctvFrameListener = await ParkViewCctv.addListener("cctvFrame", (frame) => {
+    window.dispatchEvent(new CustomEvent("parkview:cctv-frame", { detail: frame }));
+  });
+  cctvStateListener = await ParkViewCctv.addListener("cctvState", (status) => {
+    window.dispatchEvent(new CustomEvent("parkview:cctv-state", { detail: status }));
+  });
+  return ParkViewCctv.connect({
+    url,
+    intervalMs: Math.max(1000, Number(options.intervalMs) || 2000),
+    httpPort: Number(options.httpPort) || 80
+  });
+}
+
+async function disconnectCctv() {
+  if (Capacitor.getPlatform() === "ios") {
+    await ParkViewCctv.disconnect().catch(() => {});
+  }
+  await cctvFrameListener?.remove?.();
+  await cctvStateListener?.remove?.();
+  cctvFrameListener = null;
+  cctvStateListener = null;
+}
+
 window.ParkViewNative = Object.freeze({
   isNative: Capacitor.isNativePlatform(),
   platform: Capacitor.getPlatform(),
+  supportsCctv: Capacitor.getPlatform() === "ios",
   checkLocationPermission,
   getCurrentPosition,
   checkSpeechPermission,
   recognizeSpeech,
+  connectCctv,
+  disconnectCctv,
   openAppSettings
 });

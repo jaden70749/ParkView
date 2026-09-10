@@ -27,7 +27,8 @@ await cp(
   resolve(output, "models", "parkview-toycar-v4.onnx")
 );
 await Promise.all([
-  "ort.min.js",
+  "ort.wasm.min.js",
+  "ort-wasm-simd-threaded.mjs",
   "ort-wasm-simd-threaded.wasm"
 ].map((file) => cp(
   resolve(root, "vendor", "onnxruntime", file),

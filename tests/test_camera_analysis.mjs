@@ -56,6 +56,26 @@ test("device camera analysis is integrated into parking management", async () =>
   assert.match(html, /id="deviceCameraToggle"/);
   assert.match(html, /id="deviceCameraPanel"/);
   assert.match(html, /id="deviceStartCameraButton"/);
-  assert.match(html, /camera-analysis\.js\?v=2/);
+  assert.match(html, /camera-analysis\.js\?v=3/);
   assert.doesNotMatch(html, /href="\.\/camera-analysis\.html"/);
+});
+
+test("deployed camera analysis uses the self-hosted WASM runtime", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const buildScript = await readFile(new URL("../scripts/prepare-mobile-web.mjs", import.meta.url), "utf8");
+  assert.match(html, /vendor\/onnxruntime\/ort\.wasm\.min\.js/);
+  assert.match(buildScript, /ort-wasm-simd-threaded\.mjs/);
+  assert.match(buildScript, /ort-wasm-simd-threaded\.wasm/);
+  assert.doesNotMatch(html, /vendor\/onnxruntime\/ort\.min\.js/);
+});
+
+test("iPhone CCTV bridge converts RTSP input to snapshot analysis", async () => {
+  const bridge = await readFile(new URL("../native-bridge-source.js", import.meta.url), "utf8");
+  const camera = await readFile(new URL("../camera-analysis.js", import.meta.url), "utf8");
+  const plugin = await readFile(new URL("../ios/App/App/ParkViewCctvPlugin.swift", import.meta.url), "utf8");
+  assert.match(bridge, /registerPlugin\("ParkViewCctv"\)/);
+  assert.match(bridge, /parkview:cctv-frame/);
+  assert.match(camera, /sourceType = "cctv"/);
+  assert.match(plugin, /ISAPI\/Streaming\/channels\/\\\(channel\)\/picture/);
+  assert.match(plugin, /URLSessionConfiguration\.ephemeral/);
 });
