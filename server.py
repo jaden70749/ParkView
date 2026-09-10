@@ -1035,7 +1035,7 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
         )
         self.send_header(
             "Access-Control-Allow-Headers",
-            "Authorization, Content-Type",
+            "Authorization, Content-Type, bypass-tunnel-reminder",
         )
         self.end_headers()
 

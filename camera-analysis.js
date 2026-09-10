@@ -267,7 +267,10 @@ async function startCctvCamera() {
 }
 
 async function loadCctvFrame(previewUrl, token) {
-  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const headers = {
+    "bypass-tunnel-reminder": "true"
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(`${previewUrl}?t=${Date.now()}`, {
     cache: "no-store",
     headers

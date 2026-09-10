@@ -1,4 +1,4 @@
-const CACHE_NAME = "parkview-v119";
+const CACHE_NAME = "parkview-v120";
 const ASSETS = [
   "./",
   "./index.html",
