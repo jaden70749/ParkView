@@ -12,6 +12,7 @@ const CAMERA_API_BASE_URL = String(
   window.PARKVIEW_CONFIG?.cameraApiBaseUrl || ""
 ).trim().replace(/\/+$/, "");
 const CAMERA_ADMIN_TOKEN_SESSION = "parkview.cameraAdminToken.session";
+const DIRECT_CAMERA_LINK_SESSION = "parkview.directCameraLink.session";
 
 function edgeApiUrl(path) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
@@ -162,6 +163,7 @@ const state = {
   adminView: "home",
   registrationStep: 0,
   edgeStatusTimer: null,
+  directCameraUrl: "",
   runtimeConfig: null,
   mapMode: "fallback",
   mainMap: null,
@@ -215,6 +217,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
   refreshIcons();
   state.favoriteLotIds = loadFavoriteLotIds();
+  state.directCameraUrl = loadDirectCameraLink();
   state.publicLots = await loadLots();
   state.registeredLots = loadRegisteredLots();
   mergeParkingLotSources();
@@ -335,13 +338,16 @@ function bindElements() {
     lotDetail: document.querySelector("#lotDetail"),
     backToList: document.querySelector("#backToList"),
     cameraStatus: document.querySelector("#cameraStatus"),
+    cameraIntervalStatus: document.querySelector("#cameraIntervalStatus"),
     analysisStatus: document.querySelector("#analysisStatus"),
     objectStatus: document.querySelector("#objectStatus"),
     cameraSetupToggle: document.querySelector("#cameraSetupToggle"),
     cameraConnectionForm: document.querySelector("#cameraConnectionForm"),
     cameraRtspUrl: document.querySelector("#cameraRtspUrl"),
+    cameraAdminTokenField: document.querySelector("#cameraAdminTokenField"),
     cameraAdminToken: document.querySelector("#cameraAdminToken"),
     cameraConnectButton: document.querySelector("#cameraConnectButton"),
+    cameraOpenButton: document.querySelector("#cameraOpenButton"),
     cameraConnectFeedback: document.querySelector("#cameraConnectFeedback"),
     planImages: document.querySelector("#planImages"),
     planUploadBox: document.querySelector("#planUploadBox"),
@@ -415,6 +421,7 @@ function bindEvents() {
   els.deleteLotButton?.addEventListener("click", deleteSelectedLot);
   els.cameraSetupToggle?.addEventListener("click", toggleCameraConnectionForm);
   els.cameraConnectionForm?.addEventListener("submit", connectCameraFromAdmin);
+  els.cameraOpenButton?.addEventListener("click", openDirectCameraLink);
   els.registerName?.addEventListener("input", () => {
     if (els.registrationInfoError) els.registrationInfoError.textContent = "";
   });
@@ -4774,12 +4781,79 @@ function toggleCameraConnectionForm() {
   els.cameraConnectionForm.hidden = !opening;
   els.cameraSetupToggle.setAttribute("aria-expanded", String(opening));
   if (!opening) return;
-  try {
-    els.cameraAdminToken.value = sessionStorage.getItem(CAMERA_ADMIN_TOKEN_SESSION) || "";
-  } catch (_error) {
-    els.cameraAdminToken.value = "";
+  const directMode = isDirectCameraMode();
+  if (els.cameraAdminTokenField) els.cameraAdminTokenField.hidden = directMode;
+  if (els.cameraOpenButton) els.cameraOpenButton.hidden = !directMode || !state.directCameraUrl;
+  const label = els.cameraConnectButton?.querySelector("span");
+  if (label) label.textContent = directMode ? "링크 연결" : "연결 및 테스트";
+  if (directMode) {
+    els.cameraRtspUrl.value = state.directCameraUrl;
+  } else {
+    try {
+      els.cameraAdminToken.value = sessionStorage.getItem(CAMERA_ADMIN_TOKEN_SESSION) || "";
+    } catch (_error) {
+      els.cameraAdminToken.value = "";
+    }
   }
   window.setTimeout(() => els.cameraRtspUrl?.focus(), 0);
+}
+
+function normalizeCameraLink(value) {
+  const candidate = String(value || "").trim();
+  let parsed;
+  try {
+    parsed = new URL(candidate);
+  } catch (_error) {
+    throw new Error("올바른 카메라 링크를 입력해 주세요.");
+  }
+  if (!["rtsp:", "rtsps:", "http:", "https:"].includes(parsed.protocol) || !parsed.hostname) {
+    throw new Error("rtsp://, rtsps://, http:// 또는 https:// 링크를 입력해 주세요.");
+  }
+  return parsed.href;
+}
+
+function loadDirectCameraLink() {
+  try {
+    const stored = sessionStorage.getItem(DIRECT_CAMERA_LINK_SESSION);
+    return stored ? normalizeCameraLink(stored) : "";
+  } catch (_error) {
+    return "";
+  }
+}
+
+function saveDirectCameraLink(url) {
+  state.directCameraUrl = url;
+  try {
+    sessionStorage.setItem(DIRECT_CAMERA_LINK_SESSION, url);
+  } catch (_error) {
+    // A restricted web view can block session storage; the in-memory link still works.
+  }
+}
+
+function isDirectCameraMode() {
+  return !cameraApiUrl("/api/camera/test");
+}
+
+function renderDirectCameraStatus() {
+  if (!state.directCameraUrl) return false;
+  els.cameraConnectionChip.textContent = "카메라 링크됨";
+  els.cameraConnectionChip.classList.remove("is-live", "is-error", "is-manual");
+  els.cameraConnectionChip.classList.add("is-linked");
+  els.cameraStatus.textContent = "직접 연결";
+  if (els.cameraIntervalStatus) els.cameraIntervalStatus.textContent = "직접 보기";
+  els.analysisStatus.textContent = "수동";
+  els.objectStatus.textContent = "카메라 링크 연결됨 · 주차면 상태는 수동 관리 중";
+  if (els.cameraOpenButton) els.cameraOpenButton.hidden = false;
+  return true;
+}
+
+function openDirectCameraLink() {
+  if (!state.directCameraUrl) {
+    setCameraConnectFeedback("먼저 카메라 링크를 연결해 주세요.", "error");
+    return;
+  }
+  const opened = window.open(state.directCameraUrl, "_blank", "noopener,noreferrer");
+  if (!opened) window.location.assign(state.directCameraUrl);
 }
 
 function setCameraConnectFeedback(message, status = "") {
@@ -4791,15 +4865,31 @@ function setCameraConnectFeedback(message, status = "") {
 
 async function connectCameraFromAdmin(event) {
   event.preventDefault();
-  const url = String(els.cameraRtspUrl?.value || "").trim();
+  let url = String(els.cameraRtspUrl?.value || "").trim();
   const token = String(els.cameraAdminToken?.value || "").trim();
   const endpoint = cameraApiUrl(url ? "/api/camera/configure" : "/api/camera/test");
+  if (!endpoint && !url) {
+    setCameraConnectFeedback("카메라 링크를 입력해 주세요.", "error");
+    els.cameraRtspUrl?.focus();
+    return;
+  }
+  if (url) {
+    try {
+      url = normalizeCameraLink(url);
+    } catch (error) {
+      setCameraConnectFeedback(error.message, "error");
+      els.cameraRtspUrl?.focus();
+      return;
+    }
+  }
   if (!endpoint) {
-    setCameraConnectFeedback("카메라는 관리자 PC의 로컬 ParkView 서버에서 연결해 주세요.", "error");
+    saveDirectCameraLink(url);
+    renderDirectCameraStatus();
+    setCameraConnectFeedback("이 기기에 카메라 링크를 연결했습니다.", "success");
     return;
   }
   if (url && !/^rtsps?:\/\//i.test(url)) {
-    setCameraConnectFeedback("rtsp:// 또는 rtsps:// 주소를 입력해 주세요.", "error");
+    setCameraConnectFeedback("자동 분석 서버에는 RTSP 링크만 연결할 수 있습니다.", "error");
     els.cameraRtspUrl?.focus();
     return;
   }
@@ -4854,6 +4944,7 @@ async function connectCameraFromAdmin(event) {
 }
 
 async function refreshEdgeStatus() {
+  if (isDirectCameraMode() && renderDirectCameraStatus()) return;
   try {
     const healthUrl = cameraApiUrl("/api/health");
     const resultUrl = cameraApiUrl("/api/result");
@@ -4871,12 +4962,16 @@ async function refreshEdgeStatus() {
     const manualMode = !cameraConnected;
 
     els.cameraConnectionChip.textContent = cameraConnected ? "CCTV 연결됨" : "수동 관리";
+    els.cameraConnectionChip.classList.remove("is-linked");
     els.cameraConnectionChip.classList.toggle("is-live", cameraConnected);
     els.cameraConnectionChip.classList.remove("is-error");
     els.cameraConnectionChip.classList.toggle("is-manual", manualMode);
     els.cameraStatus.textContent = cameraConnected
       ? "정상"
       : configured ? "연결 대기" : "선택 연결";
+    if (els.cameraIntervalStatus) {
+      els.cameraIntervalStatus.textContent = `${health.analysis_interval_seconds || 30}초`;
+    }
 
     const currentFloor = state.floors[state.floorIndex];
     const matchesCurrentFloor = !result?.floor_id || result.floor_id === currentFloor?.name;
@@ -4901,10 +4996,12 @@ async function refreshEdgeStatus() {
     }
   } catch (error) {
     els.cameraConnectionChip.textContent = "수동 관리";
+    els.cameraConnectionChip.classList.remove("is-linked");
     els.cameraConnectionChip.classList.remove("is-live");
     els.cameraConnectionChip.classList.remove("is-error");
     els.cameraConnectionChip.classList.add("is-manual");
     els.cameraStatus.textContent = "선택 연결";
+    if (els.cameraIntervalStatus) els.cameraIntervalStatus.textContent = "해당 없음";
     els.analysisStatus.textContent = "수동";
     els.objectStatus.textContent = "카메라 없이 도면 생성·등록·주차면 상태 변경을 사용할 수 있습니다.";
   }

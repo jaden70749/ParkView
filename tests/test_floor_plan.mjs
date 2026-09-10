@@ -10,11 +10,24 @@ class FakeElement {
     this.tagName = tagName;
     this.attributes = new Map();
     this.children = [];
+    this.classes = new Set();
     this.style = {
       values: new Map(),
       setProperty: (name, value) => this.style.values.set(name, String(value))
     };
-    this.classList = { toggle() {} };
+    this.classList = {
+      add: (...names) => names.forEach((name) => this.classes.add(name)),
+      remove: (...names) => names.forEach((name) => this.classes.delete(name)),
+      toggle: (name, force) => {
+        if (force === true || (force === undefined && !this.classes.has(name))) {
+          this.classes.add(name);
+          return true;
+        }
+        this.classes.delete(name);
+        return false;
+      },
+      contains: (name) => this.classes.has(name)
+    };
     this.textContent = "";
   }
 
@@ -37,6 +50,7 @@ class FakeElement {
 }
 
 function loadAppContext() {
+  const sessionValues = new Map();
   const context = {
     AbortController,
     URL,
@@ -50,6 +64,14 @@ function loadAppContext() {
     },
     fetch,
     navigator: {},
+    sessionStorage: {
+      getItem(key) {
+        return sessionValues.get(key) || null;
+      },
+      setItem(key, value) {
+        sessionValues.set(key, String(value));
+      }
+    },
     setTimeout,
     window: {
       PARKVIEW_CONFIG: {},
@@ -60,6 +82,48 @@ function loadAppContext() {
   vm.runInContext(appSource, context);
   return context;
 }
+
+test("direct camera links are validated without exposing an admin token", () => {
+  const context = loadAppContext();
+  context.window.location.hostname = "jaden70749.github.io";
+  context.cameraLink = "rtsp://camera-user:camera-password@192.168.0.26:554/stream";
+
+  const normalized = vm.runInContext("normalizeCameraLink(cameraLink)", context);
+  vm.runInContext("saveDirectCameraLink(normalizeCameraLink(cameraLink))", context);
+
+  assert.equal(normalized, context.cameraLink);
+  assert.equal(vm.runInContext("isDirectCameraMode()", context), true);
+  assert.equal(vm.runInContext("loadDirectCameraLink()", context), context.cameraLink);
+  assert.throws(
+    () => vm.runInContext('normalizeCameraLink("javascript:alert(1)")', context),
+    /rtsp.*https/
+  );
+});
+
+test("a direct camera link is shown as linked without claiming automatic analysis", () => {
+  const context = loadAppContext();
+  const elements = {
+    cameraConnectionChip: new FakeElement("span"),
+    cameraStatus: new FakeElement("strong"),
+    cameraIntervalStatus: new FakeElement("strong"),
+    analysisStatus: new FakeElement("strong"),
+    objectStatus: new FakeElement("p"),
+    cameraOpenButton: new FakeElement("button")
+  };
+  elements.cameraOpenButton.hidden = true;
+  context.statusElements = elements;
+  vm.runInContext(`
+    Object.assign(els, statusElements);
+    state.directCameraUrl = "https://camera.example/live.m3u8";
+    renderDirectCameraStatus();
+  `, context);
+
+  assert.equal(elements.cameraConnectionChip.textContent, "카메라 링크됨");
+  assert.equal(elements.cameraStatus.textContent, "직접 연결");
+  assert.equal(elements.analysisStatus.textContent, "수동");
+  assert.match(elements.objectStatus.textContent, /수동 관리/);
+  assert.equal(elements.cameraOpenButton.hidden, false);
+});
 
 test("floor plan keeps a 3-4-4 layout on both sides", () => {
   const context = loadAppContext();

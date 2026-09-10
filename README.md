@@ -41,6 +41,8 @@ RTSP 주소는 저장소에 커밋하지 말고 `.env`의 `PARKVIEW_CAMERA_URL`�
 
 관리자 화면의 `현장 분석 > 카메라 연결`에서도 RTSP 주소와 `PARKVIEW_ADMIN_TOKEN`을 입력해 연결할 수 있습니다. 주소는 연결 테스트가 성공한 뒤 현장 서버 메모리에만 보관되며 브라우저 저장소, GitHub Pages, Render에는 저장하거나 전송하지 않습니다. 이 버튼은 `server.py`로 띄운 현장 앱 또는 별도로 지정한 신뢰할 수 있는 카메라 API 서버에서만 동작합니다.
 
+카메라 API 서버를 지정하지 않은 GitHub Pages에서는 관리자 토큰 입력란 대신 카메라 링크 하나만 표시합니다. 이 직접 연결 모드는 RTSP/HTTP(S) 링크를 현재 탭 세션에만 보관하고 `영상 열기` 버튼으로 기기의 재생 앱에 전달합니다. 브라우저에서 RTSP를 분석하지 않으므로 이 모드의 주차면 상태는 수동으로 관리하며, 자동 점유 분석에는 위 현장 서버 구성이 필요합니다.
+
 ```bash
 curl -X POST http://127.0.0.1:5180/api/camera/test \
   -H "Authorization: Bearer $PARKVIEW_ADMIN_TOKEN"

@@ -3257,6 +3257,11 @@ textarea {
   color: #15873b !important;
 }
 
+.connection-chip.is-linked {
+  color: #594700 !important;
+  background: #fff1a8;
+}
+
 .camera-inline-status {
   margin: 10px 0 0;
   color: #686971;
@@ -3315,15 +3320,28 @@ textarea {
   font-size: 13px;
 }
 
-.camera-connection-form .primary-button {
+.camera-connection-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.camera-connection-actions > [hidden] {
+  display: none;
+}
+
+.camera-connection-form .primary-button,
+.camera-connection-form .secondary-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
-  margin-top: 12px;
+  min-width: 0;
+  margin: 0;
 }
 
-.camera-connection-form .primary-button svg {
+.camera-connection-form .primary-button svg,
+.camera-connection-form .secondary-button svg {
   width: 17px;
   height: 17px;
 }

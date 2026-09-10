@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-title" content="ParkView">
   <title>ParkView</title>
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=103">
+  <link rel="stylesheet" href="./styles.css?v=104">
 </head>
 <body>
   <main id="app" class="app-shell">
@@ -413,7 +413,7 @@
             </div>
             <div>
               <span>분석 주기</span>
-              <strong>30초</strong>
+              <strong id="cameraIntervalStatus">30초</strong>
             </div>
             <div>
               <span>최근 분석</span>
@@ -427,17 +427,23 @@
           </button>
           <form id="cameraConnectionForm" class="camera-connection-form" hidden>
             <label class="form-field">
-              <span>RTSP 주소 <span class="optional-label">새 연결</span></span>
-              <input id="cameraRtspUrl" type="password" placeholder="rtsp://사용자:비밀번호@카메라-IP:554/..." autocomplete="off" spellcheck="false">
+              <span>카메라 링크</span>
+              <input id="cameraRtspUrl" type="password" placeholder="rtsp://... 또는 https://..." autocomplete="off" spellcheck="false">
             </label>
-            <label class="form-field">
+            <label id="cameraAdminTokenField" class="form-field" hidden>
               관리자 토큰
               <input id="cameraAdminToken" type="password" placeholder="PARKVIEW_ADMIN_TOKEN" autocomplete="off" spellcheck="false">
             </label>
-            <button id="cameraConnectButton" class="primary-button full-width-button" type="submit">
-              <i data-lucide="plug-zap" aria-hidden="true"></i>
-              <span>연결 및 테스트</span>
-            </button>
+            <div class="camera-connection-actions">
+              <button id="cameraConnectButton" class="primary-button full-width-button" type="submit">
+                <i data-lucide="link" aria-hidden="true"></i>
+                <span>링크 연결</span>
+              </button>
+              <button id="cameraOpenButton" class="secondary-button full-width-button" type="button" hidden>
+                <i data-lucide="external-link" aria-hidden="true"></i>
+                <span>영상 열기</span>
+              </button>
+            </div>
             <p id="cameraConnectFeedback" class="camera-inline-status" role="status" aria-live="polite"></p>
           </form>
           <p id="objectStatus" class="edge-system-message">분석 서비스를 확인하고 있습니다.</p>
@@ -458,6 +464,6 @@
       document.write('<script src="./native-bridge-source.js?v=100"><\/script>');
     }
   </script>
-  <script src="./app.js?v=111"></script>
+  <script src="./app.js?v=112"></script>
 </body>
 </html>

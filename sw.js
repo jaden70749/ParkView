@@ -1,11 +1,11 @@
-const CACHE_NAME = "parkview-v111";
+const CACHE_NAME = "parkview-v112";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=103",
+  "./styles.css?v=104",
   "./config.js?v=4",
   "./native-bridge-source.js?v=100",
-  "./app.js?v=111",
+  "./app.js?v=112",
   "./manifest.webmanifest"
 ];
 
