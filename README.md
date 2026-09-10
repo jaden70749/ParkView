@@ -37,7 +37,7 @@ pip install -r requirements.txt
 python3 server.py --host 0.0.0.0 --port 5180
 ```
 
-브라우저에서 `http://localhost:5180/?v=97`을 엽니다. 단순 정적 서버를 사용하면 `/api/public-config`와 AI 프록시가 없으므로 반드시 `server.py`로 실행해야 합니다.
+브라우저에서 CCTV가 연결된 PC의 `http://localhost:5180/?v=97` 또는 같은 네트워크 기기의 `http://PC의-LAN-IP:5180`을 엽니다. GitHub Pages는 HTTPS에서 사설 HTTP RTSP 서버를 호출할 수 없으므로 CCTV 자동 분석에는 사용할 수 없습니다. 단순 정적 서버를 사용하면 `/api/public-config`와 AI 프록시가 없으므로 반드시 `server.py`로 실행해야 합니다.
 
 ### 현장 카메라 분석
 

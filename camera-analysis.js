@@ -178,6 +178,10 @@ async function loadModel() {
 }
 
 async function startDeviceCamera({ keepFacingMode = false } = {}) {
+  if (window.location.hostname.endsWith(".github.io")) {
+    setStatus("CCTV는 같은 PC의 http://192.168.0.55:5180 주소에서 열어 주세요.", true);
+    return;
+  }
   if (getCameraPreviewUrl()) {
     await startCctvCamera();
     return;
