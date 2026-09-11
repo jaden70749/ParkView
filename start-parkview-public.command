@@ -10,12 +10,12 @@ export PARKVIEW_DEBUG=false
 SERVER_PID=""
 
 cleanup() {
-  local status=$?
+  local exit_status=$?
   trap - EXIT INT TERM
   if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
     kill "$SERVER_PID" 2>/dev/null
   fi
-  exit "$status"
+  exit "$exit_status"
 }
 
 trap cleanup EXIT
@@ -47,7 +47,11 @@ fi
 
 echo "Keep this window open. The tunnel reconnects automatically if it drops."
 
-node scripts/run-public-tunnel.mjs
+while kill -0 "$SERVER_PID" 2>/dev/null; do
+  node scripts/run-public-tunnel.mjs
+  echo "Tunnel client stopped. Retrying in 5 seconds..."
+  sleep 5
+done
 
 if kill -0 "$SERVER_PID" 2>/dev/null; then
   wait "$SERVER_PID"
