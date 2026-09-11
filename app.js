@@ -3278,7 +3278,36 @@ function standardizeFloorPlanSlots(slots, outline) {
     alignDisplaySlotRow(indexes, standardized);
     shiftDisplaySlotRowInsideOutline(indexes, standardized, outlineSvg);
   });
-  return standardized;
+  return fitDisplaySlotSizes(standardized);
+}
+
+function fitDisplaySlotSizes(slots) {
+  const boxes = slots.map(slot => {
+    const angle = (Number(slot.rotation) || 0) * Math.PI / 180;
+    return {
+      x: toSvgX(slot.x + slot.w / 2), y: slot.y + slot.h / 2,
+      halfW: toSvgX(slot.w) / 2, halfH: slot.h / 2,
+      axes: [{ x: Math.cos(angle), y: Math.sin(angle) },
+        { x: -Math.sin(angle), y: Math.cos(angle) }]
+    };
+  });
+  let scale = 1;
+  // Separating axes constrain rotated rectangles without changing their centers or IDs.
+  const extent = (box, axis) => box.halfW * Math.abs(box.axes[0].x * axis.x + box.axes[0].y * axis.y)
+    + box.halfH * Math.abs(box.axes[1].x * axis.x + box.axes[1].y * axis.y);
+  boxes.forEach((a, i) => {
+    boxes.slice(i + 1).forEach(b => {
+      const separation = Math.max(...[...a.axes, ...b.axes].map(axis =>
+        Math.abs((a.x - b.x) * axis.x + (a.y - b.y) * axis.y)
+          / (extent(a, axis) + extent(b, axis))));
+      if (separation > 0 && separation < 1) scale = Math.min(scale, separation * 0.995);
+    });
+  });
+  return slots.map(slot => ({ ...slot,
+    x: slot.x + slot.w * (1 - scale) / 2,
+    y: slot.y + slot.h * (1 - scale) / 2,
+    w: slot.w * scale, h: slot.h * scale
+  }));
 }
 
 function normalizeDisplaySlotSpacing(indexes, slots) {

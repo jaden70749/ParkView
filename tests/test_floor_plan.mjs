@@ -83,6 +83,31 @@ function loadAppContext() {
   return context;
 }
 
+test("adjacent rotated parking rows keep equal sizes without overlapping", () => {
+  const context = loadAppContext();
+  vm.runInContext("activeFloorPlanXScale = 1", context);
+  const slots = [20, 44, 53, 80].flatMap((cx, row) => Array.from({ length: 15 }, (_, i) => ({
+    id: `${row}-${i}`, x: cx - 3, y: 10 + i * 6 - 6,
+    w: 6, h: 12, rotation: 90, status: i === 5 ? "occupied" : "available"
+  })));
+  const before = JSON.stringify(slots);
+  const result = context.fitDisplaySlotSizes(slots);
+  assert.equal(JSON.stringify(slots), before);
+  result.forEach((slot, i) => {
+    assert.equal(slot.id, slots[i].id);
+    assert.equal(slot.status, slots[i].status);
+    assert.ok(Math.abs(slot.x + slot.w/2 - (slots[i].x + slots[i].w/2)) < 1e-9);
+    assert.ok(Math.abs(slot.y + slot.h/2 - (slots[i].y + slots[i].h/2)) < 1e-9);
+    assert.equal(slot.w, result[0].w);
+    assert.equal(slot.h, result[0].h);
+    result.slice(i + 1).forEach(other => {
+      const dx = Math.abs(slot.x + slot.w/2 - other.x - other.w/2);
+      const dy = Math.abs(slot.y + slot.h/2 - other.y - other.h/2);
+      assert.ok(dx >= (slot.h+other.h)/2 || dy >= (slot.w+other.w)/2);
+    });
+  });
+});
+
 test("direct camera links are validated without exposing an admin token", () => {
   const context = loadAppContext();
   context.window.location.hostname = "jaden70749.github.io";
@@ -412,7 +437,16 @@ test("rendering a saved compressed floor fills the plan and preserves statuses",
   const spacings = centers.slice(1).map((center, index) => center - centers[index]);
   const regularSpacings = spacings.filter((_, index) => ![2, 6].includes(index));
   const groupSpacings = spacings.filter((_, index) => [2, 6].includes(index));
-  assert.ok(slotWidth / regularSpacings[0] >= 0.88);
+  // Dense opposing rows may constrain the size more than the within-row spacing.
+  assert.ok(slotWidth > 0 && slotWidth <= regularSpacings[0]);
+  slotBodies.forEach((a, i) => slotBodies.slice(i + 1).forEach(b => {
+    const x = Number(a.attributes.get("x")), y = Number(a.attributes.get("y"));
+    const bx = Number(b.attributes.get("x")), by = Number(b.attributes.get("y"));
+    assert.ok(x + Number(a.attributes.get("width")) <= bx
+      || bx + Number(b.attributes.get("width")) <= x
+      || y + Number(a.attributes.get("height")) <= by
+      || by + Number(b.attributes.get("height")) <= y);
+  }));
   assert.ok(
     Math.max(...regularSpacings) - Math.min(...regularSpacings) < 0.001,
     `regular spacings: ${regularSpacings.join(", ")}`
