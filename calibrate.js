@@ -511,6 +511,10 @@ function renderMatchingPlan() {
     return;
   }
   const selected = state.slots[state.selected];
+  if (plan.automatic) {
+    message.textContent = "CCTV 좌표와 도면이 고유 ID로 자동 연결되어 있습니다.";
+    return;
+  }
   message.textContent = `CCTV ${state.slots.length}칸 · 도면 ${plan.slots.length}칸${state.slots.length !== plan.slots.length ? " · 칸 수 불일치" : ""} · ${selected ? `선택: ${selected.id}` : "선택 없음"}`;
   const aspect = Number(plan.aspect) || 1;
   svg.setAttribute("viewBox", `0 0 ${100*aspect} 100`);

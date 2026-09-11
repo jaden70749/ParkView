@@ -4151,6 +4151,11 @@ textarea {
   stroke: #ffffff;
 }
 
+.floor-slot-unknown .floor-slot-body {
+  fill: #aeb7bd;
+  stroke: #ffffff;
+}
+
 .floor-wheel-stop {
   stroke: rgba(42, 45, 47, 0.62);
   stroke-width: 0.42;

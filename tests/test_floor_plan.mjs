@@ -108,6 +108,41 @@ test("adjacent rotated parking rows keep equal sizes without overlapping", () =>
   });
 });
 
+test("camera plan replaces guessed counts and maps shuffled results only by ID", () => {
+  const context = loadAppContext();
+  const backups = new Map();
+  context.localStorage = { setItem: (key, value) => backups.set(key, value) };
+  vm.runInContext(`state.floors = [{name: "1F", slots: Array.from({length:60}, () => ({status:"available"}))}];
+    state.floorIndex = 0; state.selectedLot = {id:"lot"};
+    refreshParkingStateViews = () => {};`, context);
+  const results = Array.from({length:73}, (_, i) => ({
+    id: `bay-${i}`, slot_index: 999, status: i === 40 ? "occupied" : "empty", kind: "normal",
+    polygon: [[.1,.1],[.2,.1],[.2,.2],[.1,.2]]
+  }));
+  context.applyServerSlotResults(results);
+  let floor = vm.runInContext("state.floors[0]", context);
+  assert.equal(floor.slots.length,73);
+  assert.equal(floor.layoutSource,"camera_polygons");
+  assert.equal(backups.size,1);
+  assert.equal(JSON.parse([...backups.values()][0]).slots.length,60);
+  const shuffled = results.map(r => ({...r, status:r.id === "bay-3" ? "occupied" : "empty"})).reverse();
+  context.applyServerSlotResults(shuffled);
+  assert.equal(floor.slots.find(s => s.cameraSlotId === "bay-3").status,"occupied");
+  assert.equal(floor.slots.find(s => s.cameraSlotId === "bay-40").status,"available");
+  assert.equal(floor.slots[0].cameraSlotId,"bay-0");
+  const restored = context.normalizeStoredFloor(JSON.parse(JSON.stringify(floor)));
+  assert.equal(restored.layoutSource,"camera_polygons");
+  assert.equal(restored.slots[3].cameraSlotId,"bay-3");
+  const container = new FakeElement("div");
+  context.renderFloorPlan(container, restored, false);
+  const groups = container.children[0].children;
+  assert.equal(groups.length,73);
+  assert.equal(groups[3].attributes.get("data-camera-slot-id"),"bay-3");
+  assert.ok(groups[3].attributes.get("class").includes("occupied"));
+  assert.equal(context.cameraFloorSlots([results[0],results[0]]),null);
+  assert.equal(context.cameraFloorSlots([{...results[0],polygon:[[NaN,0],[1,0],[1,1]]}]),null);
+});
+
 test("direct camera links are validated without exposing an admin token", () => {
   const context = loadAppContext();
   context.window.location.hostname = "jaden70749.github.io";

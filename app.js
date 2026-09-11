@@ -1367,8 +1367,10 @@ function sameParkingLot(a, b) {
 function normalizeStoredFloor(floor, floorIndex = 0) {
   const slots = Array.isArray(floor?.slots)
     ? floor.slots.map((slot) => ({
+      cameraSlotId: typeof slot.cameraSlotId === "string" ? slot.cameraSlotId : null,
+      cameraPolygon: validCameraPolygon(slot.cameraPolygon) ? slot.cameraPolygon : null,
       kind: ["normal", "disabled", "pregnant"].includes(slot.kind) ? slot.kind : "normal",
-      status: slot.status === "available" ? "available" : "occupied",
+      status: slot.status === "unknown" ? "unknown" : slot.status === "available" ? "available" : "occupied",
       x: Number(slot.x),
       y: Number(slot.y),
       w: Number(slot.w),
@@ -1391,6 +1393,7 @@ function normalizeStoredFloor(floor, floorIndex = 0) {
     : [];
   return {
     name: String(floor?.name || `B${floorIndex + 1}`),
+    layoutSource: floor?.layoutSource === "camera_polygons" ? "camera_polygons" : null,
     aspectRatio: normalizeFloorAspectRatio(floor?.aspectRatio),
     outline,
     zones,
@@ -1773,6 +1776,12 @@ function renderManagementFloor() {
   els.manageNextFloor.disabled = state.floorIndex === state.floors.length - 1;
   renderFloorPlan(els.managementFloorPlan, floor, true);
   try {
+    if (floor.layoutSource === "camera_polygons") {
+      localStorage.setItem(`parkview-calibration-plan:${state.selectedLot.id}:${floor.name}`, JSON.stringify({
+        lotId: String(state.selectedLot.id), floorId: floor.name, automatic: true, slots: []
+      }));
+      return;
+    }
     const fitted = fitFloorToDrawingBounds(floor);
     const outline = simplifyFloorOutline(resolveFloorOutline(fitted, fitted.slots, fitted.elements || []));
     localStorage.setItem(`parkview-calibration-plan:${state.selectedLot.id}:${floor.name}`, JSON.stringify({
@@ -3156,6 +3165,10 @@ function makeSlots(seed = 1, highlightAvailable = false) {
 
 function renderFloorPlan(container, floorOrSlots, editable) {
   if (!container) return;
+  if (floorOrSlots?.layoutSource === "camera_polygons") {
+    renderCameraFloorPlan(container, floorOrSlots);
+    return;
+  }
   const sourceFloor = Array.isArray(floorOrSlots)
     ? { slots: floorOrSlots, elements: [], outline: [], zones: [] }
     : floorOrSlots || { slots: [], elements: [], outline: [], zones: [] };
@@ -4838,9 +4851,80 @@ function stripJsonFence(text) {
   return text.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
 }
 
+function validCameraPolygon(polygon) {
+  return Array.isArray(polygon) && polygon.length >= 3 && polygon.length <= 512
+    && polygon.every(p => Array.isArray(p) && p.length === 2
+      && p.every(v => Number.isFinite(v) && v >= 0 && v <= 1));
+}
+
+function cameraFloorSlots(results) {
+  const ids = new Set();
+  if (!results.length) return null;
+  for (const result of results) {
+    if (typeof result.id !== "string" || !result.id || ids.has(result.id) || !validCameraPolygon(result.polygon)) return null;
+    ids.add(result.id);
+  }
+  return results.map(r => {
+    const xs = r.polygon.map(p => p[0]), ys = r.polygon.map(p => p[1]);
+    return { cameraSlotId: r.id, cameraPolygon: r.polygon.map(p => [...p]),
+      kind: r.kind || "normal", status: r.status === "occupied" ? "occupied" : r.status === "empty" ? "available" : "unknown",
+      x: Math.min(...xs)*100, y: Math.min(...ys)*100,
+      w: (Math.max(...xs)-Math.min(...xs))*100, h: (Math.max(...ys)-Math.min(...ys))*100, rotation: 0 };
+  });
+}
+
+function renderCameraFloorPlan(container, floor) {
+  const slots = floor.slots.filter(s => validCameraPolygon(s.cameraPolygon));
+  container.replaceChildren();
+  container.classList.toggle("has-plan", slots.length > 0);
+  if (!slots.length) return;
+  // Keep the camera projection: no guessed rows, counts, or invented parking spaces.
+  const sx = 160, sy = 90;
+  const points = slots.flatMap(s => s.cameraPolygon.map(p => [p[0]*sx, p[1]*sy]));
+  const minX = Math.min(...points.map(p => p[0]))-2, minY = Math.min(...points.map(p => p[1]))-2;
+  const width = Math.max(...points.map(p => p[0]))-minX+2, height = Math.max(...points.map(p => p[1]))-minY+2;
+  container.style.setProperty("--floor-plan-aspect", String(width/height));
+  const svg = createSvgElement("svg", { class: "floor-plan-svg", viewBox: `${minX} ${minY} ${width} ${height}`,
+    role: "img", "aria-label": `${floor.name} CCTV 좌표 도면`, preserveAspectRatio: "xMidYMid meet" });
+  slots.forEach(slot => {
+    const group = createSvgElement("g", { class: `floor-slot floor-slot-${slot.kind} floor-slot-${slot.status}`,
+      "data-camera-slot-id": slot.cameraSlotId, "aria-label": `${slot.cameraSlotId} ${slot.status}` });
+    const title = createSvgElement("title");
+    title.textContent = slot.cameraSlotId;
+    group.append(title, createSvgElement("polygon", { class: "floor-slot-body",
+      points: slot.cameraPolygon.map(p => `${p[0]*sx},${p[1]*sy}`).join(" ") }));
+    svg.append(group);
+  });
+  container.append(svg);
+}
+
 function applyServerSlotResults(slotResults) {
   const floor = state.floors[state.floorIndex];
   if (!floor) return { available: 0, occupied: 0, mapped: 0, unreliable: true };
+
+  const cameraSlots = cameraFloorSlots(slotResults);
+  if (cameraSlots) {
+    if (floor.layoutSource !== "camera_polygons") {
+      try {
+        localStorage.setItem(`parkview-plan-backup:${state.selectedLot?.id}:${floor.name}`, JSON.stringify(floor));
+      } catch (_) {
+        return { ...countFloorStatus(floor), mapped: 0, unreliable: true };
+      }
+    }
+    const byId = new Map(cameraSlots.map(s => [s.cameraSlotId, s]));
+    const existingIds = floor.slots.map(s => s.cameraSlotId);
+    // Preserve display order when possible; identity comes only from the server ID.
+    const order = [...existingIds.filter(id => byId.has(id))];
+    cameraSlots.forEach(s => { if (!order.includes(s.cameraSlotId)) order.push(s.cameraSlotId); });
+    floor.slots = [...new Set(order)].map(id => byId.get(id));
+    floor.layoutSource = "camera_polygons";
+    floor.elements = []; floor.zones = []; floor.outline = [];
+    refreshParkingStateViews();
+    return { ...countFloorStatus(floor), mapped: cameraSlots.length, ignored: 0 };
+  }
+  if (floor.layoutSource === "camera_polygons") {
+    return { ...countFloorStatus(floor), mapped: 0, unreliable: true };
+  }
 
   const resultsByIndex = new Map(
     slotResults.filter((result) => ["occupied", "empty"].includes(result.status)
