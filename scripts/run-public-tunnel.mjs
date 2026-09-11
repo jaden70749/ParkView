@@ -16,6 +16,23 @@ while (!stopping) {
       local_host: "127.0.0.1"
     });
     activeTunnel = tunnel;
+    const connectionEnded = new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      tunnel.once("close", finish);
+      // Localtunnel can emit more than one socket error while a failed
+      // cluster is closing, so this listener must remain attached.
+      tunnel.on("error", (error) => {
+        if (settled) return;
+        console.error(`CCTV tunnel connection error: ${error.message}`);
+        tunnel.close();
+        finish();
+      });
+    });
     if (tunnel.url !== expectedUrl) {
       console.error(`Localtunnel assigned ${tunnel.url}; waiting for ${expectedUrl}.`);
       tunnel.close();
@@ -24,20 +41,7 @@ while (!stopping) {
       continue;
     }
     console.log(`Public CCTV API: ${tunnel.url}`);
-    await new Promise((resolve) => {
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        resolve();
-      };
-      tunnel.once("close", finish);
-      tunnel.once("error", (error) => {
-        console.error(`CCTV tunnel connection error: ${error.message}`);
-        tunnel.close();
-        finish();
-      });
-    });
+    await connectionEnded;
     activeTunnel = null;
   } catch (error) {
     console.error(`CCTV tunnel error: ${error.message}`);
