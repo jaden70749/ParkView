@@ -1772,6 +1772,15 @@ function renderManagementFloor() {
   els.managePrevFloor.disabled = state.floorIndex === 0;
   els.manageNextFloor.disabled = state.floorIndex === state.floors.length - 1;
   renderFloorPlan(els.managementFloorPlan, floor, true);
+  try {
+    const fitted = fitFloorToDrawingBounds(floor);
+    const outline = simplifyFloorOutline(resolveFloorOutline(fitted, fitted.slots, fitted.elements || []));
+    localStorage.setItem(`parkview-calibration-plan:${state.selectedLot.id}:${floor.name}`, JSON.stringify({
+      lotId: String(state.selectedLot.id), floorId: floor.name,
+      aspect: activeFloorPlanXScale,
+      slots: standardizeFloorPlanSlots(fitted.slots, outline)
+    }));
+  } catch (error) { console.warn("Calibration plan preview unavailable", error.name); }
 }
 
 function kakaoLevelFromZoom(zoom) {

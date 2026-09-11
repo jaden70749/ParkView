@@ -32,6 +32,7 @@
         <button data-mode="region" aria-pressed="true" type="button">감지 구역 선택</button>
         <button data-mode="add" aria-pressed="false" type="button">주차칸 추가</button>
         <button data-mode="edit" aria-pressed="false" type="button">꼭짓점 수정</button>
+        <button data-mode="match" aria-pressed="false" type="button">도면 연결</button>
       </div>
       <div class="source-actions">
         <button id="applyDetectionButton" class="camera-button" type="button" hidden>감지 결과 적용</button>
@@ -45,6 +46,11 @@
         <strong id="slotProgress">B1-001</strong>
         <span id="pointProgress">모서리 0 / 4</span>
       </div>
+      <section id="matchingPanel" hidden>
+        <h2>도면 연결</h2>
+        <p id="matchingStatus" role="status" aria-live="polite"></p>
+        <svg id="matchingPlan" style="width:100%;max-height:480px;display:block" aria-label="연결할 도면 주차면"></svg>
+      </section>
     </section>
 
     <section class="slot-settings">
@@ -80,6 +86,6 @@
     </section>
   </main>
   <script src="./config.js?v=4"></script>
-  <script src="./calibrate.js?v=6"></script>
+  <script src="./calibrate.js?v=7"></script>
 </body>
 </html>

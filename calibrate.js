@@ -267,6 +267,14 @@ async function loadImageBlob(blob, label) {
 function addCanvasPoint(event) {
   if (!state.image || state.points.length >= 4) return;
   const rect = els.canvas.getBoundingClientRect();
+  if (state.mode === "match") {
+    if (state.candidates) { els.saveStatus.textContent = "감지 결과를 먼저 적용하거나 취소해 주세요."; return; }
+    const point = [(event.clientX-rect.left)/rect.width, (event.clientY-rect.top)/rect.height];
+    state.selected = state.slots.findIndex(slot => pointInCameraPolygon(point, slot.polygon));
+    if (state.selected >= 0) els.slotNumber.value = String(state.slots[state.selected].slot_index+1);
+    render();
+    return;
+  }
   if (state.mode === "edit") {
     let nearest = null;
     let distance = 22;
@@ -463,6 +471,70 @@ function render() {
   drawCanvas();
   updateProgress();
   renderSlotList();
+  renderMatchingPlan();
+}
+
+function pointInCameraPolygon([x, y], polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length-1; i < polygon.length; j = i++) {
+    const [xi, yi] = polygon[i], [xj, yj] = polygon[j];
+    if ((yi > y) !== (yj > y) && x < (xj-xi)*(y-yi)/(yj-yi)+xi) inside = !inside;
+  }
+  return inside;
+}
+
+function connectPlanSlot(index, count) {
+  if (state.candidates) return;
+  const selected = state.slots[state.selected];
+  if (!selected || !Number.isInteger(index) || index < 0 || index >= count) return;
+  const other = state.slots.find(slot => slot !== selected && slot.slot_index === index);
+  if (other && !window.confirm(`도면 ${index+1}번은 이미 연결되어 있습니다. 선택한 칸과 연결을 서로 바꿀까요?`)) return;
+  if (other) { other.slot_index = selected.slot_index; other.id = selected.id; }
+  selected.slot_index = index;
+  selected.id = `${currentFloorId()}-${String(index+1).padStart(3, "0")}`;
+  els.slotNumber.value = String(index+1);
+  els.saveStatus.textContent = `도면 ${index+1}번에 연결했습니다. 주차면 저장을 눌러 확정해 주세요.`;
+  render();
+}
+
+function renderMatchingPlan() {
+  const panel = document.querySelector("#matchingPanel");
+  panel.hidden = state.mode !== "match";
+  if (panel.hidden) return;
+  const message = document.querySelector("#matchingStatus");
+  const svg = document.querySelector("#matchingPlan");
+  svg.replaceChildren();
+  let plan;
+  try { plan = JSON.parse(localStorage.getItem(`parkview-calibration-plan:${setupLotId}:${currentFloorId()}`)); } catch (_) {}
+  if (!plan || plan.lotId !== setupLotId || plan.floorId !== currentFloorId() || !Array.isArray(plan.slots)) {
+    message.textContent = "운영 관리에서 해당 층 도면을 연 뒤 이 화면을 다시 열어 주세요.";
+    return;
+  }
+  const selected = state.slots[state.selected];
+  message.textContent = `CCTV ${state.slots.length}칸 · 도면 ${plan.slots.length}칸${state.slots.length !== plan.slots.length ? " · 칸 수 불일치" : ""} · ${selected ? `선택: ${selected.id}` : "선택 없음"}`;
+  const aspect = Number(plan.aspect) || 1;
+  svg.setAttribute("viewBox", `0 0 ${100*aspect} 100`);
+  const make = (tag, attrs) => {
+    const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    Object.entries(attrs).forEach(([k,v]) => node.setAttribute(k,String(v)));
+    return node;
+  };
+  plan.slots.forEach((slot, index) => {
+    const cx = (slot.x+slot.w/2)*aspect, cy = slot.y+slot.h/2;
+    const group = make("g", { role: "button", tabindex: 0, "aria-label": `도면 ${index+1}번 연결` });
+    group.append(make("rect", { x: slot.x*aspect, y: slot.y, width: slot.w*aspect, height: slot.h,
+      transform: `rotate(${slot.rotation || 0} ${cx} ${cy})`,
+      fill: selected?.slot_index === index ? "#f8c400" : "#e4e7e9", stroke: "#555", "stroke-width": .2 }));
+    const label = make("text", { x: cx, y: cy, "text-anchor": "middle", "dominant-baseline": "central",
+      "font-size": Math.min(2.6, slot.w*aspect*.5, slot.h*.5), fill: "#17191d", "pointer-events": "none" });
+    label.textContent = String(index+1);
+    group.append(label);
+    group.addEventListener("click", () => connectPlanSlot(index, plan.slots.length));
+    group.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); connectPlanSlot(index, plan.slots.length); }
+    });
+    svg.append(group);
+  });
 }
 
 function drawCanvas() {
@@ -490,20 +562,29 @@ function drawPolygon(points, color, label, close = true) {
     else ctx.lineTo(px, py);
   });
   if (close && points.length >= 3) ctx.closePath();
-  ctx.lineWidth = Math.max(3, els.canvas.width / 320);
+  ctx.lineWidth = Math.max(1.5, els.canvas.width / 1000);
   ctx.strokeStyle = color;
   ctx.stroke();
-  points.forEach(([x, y]) => {
+  const showHandles = label === null || (state.mode === "edit" && state.slots[state.selected]?.polygon === points);
+  if (showHandles) points.forEach(([x, y]) => {
     ctx.beginPath();
-    ctx.arc(x * els.canvas.width, y * els.canvas.height, Math.max(5, els.canvas.width / 180), 0, Math.PI * 2);
+    ctx.arc(x * els.canvas.width, y * els.canvas.height, Math.max(3, els.canvas.width / 500), 0, Math.PI * 2);
     ctx.fillStyle = color;
     ctx.fill();
   });
   if (label !== null) {
-    const [x, y] = points[0];
-    ctx.fillStyle = color;
-    ctx.font = `900 ${Math.max(16, els.canvas.width / 50)}px sans-serif`;
-    ctx.fillText(String(label), x * els.canvas.width + 9, y * els.canvas.height + 24);
+    const x = points.reduce((sum, p) => sum+p[0],0)/points.length * els.canvas.width;
+    const y = points.reduce((sum, p) => sum+p[1],0)/points.length * els.canvas.height;
+    const height = (Math.max(...points.map(p => p[1]))-Math.min(...points.map(p => p[1]))) * els.canvas.height;
+    const size = Math.max(7, Math.min(18, height*.5));
+    ctx.font = `700 ${size}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(0,0,0,.7)";
+    const width = ctx.measureText(String(label)).width + 6;
+    ctx.fillRect(x-width/2, y-size/2-2, width, size+4);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(String(label), x, y);
   }
 }
 

@@ -4,6 +4,33 @@ import vm from "node:vm";
 import { readFile } from "node:fs/promises";
 
 const source = await readFile(new URL("../calibrate.js", import.meta.url), "utf8");
+const matching = source.slice(source.indexOf("function pointInCameraPolygon("), source.indexOf("function renderMatchingPlan("));
+test("plan linking swaps occupied target numbers without changing camera polygons", () => {
+  const state = { selected: 0, slots: [
+    { id: "1F-001", slot_index: 0, polygon: [[0,0],[1,0],[1,1],[0,1]] },
+    { id: "1F-002", slot_index: 1, polygon: [[.1,.1],[.2,.1],[.2,.2],[.1,.2]] }
+  ] };
+  const original = JSON.stringify(state.slots.map(s => s.polygon));
+  const context = vm.createContext({ state, els: { slotNumber: {}, saveStatus: {} },
+    window: { confirm: () => true }, currentFloorId: () => "1F", render() {} });
+  vm.runInContext(matching, context);
+  context.connectPlanSlot(1, 2);
+  assert.deepEqual(state.slots.map(s => s.slot_index), [1,0]);
+  assert.deepEqual(state.slots.map(s => s.id), ["1F-002","1F-001"]);
+  assert.equal(JSON.stringify(state.slots.map(s => s.polygon)), original);
+  context.connectPlanSlot(20, 2);
+  assert.deepEqual(state.slots.map(s => s.slot_index), [1,0]);
+  assert.equal(context.pointInCameraPolygon([.5,.5], state.slots[0].polygon), true);
+  assert.equal(context.pointInCameraPolygon([2,2], state.slots[0].polygon), false);
+});
+
+test("declined mapping swap preserves both existing links", () => {
+  const state = { selected: 0, slots: [{ id: "1F-001", slot_index: 0 },{ id: "1F-002", slot_index: 1 }] };
+  const context = vm.createContext({ state, window: { confirm: () => false } });
+  vm.runInContext(matching, context);
+  context.connectPlanSlot(1, 2);
+  assert.deepEqual(state.slots.map(s => s.slot_index), [0,1]);
+});
 const detection = source.slice(source.indexOf("async function detectRegions()"), source.indexOf("function addCompletedSlot()"));
 function harness({ slots = [], confirm = true, fail = false } = {}) {
   let requests = 0;
