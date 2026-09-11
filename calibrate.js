@@ -4,10 +4,12 @@ const state = {
   slots: [],
   kind: "normal",
   revision: null,
+  savedSlots: "",
   selected: -1,
   dragging: null,
   mode: "add",
-  candidates: null
+  candidates: null,
+  roi: null
 };
 const setupParams = new URLSearchParams(window.location.search);
 const setupLotId = (setupParams.get("lot_id") || "").trim();
@@ -50,6 +52,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function bindEvents() {
+  document.querySelector("#referenceButton").addEventListener("click", saveEmptyReference);
   document.querySelector("#trainingSampleButton").addEventListener("click", saveTrainingSample);
   document.querySelector("#reloadRegionsButton").addEventListener("click", loadRegions);
   els.adminToken.addEventListener("change", loadRegions);
@@ -86,10 +89,49 @@ function bindEvents() {
   els.saveButton.addEventListener("click", saveRegions);
   els.floorId.addEventListener("input", updateProgress);
   els.slotNumber.addEventListener("input", updateProgress);
+  els.slotNumber.addEventListener("change", () => {
+    const selected = state.slots[state.selected];
+    if (state.mode !== "edit" || !selected) return;
+    const next = Math.max(0, Math.floor(Number(els.slotNumber.value) || 1)-1);
+    const other = state.slots.find(slot => slot !== selected && slot.slot_index === next);
+    if (other) { other.slot_index = selected.slot_index; other.id = selected.id; }
+    selected.slot_index = next;
+    selected.id = `${currentFloorId()}-${String(next+1).padStart(3, "0")}`;
+    render();
+  });
 }
 
 function regionsUrl(path = "/api/regions") {
-  return `${cameraBase}${path}?${new URLSearchParams({ lot_id: setupLotId, floor_id: currentFloorId() })}`;
+  return `${cameraBase}${path}?${new URLSearchParams({ lot_id: setupLotId, floor_id: currentFloorId(), method: "lines", roi: JSON.stringify(state.roi) })}`;
+}
+
+async function saveEmptyReference() {
+  if (!state.image || !state.slots.length || state.candidates || state.points.length ||
+      state.savedSlots !== JSON.stringify(state.slots)) {
+    els.saveStatus.textContent = "주차면 좌표를 먼저 저장한 뒤, 차량을 치운 사진을 불러와 주세요.";
+    return;
+  }
+  if (!window.confirm("현재 사진의 모든 주차칸이 비어 있나요? 물체가 남아 있으면 점유 판단이 잘못될 수 있습니다.")) return;
+  const button = document.querySelector("#referenceButton");
+  button.disabled = true;
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = state.image.naturalWidth;
+    canvas.height = state.image.naturalHeight;
+    canvas.getContext("2d").drawImage(state.image, 0, 0);
+    const response = await fetch(`${cameraBase}/api/regions/reference`, {
+      method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
+      signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({ lot_id: setupLotId, floor_id: currentFloorId(),
+        expected_revision: state.revision, confirmed_empty: true,
+        image_base64: canvas.toDataURL("image/jpeg", 0.96).split(",")[1] })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    state.revision = result.revision;
+    els.saveStatus.textContent = "빈 주차장 기준 저장 완료. 물체 점유 분석이 적용됩니다.";
+  } catch (error) { els.saveStatus.textContent = `기준 저장 실패: ${error.message}`; }
+  finally { button.disabled = false; }
 }
 
 async function saveTrainingSample() {
@@ -148,6 +190,7 @@ async function loadRegions() {
     state.selected = null;
     state.dragging = null;
     state.slots = Array.isArray(payload.slots) ? payload.slots : [];
+    state.savedSlots = JSON.stringify(state.slots);
     const highest = state.slots.reduce(
       (value, slot) => Math.max(value, Number(slot.slot_index) + 1),
       0
@@ -216,6 +259,7 @@ function addCanvasPoint(event) {
     }));
     if (nearest) {
       state.selected = nearest.index;
+      els.slotNumber.value = String(state.slots[nearest.index].slot_index+1);
       state.dragging = nearest;
       els.canvas.setPointerCapture(event.pointerId);
       render();
@@ -226,7 +270,13 @@ function addCanvasPoint(event) {
     clamp((event.clientX - rect.left) / rect.width, 0, 1),
     clamp((event.clientY - rect.top) / rect.height, 0, 1)
   ]);
-  if (state.points.length === 4) addCompletedSlot();
+  if (state.points.length === 4) {
+    if (state.mode === "region") {
+      state.roi = state.points;
+      state.points = [];
+      els.saveStatus.textContent = "감지 구역 선택 완료. 구획선으로 주차면 찾기를 누르세요.";
+    } else addCompletedSlot();
+  }
   render();
 }
 
@@ -242,6 +292,10 @@ function moveCanvasPoint(event) {
 }
 
 async function detectRegions() {
+  if (!state.roi) {
+    els.saveStatus.textContent = "감지 구역 선택을 누르고, 주차장 전체를 감싸는 모서리 4개를 순서대로 선택해 주세요.";
+    return;
+  }
   if (!state.image || !els.adminToken.value.trim() || !setupLotId) {
     els.saveStatus.textContent = "주차장 정보, 관리자 토큰과 CCTV 이미지가 필요합니다.";
     return;
@@ -336,7 +390,7 @@ async function saveRegions() {
       headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         coordinate_system: "normalized_camera_image",
-        occupancy_strategy: "polygon_overlap",
+        occupancy_strategy: "empty_reference_difference",
         occupancy_threshold: 0.3,
         lot_id: setupLotId,
         floor_id: currentFloorId(),
@@ -347,6 +401,7 @@ async function saveRegions() {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     state.revision = payload.revision;
+    state.savedSlots = JSON.stringify(state.slots);
     els.saveStatus.textContent = `${payload.count}개 주차면을 저장했습니다. 원래 화면에서 카메라 연결을 다시 눌러 적용하세요.`;
   } catch (error) {
     els.saveStatus.textContent = `저장 실패: ${error.message}`;
@@ -378,6 +433,7 @@ function drawCanvas() {
     return;
   }
   ctx.drawImage(state.image, 0, 0, els.canvas.width, els.canvas.height);
+  if (state.roi) drawPolygon(state.roi, "#00a8dd", null);
   (state.candidates || state.slots).forEach((slot, index) => {
     drawPolygon(slot.polygon, state.candidates ? "#f8c400" : index === state.selected ? "#f8c400" : colorForKind(slot.kind), slot.slot_index + 1);
   });
@@ -443,6 +499,7 @@ function renderSlotList() {
     copy.setAttribute("aria-label", `${slot.id} 수정`);
     const select = () => {
       state.selected = index;
+      els.slotNumber.value = String(slot.slot_index+1);
       state.mode = "edit";
       state.points = [];
       els.modeButtons.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === "edit")));

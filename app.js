@@ -5217,7 +5217,7 @@ async function refreshEdgeStatus() {
       els.objectStatus.textContent = health.last_error
         ? `분석 대기: ${health.last_error}`
         : result?.mapping_ready === false
-          ? "주차면 좌표가 등록되지 않아 주차 가능 여부를 판정할 수 없습니다. CCTV 주차면을 등록해 주세요."
+          ? result.mapping_message || "주차면 좌표가 등록되지 않아 주차 가능 여부를 판정할 수 없습니다. CCTV 주차면을 등록해 주세요."
           : "현장 분석 결과를 기다리고 있습니다.";
     }
   } catch (error) {

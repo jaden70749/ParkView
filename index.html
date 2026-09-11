@@ -424,7 +424,7 @@
             <i data-lucide="scan-line" aria-hidden="true"></i>
             <span>
               <strong>실시간 주차면 분석</strong>
-              <small>주차칸 안의 YOLO 객체로 점유 판정</small>
+              <small>등록된 주차칸의 물체 점유 상태</small>
             </span>
             <i data-lucide="chevron-down" aria-hidden="true"></i>
           </button>
@@ -432,7 +432,7 @@
             <div class="device-analysis-heading">
               <div>
                 <strong>실시간 객체 감지</strong>
-                <small>주차칸 안에 YOLO 객체가 있으면 주차 중으로 표시합니다.</small>
+                <small>주차칸별 점유 현황</small>
               </div>
               <span id="deviceModelBadge" class="device-model-badge">연결 대기</span>
             </div>
@@ -523,8 +523,8 @@
       document.write('<script src="./native-bridge-source.js?v=100"><\/script>');
     }
   </script>
-  <script src="./app.js?v=130"></script>
+  <script src="./app.js?v=131"></script>
   <script src="./vendor/onnxruntime/ort.wasm.bundle.js?v=1"></script>
-  <script type="module" src="./camera-analysis.js?v=9"></script>
+  <script type="module" src="./camera-analysis.js?v=10"></script>
 </body>
 </html>

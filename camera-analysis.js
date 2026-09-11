@@ -143,7 +143,7 @@ async function handleCctvFrame(event) {
     state.sourceType = "cctv";
     els.stopButton.disabled = false;
     showSource("고정 CCTV");
-    await loadModel();
+    if (state.regions?.occupancy_strategy !== "empty_reference_difference") await loadModel();
     drawPreview();
     await analyzeCurrentFrame();
   } catch (error) {
@@ -411,6 +411,21 @@ async function runContinuousAnalysis(runId) {
 async function analyzeCurrentFrame() {
   if (!state.source) return;
   try {
+    if (state.sourceType === "cctv" && state.regions?.occupancy_strategy === "empty_reference_difference") {
+      const url = getCameraPreviewUrl().replace(/\/api\/camera\/preview$/, "/api/result");
+      const response = await fetch(url, { cache: "no-store", headers: cameraRequestHeaders(url), signal: AbortSignal.timeout(10000) });
+      if (!response.ok) throw new Error(`분석 서버 HTTP ${response.status}`);
+      const result = await response.json();
+      if (result.lot_id !== state.regions.lot_id || result.calibration_floor_id !== state.regions.floor_id || result.strategy !== "empty_reference_difference") {
+        throw new Error("이 주차장·층의 물체 점유 분석을 기다리고 있습니다.");
+      }
+      state.detections = [];
+      updateResult(result.elapsed_ms, result.slot_results, result.analyzed_at);
+      setModelState("ready", "물체 점유 분석");
+      if (!result.mapping_ready) setStatus(result.mapping_message || "빈 주차장 기준을 등록해 주세요", true);
+      drawPreview();
+      return;
+    }
     const session = await loadModel();
     const transform = prepareInput(state.source);
     const imageData = inputContext.getImageData(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
@@ -512,13 +527,13 @@ function drawPreview() {
   }
 }
 
-function updateResult(elapsed) {
+function updateResult(elapsed, serverSlots = null, analyzedAt = null) {
   const { width, height } = sourceDimensions(state.source);
-  state.slotResults = state.sourceType === "cctv"
+  state.slotResults = serverSlots || (state.sourceType === "cctv"
     ? stabilizeCameraSlots(matchCameraSlots(state.detections, state.regions, width, height), state.slotHistory)
-    : [];
+    : []);
   state.matchedDetections = matchedCameraDetections(state.detections, state.slotResults);
-  const count = state.matchedDetections.length;
+  const count = serverSlots ? serverSlots.filter(s => s.status === "occupied").length : state.matchedDetections.length;
   els.vehicleCount.textContent = `${count}개`;
   els.inferenceTime.textContent = `${Math.round(elapsed)}ms`;
   setStatus(count > 0 ? `주차칸 안의 객체 ${count}개를 감지했습니다.` : "주차칸 안에 감지된 객체가 없습니다.");
@@ -531,14 +546,14 @@ function updateResult(elapsed) {
     window.dispatchEvent(new CustomEvent("parkview:camera-slots", { detail: {
       lotId: state.regions.lot_id,
       floorId: state.regions.floor_id,
-      analyzedAt: new Date().toISOString(),
+      analyzedAt: analyzedAt || new Date().toISOString(),
       slots: state.slotResults
     } }));
   }
   const payload = {
     version: 1,
-    analyzedAt: new Date().toISOString(),
-    model: "yolov5su",
+    analyzedAt: analyzedAt || new Date().toISOString(),
+    model: serverSlots ? "empty-reference-opencv" : "yolov5su",
     source: state.sourceType,
     lotId: state.regions?.lot_id,
     floorId: state.regions?.floor_id,

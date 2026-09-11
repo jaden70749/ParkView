@@ -56,6 +56,7 @@ load_environment_file(ROOT / ".env")
 
 import region_store
 import parking_segmentation
+import parking_vision
 
 MODEL_PATH = Path(
     os.environ.get("PARKVIEW_MODEL_PATH", ROOT / "models" / "yolov5su.pt")
@@ -658,6 +659,18 @@ def matched_detection_payload(
 
 
 def detect_objects(image_bytes: bytes, debug: bool = False) -> dict[str, Any]:
+    config = load_region_config()
+    if config.get("occupancy_strategy") == "empty_reference_difference":
+        started = time.perf_counter()
+        results, ready, message = parking_vision.analyze(image_bytes, config)
+        return dict(ready=ready, analyzed_at=utc_now(), site_id=SITE_ID,
+                    lot_id=config.get("lot_id"), floor_id=config.get("floor_id"),
+                    calibration_floor_id=config.get("floor_id"), calibration_revision=config.get("revision"),
+                    model="empty-reference-opencv", strategy="empty_reference_difference",
+                    mapping_ready=ready, mapping_strategy="empty_reference_difference",
+                    mapping_message=message, slot_results=results, detections=[],
+                    count=sum(r["occupied"] == 1 for r in results),
+                    elapsed_ms=round((time.perf_counter()-started)*1000, 1))
     image = ImageOps.exif_transpose(
         Image.open(io.BytesIO(image_bytes))
     ).convert("RGB")
@@ -1040,7 +1053,7 @@ class AnalysisWorker:
                 )
             remaining = max(
                 0,
-                CAPTURE_INTERVAL
+                (5 if load_region_config().get("occupancy_strategy") == "empty_reference_difference" else CAPTURE_INTERVAL)
                 - (time.monotonic() - started),
             )
             self._stop.wait(remaining)
@@ -1209,6 +1222,11 @@ class AnalysisWorker:
         for result in slot_results:
             slot_id = result["id"]
             candidate = result["status"]
+            if candidate == "unknown":
+                self._stable_status.pop(slot_id, None)
+                self._empty_streak.pop(slot_id, None)
+                stabilized.append({**result, "occupied": None})
+                continue
             if candidate == "occupied":
                 self._stable_status[slot_id] = "occupied"
                 self._empty_streak[slot_id] = 0
@@ -1234,7 +1252,7 @@ class AnalysisWorker:
                 "ready": MODEL_PATH.exists(),
                 "model": MODEL_PATH.name,
                 "strategy": "edge_rtsp_object_occupancy",
-                "analysis_interval_seconds": CAPTURE_INTERVAL,
+                "analysis_interval_seconds": 5 if load_region_config().get("occupancy_strategy") == "empty_reference_difference" else CAPTURE_INTERVAL,
                 "region_count": len(
                     load_region_config()["slots"]
                 ),
@@ -1414,6 +1432,21 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
         try:
+            if path == "/api/regions/reference":
+                if not self.require_admin():
+                    return
+                payload = json.loads(self.read_body(18 * 1024 * 1024).decode("utf-8"))
+                if payload.get("confirmed_empty") is not True:
+                    raise ValueError("모든 주차칸이 비어 있는지 확인해 주세요")
+                config = load_region_config(payload.get("lot_id"), payload.get("floor_id"))
+                if not config["slots"] or payload.get("expected_revision") != config["revision"]:
+                    raise region_store.RegionConflict("저장된 좌표를 다시 불러온 뒤 기준 사진을 등록해 주세요")
+                import base64
+                config["reference_id"] = parking_vision.save_reference(base64.b64decode(payload["image_base64"], validate=True))
+                config["expected_revision"] = payload["expected_revision"]
+                config["occupancy_strategy"] = "empty_reference_difference"
+                self.send_json(HTTPStatus.OK, save_regions(config))
+                return
             if path == "/api/regions/training-sample":
                 if not self.require_admin():
                     return
@@ -1424,10 +1457,13 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
                 if not self.require_admin():
                     return
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
-                result = parking_segmentation.detect(
+                detector = parking_vision.detect if query.get("method", [""])[0] == "lines" else parking_segmentation.detect
+                kwargs = {"roi": json.loads(query.get("roi", ["null"])[0])} if detector is parking_vision.detect else {}
+                result = detector(
                     self.read_body(MAX_IMAGE_BYTES),
                     query.get("lot_id", [""])[0],
                     query.get("floor_id", [""])[0],
+                    **kwargs,
                 )
                 self.send_json(HTTPStatus.OK, result)
                 return

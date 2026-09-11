@@ -21,7 +21,7 @@
         <label class="file-button" for="frameFile">사진 선택</label>
         <input id="frameFile" type="file" accept="image/*">
         <button id="cameraFrameButton" class="camera-button" type="button">CCTV 프레임 불러오기</button>
-        <button id="detectButton" class="camera-button" type="button">주차면 자동 감지</button>
+        <button id="detectButton" class="camera-button" type="button">구획선으로 주차면 찾기</button>
         <button id="reloadRegionsButton" class="file-button" type="button">저장된 좌표 불러오기</button>
       </div>
       <p id="sourceStatus">프레임을 불러오면 등록을 시작합니다.</p>
@@ -31,6 +31,7 @@
       <div class="kind-control" aria-label="좌표 편집 모드">
         <button data-mode="add" aria-pressed="true" type="button">추가</button>
         <button data-mode="edit" aria-pressed="false" type="button">꼭짓점 수정</button>
+        <button data-mode="region" aria-pressed="false" type="button">감지 구역 선택</button>
       </div>
       <div class="source-actions">
         <button id="applyDetectionButton" class="camera-button" type="button" hidden>감지 결과 적용</button>
@@ -49,7 +50,7 @@
     <section class="slot-settings">
       <div class="field-row">
         <label>층<input id="floorId" value="B1" maxlength="8"></label>
-        <label>다음 번호<input id="slotNumber" type="number" min="1" value="1"></label>
+        <label>주차면 번호<input id="slotNumber" type="number" min="1" value="1"></label>
       </div>
       <div class="kind-control" aria-label="주차면 종류">
         <button class="active" data-kind="normal" type="button">일반</button>
@@ -60,6 +61,7 @@
         <button id="undoButton" type="button">되돌리기</button>
         <button id="saveButton" class="save-button" type="button">주차면 저장</button>
       </div>
+      <button id="referenceButton" class="camera-button" type="button">현재 사진을 빈 주차장 기준으로 저장</button>
       <p id="saveStatus">도면의 주차면 번호와 맞춰 각 면의 모서리를 시계 방향으로 4번 누르세요. CCTV 위치를 고정한 상태에서 등록하세요.</p>
     </section>
 
@@ -77,6 +79,6 @@
     </section>
   </main>
   <script src="./config.js?v=4"></script>
-  <script src="./calibrate.js?v=3"></script>
+  <script src="./calibrate.js?v=4"></script>
 </body>
 </html>

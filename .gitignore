@@ -10,3 +10,4 @@ node_modules/
 dist/
 datasets/
 runs/
+.occupancy-references/
