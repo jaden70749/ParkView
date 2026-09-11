@@ -5,8 +5,9 @@ import {
   decodeYoloOutput,
   imageDataToTensorData,
   matchCameraSlots,
+  matchedCameraDetections,
   stabilizeCameraSlots
-} from "./camera-analysis-core.js?v=2";
+} from "./camera-analysis-core.js?v=3";
 
 const MODEL_URL = "./models/yolov5su.onnx";
 const RESULT_STORAGE_KEY = "parkview.deviceCamera.latest";
@@ -22,6 +23,7 @@ const state = {
   objectUrl: "",
   facingMode: "environment",
   detections: [],
+  matchedDetections: [],
   running: false,
   runId: 0,
   previewFrame: 0,
@@ -281,13 +283,58 @@ async function loadCameraRegions(previewUrl, token) {
       cache: "no-store",
       headers: cameraRequestHeaders(regionsUrl, { Authorization: `Bearer ${token}` })
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`주차면 API HTTP ${response.status}`);
     state.regions = await response.json();
+    await autoRegisterCameraRegions(previewUrl, token);
     if (els.occupancyStatus) els.occupancyStatus.textContent = state.regions.slots?.length
       ? "주차면 등록됨 · 분석 대기 중"
       : "주차 가능 여부 미확인 · 먼저 CCTV 주차면을 등록해 주세요.";
   } catch (_error) {
     if (els.occupancyStatus) els.occupancyStatus.textContent = "주차면 정보를 읽지 못했습니다. 관리자 토큰과 주차면 등록을 확인해 주세요.";
+  }
+}
+
+function activeFloorContext() {
+  const context = window.PARKVIEW_ACTIVE_FLOOR_CONTEXT;
+  if (!context?.lotId || !context?.floorId || !Array.isArray(context.slots)) return null;
+  const slots = context.slots.filter((slot) => [slot.x, slot.y, slot.w, slot.h].every(Number.isFinite));
+  return slots.length ? { ...context, slots } : null;
+}
+
+async function autoRegisterCameraRegions(previewUrl, token) {
+  const context = activeFloorContext();
+  const alreadyMatches = String(state.regions?.lot_id || "") === String(context?.lotId || "")
+    && String(state.regions?.floor_id || "") === String(context?.floorId || "")
+    && state.regions?.slots?.length === context?.slots?.length;
+  if (!context || !token || alreadyMatches) return;
+  const autoUrl = previewUrl.replace(/\/api\/camera\/preview$/, "/api/regions/auto");
+  if (els.occupancyStatus) els.occupancyStatus.textContent = `주차면 ${context.slots.length}개 좌표를 자동 지정하는 중입니다.`;
+  const response = await fetch(autoUrl, {
+    method: "POST",
+    headers: cameraRequestHeaders(autoUrl, {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    }),
+    body: JSON.stringify({
+      lot_id: context.lotId,
+      floor_id: context.floorId,
+      slots: context.slots.map((slot) => ({
+        kind: slot.kind,
+        x: slot.x,
+        y: slot.y,
+        w: slot.w,
+        h: slot.h,
+        rotation: slot.rotation
+      }))
+    })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `자동 좌표 지정 HTTP ${response.status}`);
+  state.regions = payload;
+  state.slotHistory.clear();
+  if (els.occupancyStatus) {
+    els.occupancyStatus.textContent = `주차면 ${payload.slots?.length || 0}개 좌표를 자동 지정했습니다.`;
   }
 }
 
@@ -477,7 +524,7 @@ function drawPreview() {
   }
   const scaleX = canvasWidth / width;
   const scaleY = canvasHeight / height;
-  for (const detection of state.detections) {
+  for (const detection of state.matchedDetections) {
     const [x, y, boxWidth, boxHeight] = detection.bbox;
     const left = x * scaleX;
     const top = y * scaleY;
@@ -486,7 +533,8 @@ function drawPreview() {
     resultContext.strokeStyle = "#ffd028";
     resultContext.lineWidth = Math.max(3, canvasWidth / 360);
     resultContext.strokeRect(left, top, renderedWidth, renderedHeight);
-    const label = `객체 ${Math.round(detection.score * 100)}%`;
+    const slotLabel = Number.isInteger(detection.slotIndex) ? ` · ${detection.slotIndex + 1}번` : "";
+    const label = `객체 ${Math.round(detection.score * 100)}%${slotLabel}`;
     const fontSize = Math.max(14, Math.round(canvasWidth / 52));
     resultContext.font = `800 ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
     const labelWidth = resultContext.measureText(label).width + 14;
@@ -500,15 +548,16 @@ function drawPreview() {
 }
 
 function updateResult(elapsed) {
-  const count = state.detections.length;
-  els.vehicleCount.textContent = `${count}개`;
-  els.inferenceTime.textContent = `${Math.round(elapsed)}ms`;
-  setStatus(count > 0 ? `객체 ${count}개를 감지했습니다.` : "감지된 객체가 없습니다.");
-  updateManagementResult(count);
   const { width, height } = sourceDimensions(state.source);
   state.slotResults = state.sourceType === "cctv"
     ? stabilizeCameraSlots(matchCameraSlots(state.detections, state.regions, width, height), state.slotHistory)
     : [];
+  state.matchedDetections = matchedCameraDetections(state.detections, state.slotResults);
+  const count = state.matchedDetections.length;
+  els.vehicleCount.textContent = `${count}개`;
+  els.inferenceTime.textContent = `${Math.round(elapsed)}ms`;
+  setStatus(count > 0 ? `주차칸 안의 객체 ${count}개를 감지했습니다.` : "주차칸 안에 감지된 객체가 없습니다.");
+  updateManagementResult(count);
   if (state.slotResults.length) {
     const occupied = state.slotResults.filter((slot) => slot.status === "occupied").length;
     const available = state.slotResults.filter((slot) => slot.status === "empty").length;
@@ -531,7 +580,7 @@ function updateResult(elapsed) {
     slotResults: state.slotResults,
     image: { width, height },
     count,
-    detections: state.detections.map((detection) => ({
+    detections: state.matchedDetections.map((detection) => ({
       score: Number(detection.score.toFixed(6)),
       bboxNormalized: [
         detection.bbox[0] / width,
@@ -556,6 +605,7 @@ function prepareForNewSource() {
   state.running = false;
   state.runId += 1;
   state.detections = [];
+  state.matchedDetections = [];
   state.slotResults = [];
   state.slotHistory.clear();
   cancelAnimationFrame(state.previewFrame);

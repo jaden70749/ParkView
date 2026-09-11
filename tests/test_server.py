@@ -57,6 +57,7 @@ class PublicRelayTests(unittest.TestCase):
             self.assertEqual(self.request("GET", "/api/camera/preview")[0], 401)
             self.assertEqual(self.request("POST", "/api/gemini/generate")[0], 401)
             self.assertEqual(self.request("POST", "/api/camera/configure")[0], 401)
+            self.assertEqual(self.request("POST", "/api/regions/auto")[0], 401)
 
     def test_authenticated_preview_and_public_health_still_work(self):
         with mock.patch.object(server, "ADMIN_TOKEN_CONFIGURED", True), mock.patch.object(
@@ -137,6 +138,70 @@ class RegionMatchingTests(unittest.TestCase):
         self.assertFalse(ready)
         self.assertEqual(results, [])
         self.assertEqual(strategy, "missing_homography_calibration")
+
+    def test_automatic_regions_project_every_plan_slot_inside_camera_outline(self):
+        plan_slots = [
+            {"kind": "normal", "x": 0, "y": 0, "w": 20, "h": 40, "rotation": 0},
+            {"kind": "disabled", "x": 80, "y": 60, "w": 20, "h": 40, "rotation": 0},
+        ]
+        projected = server.project_plan_slots_to_camera(
+            plan_slots,
+            [[0.2, 0.2], [0.8, 0.25], [0.75, 0.9], [0.15, 0.85]],
+            "1F",
+        )
+
+        self.assertEqual(len(projected), 2)
+        self.assertEqual([slot["kind"] for slot in projected], ["normal", "disabled"])
+        self.assertLess(
+            np.mean([point[0] for point in projected[0]["polygon"]]),
+            np.mean([point[0] for point in projected[1]["polygon"]]),
+        )
+        self.assertTrue(
+            all(0 <= coordinate <= 1 for slot in projected for point in slot["polygon"] for coordinate in point)
+        )
+
+    def test_existing_registered_regions_are_reused_as_automatic_outline(self):
+        existing = {
+            "coordinate_system": "normalized_camera_image",
+            "lot_id": "lot-1",
+            "floor_id": "1F",
+            "slots": [
+                {
+                    "polygon": [[0.2, 0.2], [0.8, 0.2], [0.8, 0.9], [0.2, 0.9]],
+                    "slot_index": 0,
+                }
+            ],
+        }
+        payload = {
+            "lot_id": "lot-1",
+            "floor_id": "1F",
+            "slots": [
+                {"kind": "normal", "x": 0, "y": 0, "w": 40, "h": 100},
+                {"kind": "normal", "x": 60, "y": 0, "w": 40, "h": 100},
+            ],
+        }
+
+        result = server.build_auto_region_config(payload, existing)
+
+        self.assertTrue(result["auto_generated"])
+        self.assertEqual(result["auto_source"], "existing_outline")
+        self.assertEqual(len(result["slots"]), 2)
+
+    def test_only_detections_matched_to_a_parking_slot_are_returned(self):
+        detections = [
+            {"source_class": "person", "score": 0.95},
+            {"source_class": "chair", "score": 0.9},
+        ]
+        slots = [
+            {"slot_index": 0, "status": "occupied", "matched_detection": 1},
+            {"slot_index": 1, "status": "empty", "matched_detection": None},
+        ]
+
+        matched, remapped = server.matched_detection_payload(detections, slots)
+
+        self.assertEqual(matched, [detections[1]])
+        self.assertEqual(remapped[0]["matched_detection"], 0)
+        self.assertIsNone(remapped[1]["matched_detection"])
 
 
 class StabilityTests(unittest.TestCase):

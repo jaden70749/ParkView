@@ -137,14 +137,42 @@ export function matchCameraSlots(detections, config, width, height) {
   const slots = config.slots.filter((slot) => Array.isArray(slot.polygon)
     && slot.polygon.length >= 3 && slot.polygon.every((point) => Array.isArray(point)
       && point.length === 2 && point.every((value) => Number.isFinite(value) && value >= 0 && value <= 1)));
-  return slots.map((slot) => {
-    const occupied = detections.some(({ bbox }) => {
-      if (!bbox?.every(Number.isFinite)) return false;
-      const [x, y, w, h] = bbox;
-      return pointInsidePolygon([(x + w / 2) / width, (y + h / 2) / height], slot.polygon);
+  const candidates = [];
+  detections.forEach((detection, detectionIndex) => {
+    if (!detection.bbox?.every(Number.isFinite)) return;
+    const [x, y, w, h] = detection.bbox;
+    const center = [(x + w / 2) / width, (y + h / 2) / height];
+    slots.forEach((slot, slotIndex) => {
+      if (pointInsidePolygon(center, slot.polygon)) {
+        candidates.push({ detectionIndex, slotIndex, score: Number(detection.score) || 0 });
+      }
     });
-    return { ...slot, status: occupied ? "occupied" : "empty" };
   });
+  candidates.sort((a, b) => b.score - a.score);
+  const usedDetections = new Set();
+  const usedSlots = new Set();
+  const matched = new Map();
+  candidates.forEach(({ detectionIndex, slotIndex }) => {
+    if (usedDetections.has(detectionIndex) || usedSlots.has(slotIndex)) return;
+    usedDetections.add(detectionIndex);
+    usedSlots.add(slotIndex);
+    matched.set(slotIndex, detectionIndex);
+  });
+  return slots.map((slot, slotIndex) => ({
+    ...slot,
+    matched_detection: matched.has(slotIndex) ? matched.get(slotIndex) : null,
+    status: matched.has(slotIndex) ? "occupied" : "empty"
+  }));
+}
+
+export function matchedCameraDetections(detections, slotResults) {
+  const indexes = new Set((slotResults || [])
+    .map((slot) => slot.matched_detection)
+    .filter((index) => Number.isInteger(index) && index >= 0 && index < detections.length));
+  return [...indexes].sort((a, b) => a - b).map((index) => ({
+    ...detections[index],
+    slotIndex: Number(slotResults.find((slot) => slot.matched_detection === index)?.slot_index)
+  }));
 }
 
 function pointInsidePolygon([x, y], polygon) {

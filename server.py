@@ -8,6 +8,7 @@ import hmac
 import io
 import ipaddress
 import json
+import math
 import os
 import socket
 import threading
@@ -295,6 +296,221 @@ def clamp01(value: float) -> float:
     return max(0.0, min(1.0, value))
 
 
+def order_camera_quad(points: list[list[float]]) -> list[list[float]]:
+    """Return points in top-left, top-right, bottom-right, bottom-left order."""
+    if not valid_quad(points):
+        raise ValueError("주차장 외곽선은 네 점이어야 합니다")
+    source = np.asarray(points, dtype=np.float32)
+    sums = source.sum(axis=1)
+    differences = np.diff(source, axis=1).reshape(-1)
+    ordered = np.asarray(
+        [
+            source[np.argmin(sums)],
+            source[np.argmin(differences)],
+            source[np.argmax(sums)],
+            source[np.argmax(differences)],
+        ],
+        dtype=np.float32,
+    )
+    if len({tuple(point) for point in ordered.tolist()}) != 4:
+        raise ValueError("주차장 외곽선의 네 점이 서로 달라야 합니다")
+    if abs(cv2.contourArea(ordered)) < 0.002:
+        raise ValueError("자동 좌표를 만들기에는 주차장 영역이 너무 작습니다")
+    return [[float(x), float(y)] for x, y in ordered]
+
+
+def plan_slot_corners(slot: dict[str, Any]) -> list[list[float]]:
+    try:
+        x = float(slot["x"])
+        y = float(slot["y"])
+        width = float(slot["w"])
+        height = float(slot["h"])
+        rotation = math.radians(float(slot.get("rotation", 0)))
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("도면 주차칸 좌표 형식이 올바르지 않습니다") from error
+    if not all(math.isfinite(value) for value in (x, y, width, height, rotation)):
+        raise ValueError("도면 주차칸 좌표에 유효하지 않은 값이 있습니다")
+    if width <= 0 or height <= 0:
+        raise ValueError("도면 주차칸의 너비와 높이는 0보다 커야 합니다")
+    center_x = x + width / 2
+    center_y = y + height / 2
+    cosine = math.cos(rotation)
+    sine = math.sin(rotation)
+    corners = []
+    for offset_x, offset_y in (
+        (-width / 2, -height / 2),
+        (width / 2, -height / 2),
+        (width / 2, height / 2),
+        (-width / 2, height / 2),
+    ):
+        corners.append(
+            [
+                center_x + offset_x * cosine - offset_y * sine,
+                center_y + offset_x * sine + offset_y * cosine,
+            ]
+        )
+    return corners
+
+
+def project_plan_slots_to_camera(
+    plan_slots: list[dict[str, Any]],
+    camera_quad: list[list[float]],
+    floor_id: str,
+) -> list[dict[str, Any]]:
+    if not isinstance(plan_slots, list) or not 1 <= len(plan_slots) <= 240:
+        raise ValueError("자동 지정할 도면 주차칸은 1~240개여야 합니다")
+    all_corners = [plan_slot_corners(slot) for slot in plan_slots]
+    flattened = np.asarray(
+        [point for corners in all_corners for point in corners], dtype=np.float32
+    )
+    minimum_x, minimum_y = flattened.min(axis=0)
+    maximum_x, maximum_y = flattened.max(axis=0)
+    if maximum_x - minimum_x <= 0 or maximum_y - minimum_y <= 0:
+        raise ValueError("도면 주차칸 영역을 계산할 수 없습니다")
+    plan_quad = np.float32(
+        [
+            [minimum_x, minimum_y],
+            [maximum_x, minimum_y],
+            [maximum_x, maximum_y],
+            [minimum_x, maximum_y],
+        ]
+    )
+    matrix = cv2.getPerspectiveTransform(
+        plan_quad, np.float32(order_camera_quad(camera_quad))
+    )
+    projected = []
+    safe_floor_id = str(floor_id or "floor")
+    for index, (slot, corners) in enumerate(zip(plan_slots, all_corners)):
+        transformed = cv2.perspectiveTransform(np.float32([corners]), matrix)[0]
+        polygon = [
+            [round(clamp01(float(point[0])), 6), round(clamp01(float(point[1])), 6)]
+            for point in transformed
+        ]
+        projected.append(
+            {
+                "id": f"{safe_floor_id}-{index + 1:03d}",
+                "slot_index": index,
+                "kind": str(slot.get("kind", "normal")),
+                "polygon": polygon,
+            }
+        )
+    return projected
+
+
+def detect_parking_grid_quad(image_bytes: bytes) -> list[list[float]]:
+    """Estimate the miniature parking-board bounds from connected dark tape."""
+    encoded = np.frombuffer(image_bytes, dtype=np.uint8)
+    image = cv2.imdecode(encoded, cv2.IMREAD_GRAYSCALE)
+    if image is None or min(image.shape[:2]) < 64:
+        raise ValueError("CCTV 화면에서 주차장 영역을 읽지 못했습니다")
+    height, width = image.shape[:2]
+    scale = min(1.0, 900 / max(width, height))
+    if scale < 1:
+        image = cv2.resize(
+            image,
+            (round(width * scale), round(height * scale)),
+            interpolation=cv2.INTER_AREA,
+        )
+    small_height, small_width = image.shape[:2]
+    dark_limit = int(np.clip(np.percentile(image, 12), 28, 85))
+    mask = cv2.inRange(image, 0, dark_limit)
+    mask = cv2.morphologyEx(
+        mask, cv2.MORPH_CLOSE, np.ones((3, 3), dtype=np.uint8), iterations=2
+    )
+    count, _, stats, centroids = cv2.connectedComponentsWithStats(mask, 8)
+    points = []
+    frame_area = small_width * small_height
+    for label in range(1, count):
+        x, y, component_width, component_height, area = stats[label]
+        center_x, center_y = centroids[label]
+        if area < frame_area * 0.00035:
+            continue
+        if not (small_width * 0.16 <= center_x <= small_width * 0.84):
+            continue
+        if not (small_height * 0.14 <= center_y <= small_height * 0.96):
+            continue
+        if max(component_width, component_height) < min(small_width, small_height) * 0.055:
+            continue
+        points.extend(
+            [
+                [x, y],
+                [x + component_width, y],
+                [x + component_width, y + component_height],
+                [x, y + component_height],
+            ]
+        )
+    if len(points) < 4:
+        raise ValueError("CCTV 화면에서 주차선 외곽을 자동으로 찾지 못했습니다")
+    rectangle = cv2.minAreaRect(np.asarray(points, dtype=np.float32))
+    box = cv2.boxPoints(rectangle)
+    normalized = [[float(x / small_width), float(y / small_height)] for x, y in box]
+    return order_camera_quad(normalized)
+
+
+def outline_from_region_config(config: dict[str, Any]) -> list[list[float]] | None:
+    configured_outline = config.get("camera_outline")
+    if valid_quad(configured_outline):
+        return order_camera_quad(configured_outline)
+    region_points = [
+        point
+        for slot in config.get("slots", [])
+        if isinstance(slot, dict) and valid_polygon(slot.get("polygon"))
+        for point in slot["polygon"]
+    ]
+    if len(region_points) < 4:
+        return None
+    points = np.asarray(region_points, dtype=np.float32)
+    sums = points.sum(axis=1)
+    differences = np.diff(points, axis=1).reshape(-1)
+    outline = [
+        points[np.argmin(sums)].tolist(),
+        points[np.argmin(differences)].tolist(),
+        points[np.argmax(sums)].tolist(),
+        points[np.argmax(differences)].tolist(),
+    ]
+    try:
+        return order_camera_quad(outline)
+    except ValueError:
+        return None
+
+
+def build_auto_region_config(
+    payload: dict[str, Any],
+    existing_config: dict[str, Any],
+    image_bytes: bytes | None = None,
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("자동 좌표 요청 형식이 올바르지 않습니다")
+    plan_slots = payload.get("slots")
+    lot_id = str(payload.get("lot_id", "")).strip()
+    floor_id = str(payload.get("floor_id", "")).strip()
+    if not lot_id or not floor_id:
+        raise ValueError("주차장과 층 정보가 필요합니다")
+    matching_context = (
+        existing_config.get("lot_id") in (None, lot_id)
+        and existing_config.get("floor_id") in (None, floor_id)
+    )
+    existing_outline = outline_from_region_config(existing_config) if matching_context else None
+    if existing_outline:
+        camera_quad = existing_outline
+        source = "existing_outline"
+    else:
+        if not image_bytes:
+            raise ValueError("자동 좌표 지정을 위한 CCTV 화면이 필요합니다")
+        camera_quad = detect_parking_grid_quad(image_bytes)
+        source = "camera_grid"
+    slots = project_plan_slots_to_camera(plan_slots, camera_quad, floor_id)
+    return {
+        "coordinate_system": "normalized_camera_image",
+        "lot_id": lot_id,
+        "floor_id": floor_id,
+        "auto_generated": True,
+        "auto_source": source,
+        "camera_outline": order_camera_quad(camera_quad),
+        "slots": slots,
+    }
+
+
 def calibration_matrix(config: dict[str, Any]) -> np.ndarray | None:
     if config.get("coordinate_system") != "normalized_plan":
         return None
@@ -396,6 +612,29 @@ def detection_class_enabled(source_class: str) -> bool:
     return not DETECTION_CLASSES or source_class.lower() in DETECTION_CLASSES
 
 
+def matched_detection_payload(
+    detections: list[dict[str, Any]], slot_results: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    matched_indexes = sorted(
+        {
+            slot["matched_detection"]
+            for slot in slot_results
+            if isinstance(slot.get("matched_detection"), int)
+            and 0 <= slot["matched_detection"] < len(detections)
+        }
+    )
+    index_map = {source_index: index for index, source_index in enumerate(matched_indexes)}
+    matched_detections = [detections[index] for index in matched_indexes]
+    remapped_slots = [
+        {
+            **slot,
+            "matched_detection": index_map.get(slot.get("matched_detection")),
+        }
+        for slot in slot_results
+    ]
+    return matched_detections, remapped_slots
+
+
 def detect_objects(image_bytes: bytes, debug: bool = False) -> dict[str, Any]:
     image = ImageOps.exif_transpose(
         Image.open(io.BytesIO(image_bytes))
@@ -455,19 +694,16 @@ def detect_objects(image_bytes: bytes, debug: bool = False) -> dict[str, Any]:
     detections.sort(
         key=lambda item: item["score"], reverse=True
     )
-    print(f"DETECTION_COUNT {len(detections)}", flush=True)
-    for index, detection in enumerate(detections):
-        print(
-            f"DETECTION index={index} "
-            f"class={detection['source_class']} "
-            f"confidence={detection['score']:.4f} "
-            f"bbox={detection['bbox']}",
-            flush=True,
-        )
-
     config = load_region_config()
     slot_results, mapping_ready, mapping_strategy = (
         match_detections_to_regions(detections, config)
+    )
+    matched_detections, slot_results = matched_detection_payload(
+        detections, slot_results
+    )
+    print(
+        f"YOLO_RAW_COUNT {len(detections)} MATCHED_PARKING_OBJECTS {len(matched_detections)}",
+        flush=True,
     )
     for slot in slot_results:
         print(
@@ -484,7 +720,7 @@ def detect_objects(image_bytes: bytes, debug: bool = False) -> dict[str, Any]:
         "site_id": SITE_ID,
         "lot_id": config.get("lot_id"),
         "calibration_floor_id": config.get("floor_id"),
-        "floor_id": FLOOR_ID,
+        "floor_id": config.get("floor_id") or FLOOR_ID,
         "model": MODEL_PATH.name,
         "strategy": "yolo_object_occupancy",
         "settings": {
@@ -497,8 +733,8 @@ def detect_objects(image_bytes: bytes, debug: bool = False) -> dict[str, Any]:
             "height": height,
             "bytes": len(image_bytes),
         },
-        "count": len(detections),
-        "detections": detections,
+        "count": len(matched_detections),
+        "detections": matched_detections,
         "mapping_ready": mapping_ready,
         "mapping_strategy": mapping_strategy,
         "slot_results": slot_results,
@@ -1035,6 +1271,22 @@ def save_regions(
     }
 
 
+def save_auto_regions(payload: dict[str, Any]) -> dict[str, Any]:
+    existing = load_region_config()
+    matching_context = (
+        existing.get("lot_id") in (None, payload.get("lot_id"))
+        and existing.get("floor_id") in (None, payload.get("floor_id"))
+    )
+    needs_frame = not (matching_context and outline_from_region_config(existing))
+    config = build_auto_region_config(
+        payload,
+        existing,
+        worker.preview_frame() if needs_frame else None,
+    )
+    save_regions(config)
+    return load_region_config()
+
+
 class ParkViewHandler(SimpleHTTPRequestHandler):
     def __init__(
         self, *args: Any, **kwargs: Any
@@ -1198,6 +1450,17 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
                 self.send_json(
                     HTTPStatus.OK,
                     save_regions(payload),
+                )
+                return
+            if path == "/api/regions/auto":
+                if not self.require_admin():
+                    return
+                payload = json.loads(
+                    self.read_body(MAX_JSON_BYTES).decode("utf-8")
+                )
+                self.send_json(
+                    HTTPStatus.OK,
+                    save_auto_regions(payload),
                 )
                 return
             self.send_json(

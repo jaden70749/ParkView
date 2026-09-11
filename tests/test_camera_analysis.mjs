@@ -9,6 +9,7 @@ import {
   imageDataToTensorData,
   intersectionOverUnion,
   matchCameraSlots,
+  matchedCameraDetections,
   stabilizeCameraSlots
 } from "../camera-analysis-core.js";
 
@@ -30,8 +31,16 @@ test("camera polygons map any YOLO object to the occupied bay without counting t
     { id: "left", slot_index: 0, polygon: [[0, 0], [0.5, 0], [0.5, 1], [0, 1]] },
     { id: "right", slot_index: 1, polygon: [[0.5, 0], [1, 0], [1, 1], [0.5, 1]] }
   ] };
-  const results = matchCameraSlots([{ classIndex: 0, bbox: [650, 100, 200, 300] }], config, 1000, 500);
+  const detections = [
+    { classIndex: 0, score: 0.99, bbox: [650, 100, 200, 300] },
+    { classIndex: 56, score: 0.95, bbox: [1100, 100, 100, 100] }
+  ];
+  const results = matchCameraSlots(detections, config, 1000, 500);
   assert.deepEqual(results.map((slot) => slot.status), ["empty", "occupied"]);
+  assert.equal(results[1].matched_detection, 0);
+  assert.deepEqual(matchedCameraDetections(detections, results), [
+    { ...detections[0], slotIndex: 1 }
+  ]);
   assert.deepEqual(matchCameraSlots([], null, 1000, 500), []);
   assert.deepEqual(matchCameraSlots([], { ...config, coordinate_system: "normalized_plan" }, 1000, 500), []);
 });
@@ -149,7 +158,8 @@ async function cameraButtonHarness({ relay = true, enteredToken = "", savedToken
   };
   document.querySelector("#cameraAdminToken").value = enteredToken;
   const context = vm.createContext({
-    document, DEFAULT_CONFIDENCE: 0.25, MODEL_INPUT_SIZE: 640, matchCameraSlots, stabilizeCameraSlots,
+    document, DEFAULT_CONFIDENCE: 0.25, MODEL_INPUT_SIZE: 640,
+    matchCameraSlots, matchedCameraDetections, stabilizeCameraSlots,
     window: {
       location: { hostname: "jaden70749.github.io", href: "https://jaden70749.github.io/ParkView/" },
       PARKVIEW_CONFIG: { cameraApiBaseUrl: relay ? "https://odd-areas-move.loca.lt" : "" },
@@ -193,6 +203,29 @@ test("camera button uses the newly entered token even before it is saved", async
   const h = await cameraButtonHarness({ enteredToken: "new-test-token" });
   await h.click();
   assert.equal(h.requests[0].options.headers.Authorization, "Bearer new-test-token");
+});
+
+test("active floor slots are sent to the authenticated automatic coordinate endpoint", async () => {
+  const h = await cameraButtonHarness();
+  h.context.window.PARKVIEW_ACTIVE_FLOOR_CONTEXT = {
+    lotId: "lot-1",
+    floorId: "1F",
+    slots: [
+      { kind: "normal", x: 10, y: 20, w: 8, h: 16, rotation: 0 },
+      { kind: "disabled", x: 30, y: 20, w: 8, h: 16, rotation: 0 }
+    ]
+  };
+
+  await vm.runInContext(
+    'autoRegisterCameraRegions("https://odd-areas-move.loca.lt/api/camera/preview", "saved-test-token")',
+    h.context
+  );
+
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests[0].url, "https://odd-areas-move.loca.lt/api/regions/auto");
+  assert.equal(h.requests[0].options.method, "POST");
+  assert.equal(h.requests[0].options.headers.Authorization, "Bearer saved-test-token");
+  assert.deepEqual(JSON.parse(h.requests[0].options.body).slots, h.context.window.PARKVIEW_ACTIVE_FLOOR_CONTEXT.slots);
 });
 
 test("unauthorized CCTV displays the token setup instruction without starting polling", async () => {

@@ -1745,13 +1745,25 @@ function renderManagement() {
 
 function renderManagementFloor() {
   const calibrationLink = document.querySelector("#cameraCalibrationLink");
+  const floor = state.floors[state.floorIndex];
+  window.PARKVIEW_ACTIVE_FLOOR_CONTEXT = floor ? {
+    lotId: String(state.selectedLot?.id || ""),
+    floorId: floor.name || "B1",
+    slots: floor.slots.map((slot) => ({
+      kind: slot.kind,
+      x: slot.x,
+      y: slot.y,
+      w: slot.w,
+      h: slot.h,
+      rotation: slot.rotation
+    }))
+  } : null;
   if (calibrationLink) {
     const setupUrl = new URL("./calibrate.html", window.location.href);
     setupUrl.searchParams.set("lot_id", String(state.selectedLot?.id || ""));
-    setupUrl.searchParams.set("floor_id", state.floors[state.floorIndex]?.name || "B1");
+    setupUrl.searchParams.set("floor_id", floor?.name || "B1");
     calibrationLink.href = setupUrl.href;
   }
-  const floor = state.floors[state.floorIndex];
   if (!floor) return;
   els.managementFloorName.textContent = floor.name;
   els.managePrevFloor.disabled = state.floorIndex === 0;
