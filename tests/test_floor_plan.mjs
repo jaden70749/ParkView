@@ -265,10 +265,51 @@ test("a wide reference photo prevents a compressed plan and preserves a nine-slo
   assert.equal(floor.slots[8].rowPosition, 8);
 });
 
+test("a portrait reference preserves all nineteen spaces in each long row", () => {
+  const context = loadAppContext();
+  vm.runInContext(`
+    state.planImages = [{ floor: "1F", width: 1200, height: 1600 }];
+    portraitReferencePlan = {
+      floors: [{
+        name: "1F",
+        aspectRatio: 1.2,
+        outline: [{x:4,y:4},{x:96,y:4},{x:96,y:96},{x:4,y:96}],
+        zones: [],
+        elements: [],
+        detectedSlotCount: 76,
+        rows: [15, 38, 62, 85].map((x) => ({
+          startX: x, startY: 6, endX: x, endY: 94,
+          count: 19, w: 4, h: 9, rotation: 90,
+          statuses: Array(19).fill("available"),
+          kinds: Array(19).fill("normal")
+        }))
+      }]
+    };
+  `, context);
+
+  assert.equal(vm.runInContext('floorPlanReferenceAspect("1F")', context), 0.75);
+  const floor = vm.runInContext(
+    'validateGeneratedFloors(portraitReferencePlan, floorPlanReferenceAspect("1F"))[0]',
+    context
+  );
+  assert.equal(floor.aspectRatio, 0.75);
+  assert.equal(floor.slots.length, 76);
+  assert.deepEqual(
+    Array.from({ length: 4 }, (_, rowIndex) => floor.slots.filter((slot) => slot.rowIndex === rowIndex).length),
+    [19, 19, 19, 19]
+  );
+});
+
 test("floor plan prompts preserve a central driving aisle as empty space", () => {
   assert.match(appSource, /화살표가 놓인 넓은 빈 영역은 명백한 중앙 차로/);
   assert.match(appSource, /두 열의 안쪽 경계 사이 간격을 최소 주차칸 깊이만큼/);
   assert.match(appSource, /차로는 주차열 사이의 빈 공간으로만 표현한다/);
+});
+
+test("floor plan prompts count every interval in long parking rows", () => {
+  assert.match(appSource, /경계선이 20개면 count는 19/);
+  assert.match(appSource, /19칸을 15칸으로 둥글리거나/);
+  assert.match(appSource, /세로로 긴 배치는 1보다 작은 비율/);
 });
 
 test("compressed AI coordinates are fitted to the full drawing area", () => {
