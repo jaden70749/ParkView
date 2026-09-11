@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f8c400">
   <title>ParkView CCTV 주차면 등록</title>
-  <link rel="stylesheet" href="./calibrate.css?v=1">
+  <link rel="stylesheet" href="./calibrate.css?v=2">
 </head>
 <body>
   <main class="calibration-shell">
@@ -21,11 +21,21 @@
         <label class="file-button" for="frameFile">사진 선택</label>
         <input id="frameFile" type="file" accept="image/*">
         <button id="cameraFrameButton" class="camera-button" type="button">CCTV 프레임 불러오기</button>
+        <button id="detectButton" class="camera-button" type="button">주차면 자동 감지</button>
+        <button id="reloadRegionsButton" class="file-button" type="button">저장된 좌표 불러오기</button>
       </div>
       <p id="sourceStatus">프레임을 불러오면 등록을 시작합니다.</p>
     </section>
 
     <section class="canvas-section">
+      <div class="kind-control" aria-label="좌표 편집 모드">
+        <button data-mode="add" aria-pressed="true" type="button">추가</button>
+        <button data-mode="edit" aria-pressed="false" type="button">꼭짓점 수정</button>
+      </div>
+      <div class="source-actions">
+        <button id="applyDetectionButton" class="camera-button" type="button" hidden>감지 결과 적용</button>
+        <button id="discardDetectionButton" class="file-button" type="button" hidden>감지 결과 취소</button>
+      </div>
       <div class="canvas-wrap">
         <canvas id="calibrationCanvas" width="1280" height="720"></canvas>
         <p id="canvasPlaceholder">CCTV 사진을 선택하세요</p>
@@ -56,9 +66,17 @@
     <section class="registered-section">
       <div class="section-title"><h2>등록된 주차면</h2><strong id="slotCount">0면</strong></div>
       <div id="slotList" class="slot-list"></div>
+      <details>
+        <summary>모델 학습 자료</summary>
+        <div class="field-row">
+          <label>촬영 그룹<input id="trainingGroup" placeholder="camera-1-day-1" maxlength="80"></label>
+          <label>자료 구분<select id="trainingSplit"><option value="train">학습</option><option value="val">검증</option></select></label>
+        </div>
+        <button id="trainingSampleButton" class="camera-button" type="button">현재 사진·좌표를 학습 자료로 저장</button>
+      </details>
     </section>
   </main>
   <script src="./config.js?v=4"></script>
-  <script src="./calibrate.js?v=2"></script>
+  <script src="./calibrate.js?v=3"></script>
 </body>
 </html>

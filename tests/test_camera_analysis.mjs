@@ -115,8 +115,8 @@ test("device camera analysis is integrated into parking management", async () =>
 test("deployed camera analysis uses the self-hosted WASM runtime", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const buildScript = await readFile(new URL("../scripts/prepare-mobile-web.mjs", import.meta.url), "utf8");
-  assert.match(html, /vendor\/onnxruntime\/ort\.wasm\.min\.js/);
-  assert.match(buildScript, /ort-wasm-simd-threaded\.mjs/);
+  assert.match(html, /vendor\/onnxruntime\/ort\.wasm\.bundle\.js/);
+  assert.match(buildScript, /ort\.wasm\.bundle\.min\.mjs/);
   assert.match(buildScript, /ort-wasm-simd-threaded\.wasm/);
   assert.doesNotMatch(html, /vendor\/onnxruntime\/ort\.min\.js/);
 });
@@ -205,7 +205,7 @@ test("camera button uses the newly entered token even before it is saved", async
   assert.equal(h.requests[0].options.headers.Authorization, "Bearer new-test-token");
 });
 
-test("active floor slots are sent to the authenticated automatic coordinate endpoint", async () => {
+test("loading a floor reads only its coordinates and never automatically overwrites them", async () => {
   const h = await cameraButtonHarness();
   h.context.window.PARKVIEW_ACTIVE_FLOOR_CONTEXT = {
     lotId: "lot-1",
@@ -217,15 +217,14 @@ test("active floor slots are sent to the authenticated automatic coordinate endp
   };
 
   await vm.runInContext(
-    'autoRegisterCameraRegions("https://odd-areas-move.loca.lt/api/camera/preview", "saved-test-token")',
+    'loadCameraRegions("https://odd-areas-move.loca.lt/api/camera/preview", "saved-test-token")',
     h.context
   );
 
   assert.equal(h.requests.length, 1);
-  assert.equal(h.requests[0].url, "https://odd-areas-move.loca.lt/api/regions/auto");
-  assert.equal(h.requests[0].options.method, "POST");
+  assert.equal(h.requests[0].url, "https://odd-areas-move.loca.lt/api/regions?lot_id=lot-1&floor_id=1F");
+  assert.equal(h.requests[0].options.method, undefined);
   assert.equal(h.requests[0].options.headers.Authorization, "Bearer saved-test-token");
-  assert.deepEqual(JSON.parse(h.requests[0].options.body).slots, h.context.window.PARKVIEW_ACTIVE_FLOOR_CONTEXT.slots);
 });
 
 test("unauthorized CCTV displays the token setup instruction without starting polling", async () => {

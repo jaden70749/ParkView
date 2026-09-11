@@ -24,6 +24,14 @@ body {
 
 body { display: grid; place-items: start center; }
 button, input { font: inherit; }
+[hidden] { display: none !important; }
+button:disabled { opacity: 0.5; cursor: wait; }
+select { min-width: 0; height: 42px; font: inherit; background: white; border: 1px solid var(--line); border-radius: 7px; }
+details { margin-top: 16px; }
+summary { padding-block: 12px; cursor: pointer; }
+#trainingSampleButton { width: 100%; margin-top: 12px; }
+.kind-control:has([data-mode]) { grid-template-columns: 1fr 1fr; margin-bottom: 12px; }
+.kind-control button[aria-pressed="true"] { background: var(--brand); color: var(--text); }
 
 .calibration-shell {
   width: min(100%, 620px);

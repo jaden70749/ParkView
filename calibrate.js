@@ -2,10 +2,15 @@ const state = {
   image: null,
   points: [],
   slots: [],
-  kind: "normal"
+  kind: "normal",
+  revision: null,
+  selected: -1,
+  dragging: null,
+  mode: "add",
+  candidates: null
 };
 const setupParams = new URLSearchParams(window.location.search);
-const setupLotId = setupParams.get("lot_id") || "";
+const setupLotId = (setupParams.get("lot_id") || "").trim();
 const cameraBase = String(window.PARKVIEW_CONFIG?.cameraApiBaseUrl || "").trim().replace(/\/+$/, "");
 
 const els = {
@@ -26,6 +31,10 @@ const els = {
   slotCount: document.querySelector("#slotCount"),
   slotList: document.querySelector("#slotList")
 };
+els.detectButton = document.querySelector("#detectButton");
+els.applyDetectionButton = document.querySelector("#applyDetectionButton");
+els.discardDetectionButton = document.querySelector("#discardDetectionButton");
+els.modeButtons = document.querySelectorAll("[data-mode]");
 
 const ctx = els.canvas.getContext("2d");
 
@@ -35,11 +44,14 @@ function currentFloorId() {
 
 document.addEventListener("DOMContentLoaded", () => {
   els.floorId.value = setupParams.get("floor_id") || "B1";
+  els.floorId.readOnly = true;
   bindEvents();
   render();
 });
 
 function bindEvents() {
+  document.querySelector("#trainingSampleButton").addEventListener("click", saveTrainingSample);
+  document.querySelector("#reloadRegionsButton").addEventListener("click", loadRegions);
   els.adminToken.addEventListener("change", loadRegions);
   els.frameFile.addEventListener("change", async () => {
     const file = els.frameFile.files?.[0];
@@ -47,6 +59,26 @@ function bindEvents() {
   });
   els.cameraFrameButton.addEventListener("click", loadCameraFrame);
   els.canvas.addEventListener("pointerdown", addCanvasPoint);
+  els.canvas.addEventListener("pointermove", moveCanvasPoint);
+  els.canvas.addEventListener("pointerup", () => { state.dragging = null; });
+  els.canvas.addEventListener("pointercancel", () => { state.dragging = null; });
+  els.detectButton.addEventListener("click", detectRegions);
+  els.applyDetectionButton.addEventListener("click", () => {
+    state.slots = state.candidates;
+    state.candidates = null;
+    state.points = [];
+    state.selected = -1;
+    els.slotNumber.value = String(state.slots.length + 1);
+    els.saveStatus.textContent = "감지 결과를 적용했습니다. 확인 후 저장해 주세요.";
+    render();
+  });
+  els.discardDetectionButton.addEventListener("click", () => { state.candidates = null; render(); });
+  els.modeButtons.forEach(button => button.addEventListener("click", () => {
+    state.mode = button.dataset.mode;
+    state.points = [];
+    els.modeButtons.forEach(b => b.setAttribute("aria-pressed", String(b === button)));
+    render();
+  }));
   els.kindButtons.forEach((button) => {
     button.addEventListener("click", () => setKind(button.dataset.kind));
   });
@@ -54,6 +86,37 @@ function bindEvents() {
   els.saveButton.addEventListener("click", saveRegions);
   els.floorId.addEventListener("input", updateProgress);
   els.slotNumber.addEventListener("input", updateProgress);
+}
+
+function regionsUrl(path = "/api/regions") {
+  return `${cameraBase}${path}?${new URLSearchParams({ lot_id: setupLotId, floor_id: currentFloorId() })}`;
+}
+
+async function saveTrainingSample() {
+  if (!state.image || !state.slots.length || state.candidates || state.points.length) {
+    els.saveStatus.textContent = "사진과 확정한 주차면 좌표가 필요합니다.";
+    return;
+  }
+  const button = document.querySelector("#trainingSampleButton");
+  button.disabled = true;
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = state.image.naturalWidth;
+    canvas.height = state.image.naturalHeight;
+    canvas.getContext("2d").drawImage(state.image, 0, 0);
+    const response = await fetch(`${cameraBase}/api/regions/training-sample`, {
+      method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ lot_id: setupLotId, floor_id: currentFloorId(), slots: state.slots,
+        group: document.querySelector("#trainingGroup").value.trim(),
+        split: document.querySelector("#trainingSplit").value,
+        image_base64: canvas.toDataURL("image/jpeg", 0.94).split(",")[1] }),
+      signal: AbortSignal.timeout(30000)
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    els.saveStatus.textContent = `사진 1장과 주차면 ${result.count}개를 학습 자료로 저장했습니다.`;
+  } catch (error) { els.saveStatus.textContent = `학습 자료 저장 실패: ${error.message}`; }
+  finally { button.disabled = false; }
 }
 
 function authHeaders(extra = {}) {
@@ -70,7 +133,7 @@ async function loadRegions() {
     return;
   }
   try {
-    const response = await fetch(`${cameraBase}/api/regions`, {
+    const response = await fetch(regionsUrl(), {
       cache: "no-store",
       headers: authHeaders()
     });
@@ -79,9 +142,11 @@ async function loadRegions() {
       throw new Error(payload.error || `HTTP ${response.status}`);
     }
     const payload = await response.json();
-    if (payload.slots?.length && (payload.lot_id !== setupLotId || payload.floor_id !== currentFloorId())) {
-      throw new Error("다른 주차장 또는 층의 주차면이 등록돼 있습니다. 기존 설정을 덮어쓸 수 없습니다.");
-    }
+    state.revision = payload.revision;
+    state.candidates = null;
+    state.points = [];
+    state.selected = null;
+    state.dragging = null;
     state.slots = Array.isArray(payload.slots) ? payload.slots : [];
     const highest = state.slots.reduce(
       (value, slot) => Math.max(value, Number(slot.slot_index) + 1),
@@ -126,6 +191,8 @@ async function loadImageBlob(blob, label) {
       image.src = url;
     });
     state.image = image;
+    state.candidates = null;
+    state.dragging = null;
     state.points = [];
     els.canvas.width = image.naturalWidth;
     els.canvas.height = image.naturalHeight;
@@ -140,6 +207,21 @@ async function loadImageBlob(blob, label) {
 function addCanvasPoint(event) {
   if (!state.image || state.points.length >= 4) return;
   const rect = els.canvas.getBoundingClientRect();
+  if (state.mode === "edit") {
+    let nearest = null;
+    let distance = 22;
+    state.slots.forEach((slot, index) => slot.polygon.forEach(([x, y], vertex) => {
+      const d = Math.hypot(x * rect.width + rect.left - event.clientX, y * rect.height + rect.top - event.clientY);
+      if (d < distance) { distance = d; nearest = { index, vertex }; }
+    }));
+    if (nearest) {
+      state.selected = nearest.index;
+      state.dragging = nearest;
+      els.canvas.setPointerCapture(event.pointerId);
+      render();
+    }
+    return;
+  }
   state.points.push([
     clamp((event.clientX - rect.left) / rect.width, 0, 1),
     clamp((event.clientY - rect.top) / rect.height, 0, 1)
@@ -148,9 +230,55 @@ function addCanvasPoint(event) {
   render();
 }
 
+function moveCanvasPoint(event) {
+  if (!state.dragging) return;
+  const rect = els.canvas.getBoundingClientRect();
+  const { index, vertex } = state.dragging;
+  state.slots[index].polygon[vertex] = [
+    round(clamp((event.clientX - rect.left) / rect.width, 0, 1)),
+    round(clamp((event.clientY - rect.top) / rect.height, 0, 1))
+  ];
+  drawCanvas();
+}
+
+async function detectRegions() {
+  if (!state.image || !els.adminToken.value.trim() || !setupLotId) {
+    els.saveStatus.textContent = "주차장 정보, 관리자 토큰과 CCTV 이미지가 필요합니다.";
+    return;
+  }
+  els.detectButton.disabled = true;
+  const sourceImage = state.image;
+  els.saveStatus.textContent = "주차면 감지 중...";
+  try {
+    const imageCanvas = document.createElement("canvas");
+    imageCanvas.width = state.image.naturalWidth;
+    imageCanvas.height = state.image.naturalHeight;
+    imageCanvas.getContext("2d").drawImage(state.image, 0, 0);
+    const blob = await new Promise(resolve => imageCanvas.toBlob(resolve, "image/jpeg", 0.94));
+    const response = await fetch(regionsUrl("/api/regions/detect"), {
+      method: "POST", headers: authHeaders({ "Content-Type": "image/jpeg" }), body: blob,
+      signal: AbortSignal.timeout(120000)
+    });
+    const result = await response.json();
+    if (state.image !== sourceImage) throw new Error("이미지가 변경되었습니다. 새 이미지에서 다시 감지해 주세요.");
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    if (!result.slots?.length) throw new Error("감지된 주차면이 없습니다. 기존 좌표는 유지됩니다.");
+    state.candidates = result.slots;
+    els.saveStatus.textContent = `${result.slots.length}면 감지됨. 적용하면 현재 편집 중인 좌표를 대체합니다.`;
+    render();
+  } catch (error) {
+    els.saveStatus.textContent = `자동 감지 실패: ${error.message}`;
+  } finally { els.detectButton.disabled = false; }
+}
+
 function addCompletedSlot() {
   const slotNumber = Math.max(1, Number(els.slotNumber.value) || 1);
   const floor = currentFloorId();
+  if (state.slots.some(slot => slot.slot_index === slotNumber - 1)) {
+    state.points = [];
+    els.saveStatus.textContent = "이미 사용 중인 주차면 번호입니다.";
+    return;
+  }
   state.slots.push({
     id: `${floor}-${String(slotNumber).padStart(3, "0")}`,
     slot_index: slotNumber - 1,
@@ -164,12 +292,18 @@ function addCompletedSlot() {
 
 function setKind(kind) {
   state.kind = kind;
+  if (state.mode === "edit" && state.slots[state.selected]) {
+    state.slots[state.selected].kind = kind;
+    render();
+  }
   els.kindButtons.forEach((button) => {
     button.classList.toggle("active", button.dataset.kind === kind);
   });
 }
 
 function undoLast() {
+  state.selected = null;
+  state.dragging = null;
   if (state.points.length > 0) {
     state.points.pop();
   } else if (state.slots.length > 0) {
@@ -189,31 +323,30 @@ async function saveRegions() {
     els.saveStatus.textContent = "관리자 토큰을 입력하세요.";
     return;
   }
-  if (state.slots.length === 0) {
-    els.saveStatus.textContent = "저장할 주차면이 없습니다.";
+  if (state.points.length || state.candidates) {
+    els.saveStatus.textContent = "편집 중인 주차면이나 감지 결과를 먼저 확정해 주세요.";
     return;
   }
   els.saveButton.disabled = true;
   els.saveStatus.textContent = "주차면 좌표를 저장하는 중입니다...";
   try {
-    const existingResponse = await fetch(`${cameraBase}/api/regions`, { cache: "no-store", headers: authHeaders() });
-    if (!existingResponse.ok) throw new Error("기존 주차면을 확인할 수 없습니다.");
-    const existing = await existingResponse.json();
-    if (existing.slots?.length && (existing.lot_id !== setupLotId || existing.floor_id !== currentFloorId())) {
-      throw new Error("다른 주차장 또는 층의 설정이 있어 덮어쓸 수 없습니다.");
-    }
+    if (!state.revision) throw new Error("관리자 토큰을 입력해 기존 좌표를 먼저 불러와 주세요.");
     const response = await fetch(`${cameraBase}/api/regions`, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         coordinate_system: "normalized_camera_image",
+        occupancy_strategy: "polygon_overlap",
+        occupancy_threshold: 0.3,
         lot_id: setupLotId,
         floor_id: currentFloorId(),
+        expected_revision: state.revision,
         slots: state.slots
       })
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.revision = payload.revision;
     els.saveStatus.textContent = `${payload.count}개 주차면을 저장했습니다. 원래 화면에서 카메라 연결을 다시 눌러 적용하세요.`;
   } catch (error) {
     els.saveStatus.textContent = `저장 실패: ${error.message}`;
@@ -224,11 +357,14 @@ async function saveRegions() {
 
 function deleteSlot(index) {
   const [removed] = state.slots.splice(index, 1);
+  state.selected = -1;
   els.saveStatus.textContent = `${removed.id} 주차면을 목록에서 지웠습니다. 저장해야 반영됩니다.`;
   render();
 }
 
 function render() {
+  els.applyDetectionButton.hidden = !state.candidates;
+  els.discardDetectionButton.hidden = !state.candidates;
   drawCanvas();
   updateProgress();
   renderSlotList();
@@ -242,8 +378,8 @@ function drawCanvas() {
     return;
   }
   ctx.drawImage(state.image, 0, 0, els.canvas.width, els.canvas.height);
-  state.slots.forEach((slot) => {
-    drawPolygon(slot.polygon, colorForKind(slot.kind), slot.slot_index + 1);
+  (state.candidates || state.slots).forEach((slot, index) => {
+    drawPolygon(slot.polygon, state.candidates ? "#f8c400" : index === state.selected ? "#f8c400" : colorForKind(slot.kind), slot.slot_index + 1);
   });
   if (state.points.length > 0) drawPolygon(state.points, "#f8c400", null, false);
 }
@@ -302,6 +438,18 @@ function renderSlotList() {
     const detail = document.createElement("span");
     detail.textContent = `${kindLabel(slot.kind)} · 도면 ${slot.slot_index + 1}번`;
     copy.append(title, detail);
+    copy.tabIndex = 0;
+    copy.setAttribute("role", "button");
+    copy.setAttribute("aria-label", `${slot.id} 수정`);
+    const select = () => {
+      state.selected = index;
+      state.mode = "edit";
+      state.points = [];
+      els.modeButtons.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === "edit")));
+      drawCanvas();
+    };
+    copy.addEventListener("click", select);
+    copy.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); } });
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.setAttribute("aria-label", `${slot.id} 삭제`);

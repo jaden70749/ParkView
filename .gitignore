@@ -8,3 +8,5 @@ backups/
 .codex-stage/
 node_modules/
 dist/
+datasets/
+runs/

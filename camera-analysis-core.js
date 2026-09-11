@@ -143,8 +143,12 @@ export function matchCameraSlots(detections, config, width, height) {
     const [x, y, w, h] = detection.bbox;
     const center = [(x + w / 2) / width, (y + h / 2) / height];
     slots.forEach((slot, slotIndex) => {
-      if (pointInsidePolygon(center, slot.polygon)) {
-        candidates.push({ detectionIndex, slotIndex, score: Number(detection.score) || 0 });
+      const overlap = polygonBoxOverlap(slot.polygon, [x / width, y / height, w / width, h / height]);
+      const matches = config.occupancy_strategy === "polygon_overlap"
+        ? overlap >= (config.occupancy_threshold ?? 0.3)
+        : pointInsidePolygon(center, slot.polygon);
+      if (matches) {
+        candidates.push({ detectionIndex, slotIndex, score: (Number(detection.score) || 0) * overlap, overlap });
       }
     });
   });
@@ -161,8 +165,34 @@ export function matchCameraSlots(detections, config, width, height) {
   return slots.map((slot, slotIndex) => ({
     ...slot,
     matched_detection: matched.has(slotIndex) ? matched.get(slotIndex) : null,
+    occupied: matched.has(slotIndex) ? 1 : 0,
     status: matched.has(slotIndex) ? "occupied" : "empty"
   }));
+}
+
+export function polygonBoxOverlap(polygon, [x, y, width, height]) {
+  const area = points => Math.abs(points.reduce((sum, p, i) => {
+    const q = points[(i + 1) % points.length];
+    return sum + p[0] * q[1] - q[0] * p[1];
+  }, 0)) / 2;
+  const originalArea = area(polygon);
+  if (!originalArea || width <= 0 || height <= 0) return 0;
+  let clipped = polygon;
+  for (const [axis, boundary, sign] of [[0, x, 1], [0, x + width, -1], [1, y, 1], [1, y + height, -1]]) {
+    const output = [];
+    clipped.forEach((point, index) => {
+      const previous = clipped[(index + clipped.length - 1) % clipped.length];
+      const inside = sign * (point[axis] - boundary) >= 0;
+      const previousInside = sign * (previous[axis] - boundary) >= 0;
+      if (inside !== previousInside) {
+        const t = (boundary - previous[axis]) / (point[axis] - previous[axis]);
+        output.push(previous.map((v, j) => v + t * (point[j] - v)));
+      }
+      if (inside) output.push(point);
+    });
+    clipped = output;
+  }
+  return Math.min(1, area(clipped) / Math.min(originalArea, width * height));
 }
 
 export function matchedCameraDetections(detections, slotResults) {
@@ -195,6 +225,6 @@ export function stabilizeCameraSlots(results, history, confirmations = 3) {
     const status = slot.status === "occupied" ? "occupied"
       : emptyCount >= confirmations ? "empty" : previous.status;
     history.set(slot.id, { status, emptyCount });
-    return { ...slot, status };
+    return { ...slot, status, occupied: status === "unknown" ? null : Number(status === "occupied") };
   });
 }

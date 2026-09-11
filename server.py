@@ -54,6 +54,9 @@ def load_environment_file(path: Path) -> None:
 
 load_environment_file(ROOT / ".env")
 
+import region_store
+import parking_segmentation
+
 MODEL_PATH = Path(
     os.environ.get("PARKVIEW_MODEL_PATH", ROOT / "models" / "yolov5su.pt")
 ).expanduser()
@@ -132,9 +135,9 @@ def allowed_origin_values() -> tuple[str, ...]:
     )
     values = []
     for item in str(raw).split(","):
-        value = item.strip()
-        if value:
-            values.append(value)
+        parsed = urllib.parse.urlsplit(item.strip())
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            values.append(f"{parsed.scheme.lower()}://{parsed.netloc.lower()}")
     if not values:
         values = ["https://jaden70749.github.io"]
     return tuple(values)
@@ -234,15 +237,8 @@ def ensure_debug_directory() -> None:
         (DEBUG_DIR / "slot_crops").mkdir(parents=True, exist_ok=True)
 
 
-def load_region_config() -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "coordinate_system": "normalized_camera_image",
-        "slots": [],
-    }
-    if REGIONS_PATH.exists():
-        loaded = json.loads(REGIONS_PATH.read_text(encoding="utf-8"))
-        if isinstance(loaded, dict):
-            payload.update(loaded)
+def load_region_config(lot_id=None, floor_id=None) -> dict[str, Any]:
+    payload = region_store.load(REGIONS_PATH, lot_id, floor_id)
 
     regions = []
     for index, slot in enumerate(payload.get("slots", [])):
@@ -541,6 +537,28 @@ def point_in_polygon(
     return cv2.pointPolygonTest(contour, point, False) >= 0
 
 
+def polygon_box_overlap(polygon, box):
+    x, y, width, height = box
+    original = abs(cv2.contourArea(np.asarray(polygon, dtype=np.float32)))
+    if not original or width <= 0 or height <= 0:
+        return 0.0
+    clipped = polygon
+    for axis, boundary, sign in [(0, x, 1), (0, x + width, -1), (1, y, 1), (1, y + height, -1)]:
+        output = []
+        for i, point in enumerate(clipped):
+            previous = clipped[i - 1]
+            inside = sign * (point[axis] - boundary) >= 0
+            previous_inside = sign * (previous[axis] - boundary) >= 0
+            if inside != previous_inside:
+                t = (boundary - previous[axis]) / (point[axis] - previous[axis])
+                output.append([previous[j] + t * (point[j] - previous[j]) for j in range(2)])
+            if inside:
+                output.append(point)
+        clipped = output
+    area = abs(cv2.contourArea(np.asarray(clipped, dtype=np.float32))) if len(clipped) >= 3 else 0
+    return min(1.0, area / min(original, width * height))
+
+
 def match_detections_to_regions(
     detections: list[dict[str, Any]], config: dict[str, Any]
 ) -> tuple[list[dict[str, Any]], bool, str]:
@@ -568,9 +586,12 @@ def match_detections_to_regions(
             round(match_point[1], 6),
         ]
         for region_index, region in enumerate(regions):
-            if point_in_polygon(match_point, region["polygon"]):
+            overlap_mode = config.get("occupancy_strategy") == "polygon_overlap" and matrix is None
+            overlap = polygon_box_overlap(region["polygon"], detection["bbox_normalized"]) if overlap_mode else 1.0
+            matches = overlap >= config.get("occupancy_threshold", 0.3) if overlap_mode else point_in_polygon(match_point, region["polygon"])
+            if matches:
                 candidates.append(
-                    (detection["score"], detection_index, region_index)
+                    (detection["score"] * overlap, detection_index, region_index)
                 )
 
     candidates.sort(reverse=True)
@@ -594,10 +615,11 @@ def match_detections_to_regions(
                     "occupied" if detection_index is not None else "empty"
                 ),
                 "matched_detection": detection_index,
+                "occupied": int(detection_index is not None),
                 "strategy": (
                     "homography_center"
                     if matrix is not None
-                    else "camera_polygon_center"
+                    else "polygon_overlap" if config.get("occupancy_strategy") == "polygon_overlap" else "camera_polygon_center"
                 ),
             }
         )
@@ -720,6 +742,7 @@ def detect_objects(image_bytes: bytes, debug: bool = False) -> dict[str, Any]:
         "site_id": SITE_ID,
         "lot_id": config.get("lot_id"),
         "calibration_floor_id": config.get("floor_id"),
+        "calibration_revision": config.get("revision"),
         "floor_id": config.get("floor_id") or FLOOR_ID,
         "model": MODEL_PATH.name,
         "strategy": "yolo_object_occupancy",
@@ -1141,7 +1164,12 @@ class AnalysisWorker:
             payload = detect_objects(
                 image_bytes, debug=True
             )
-            payload["floor_id"] = self._floor_id
+            payload["floor_id"] = payload.get("calibration_floor_id") or self._floor_id
+            context = (payload.get("lot_id"), payload["floor_id"], payload.get("calibration_revision"))
+            if getattr(self, "_stabilization_context", None) != context:
+                self._stable_status.clear()
+                self._empty_streak.clear()
+                self._stabilization_context = context
             payload["slot_results"] = self._stabilize(
                 payload["slot_results"]
             )
@@ -1195,7 +1223,8 @@ class AnalysisWorker:
                     self._stable_status[slot_id] = "empty"
             stable = self._stable_status.get(slot_id, "unknown")
             stabilized.append(
-                {**result, "status": stable}
+                {**result, "status": stable,
+                 "occupied": None if stable == "unknown" else int(stable == "occupied")}
             )
         return stabilized
 
@@ -1256,23 +1285,18 @@ def save_regions(
         raise ValueError(
             "JSON body must contain a slots array"
         )
-    temporary = REGIONS_PATH.with_suffix(".tmp")
-    temporary.write_text(
-        json.dumps(
-            payload, ensure_ascii=False, indent=2
-        ),
-        encoding="utf-8",
-    )
-    temporary.replace(REGIONS_PATH)
-    config = load_region_config()
+    config = region_store.save(REGIONS_PATH, payload)
     return {
         "saved": True,
         "count": len(config["slots"]),
+        "revision": config["revision"],
+        "lot_id": config["lot_id"],
+        "floor_id": config["floor_id"],
     }
 
 
 def save_auto_regions(payload: dict[str, Any]) -> dict[str, Any]:
-    existing = load_region_config()
+    existing = load_region_config(payload.get("lot_id"), payload.get("floor_id"))
     matching_context = (
         existing.get("lot_id") in (None, payload.get("lot_id"))
         and existing.get("floor_id") in (None, payload.get("floor_id"))
@@ -1283,8 +1307,8 @@ def save_auto_regions(payload: dict[str, Any]) -> dict[str, Any]:
         existing,
         worker.preview_frame() if needs_frame else None,
     )
-    save_regions(config)
-    return load_region_config()
+    config["review_required"] = True
+    return config
 
 
 class ParkViewHandler(SimpleHTTPRequestHandler):
@@ -1305,6 +1329,9 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_OPTIONS(self) -> None:
+        if self.headers.get("Origin") and not resolve_allowed_origin(self.headers["Origin"]):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "Origin is not allowed"})
+            return
         self.send_response(HTTPStatus.NO_CONTENT)
         self.send_header(
             "Access-Control-Allow-Methods",
@@ -1314,6 +1341,7 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
             "Access-Control-Allow-Headers",
             "Authorization, Content-Type, bypass-tunnel-reminder",
         )
+        self.send_header("Access-Control-Max-Age", "600")
         self.end_headers()
 
     def send_head(self):
@@ -1344,8 +1372,9 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
         if path == "/api/regions":
             if not self.require_admin():
                 return
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
             self.send_json(
-                HTTPStatus.OK, load_region_config()
+                HTTPStatus.OK, load_region_config(query.get("lot_id", [None])[0], query.get("floor_id", [None])[0])
             )
             return
         if path == "/api/calibration-frame":
@@ -1385,6 +1414,23 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
         try:
+            if path == "/api/regions/training-sample":
+                if not self.require_admin():
+                    return
+                payload = json.loads(self.read_body(18 * 1024 * 1024).decode("utf-8"))
+                self.send_json(HTTPStatus.OK, parking_segmentation.save_training_sample(payload, ROOT / "datasets/parking-spaces"))
+                return
+            if path == "/api/regions/detect":
+                if not self.require_admin():
+                    return
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                result = parking_segmentation.detect(
+                    self.read_body(MAX_IMAGE_BYTES),
+                    query.get("lot_id", [""])[0],
+                    query.get("floor_id", [""])[0],
+                )
+                self.send_json(HTTPStatus.OK, result)
+                return
             if path == "/api/gemini/generate":
                 if not self.require_ai_access():
                     return
@@ -1475,7 +1521,7 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
                 flush=True,
             )
             self.send_json(
-                HTTPStatus.BAD_REQUEST,
+                HTTPStatus.CONFLICT if isinstance(error, region_store.RegionConflict) else HTTPStatus.BAD_REQUEST,
                 {
                     "error": str(error),
                     "type": type(error).__name__,

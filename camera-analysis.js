@@ -7,7 +7,7 @@ import {
   matchCameraSlots,
   matchedCameraDetections,
   stabilizeCameraSlots
-} from "./camera-analysis-core.js?v=3";
+} from "./camera-analysis-core.js?v=4";
 
 const MODEL_URL = "./models/yolov5su.onnx";
 const RESULT_STORAGE_KEY = "parkview.deviceCamera.latest";
@@ -162,10 +162,10 @@ async function loadModel() {
     }
     setModelState("loading", "모델 준비 중");
     setStatus("AI 모델을 불러오고 있습니다. 첫 실행은 잠시 걸릴 수 있습니다.");
-    window.ort.env.wasm.wasmPaths = new URL(
-      "./vendor/onnxruntime/",
+    window.ort.env.wasm.wasmPaths = { wasm: new URL(
+      "./vendor/onnxruntime/ort-wasm-simd-threaded.wasm",
       window.location.href
-    ).href;
+    ).href };
     window.ort.env.wasm.numThreads = 1;
     window.ort.env.wasm.proxy = false;
     const session = await window.ort.InferenceSession.create(MODEL_URL, {
@@ -278,14 +278,16 @@ async function loadCameraRegions(previewUrl, token) {
   state.slotResults = [];
   state.slotHistory.clear();
   try {
-    const regionsUrl = previewUrl.replace(/\/api\/camera\/preview$/, "/api/regions");
+    const context = activeFloorContext();
+    if (!context) return;
+    const regionsUrl = previewUrl.replace(/\/api\/camera\/preview$/, "/api/regions")
+      + `?lot_id=${encodeURIComponent(context.lotId)}&floor_id=${encodeURIComponent(context.floorId.trim().toUpperCase())}`;
     const response = await fetch(regionsUrl, {
       cache: "no-store",
       headers: cameraRequestHeaders(regionsUrl, { Authorization: `Bearer ${token}` })
     });
     if (!response.ok) throw new Error(`주차면 API HTTP ${response.status}`);
     state.regions = await response.json();
-    await autoRegisterCameraRegions(previewUrl, token);
     if (els.occupancyStatus) els.occupancyStatus.textContent = state.regions.slots?.length
       ? "주차면 등록됨 · 분석 대기 중"
       : "주차 가능 여부 미확인 · 먼저 CCTV 주차면을 등록해 주세요.";
@@ -299,43 +301,6 @@ function activeFloorContext() {
   if (!context?.lotId || !context?.floorId || !Array.isArray(context.slots)) return null;
   const slots = context.slots.filter((slot) => [slot.x, slot.y, slot.w, slot.h].every(Number.isFinite));
   return slots.length ? { ...context, slots } : null;
-}
-
-async function autoRegisterCameraRegions(previewUrl, token) {
-  const context = activeFloorContext();
-  const alreadyMatches = String(state.regions?.lot_id || "") === String(context?.lotId || "")
-    && String(state.regions?.floor_id || "") === String(context?.floorId || "")
-    && state.regions?.slots?.length === context?.slots?.length;
-  if (!context || !token || alreadyMatches) return;
-  const autoUrl = previewUrl.replace(/\/api\/camera\/preview$/, "/api/regions/auto");
-  if (els.occupancyStatus) els.occupancyStatus.textContent = `주차면 ${context.slots.length}개 좌표를 자동 지정하는 중입니다.`;
-  const response = await fetch(autoUrl, {
-    method: "POST",
-    headers: cameraRequestHeaders(autoUrl, {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      Accept: "application/json"
-    }),
-    body: JSON.stringify({
-      lot_id: context.lotId,
-      floor_id: context.floorId,
-      slots: context.slots.map((slot) => ({
-        kind: slot.kind,
-        x: slot.x,
-        y: slot.y,
-        w: slot.w,
-        h: slot.h,
-        rotation: slot.rotation
-      }))
-    })
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || `자동 좌표 지정 HTTP ${response.status}`);
-  state.regions = payload;
-  state.slotHistory.clear();
-  if (els.occupancyStatus) {
-    els.occupancyStatus.textContent = `주차면 ${payload.slots?.length || 0}개 좌표를 자동 지정했습니다.`;
-  }
 }
 
 async function loadCctvFrame(previewUrl, token) {

@@ -1,15 +1,14 @@
-const CACHE_NAME = "parkview-v128";
+const CACHE_NAME = "parkview-v129";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css?v=108",
   "./config.js?v=4",
   "./native-bridge-source.js?v=100",
-  "./app.js?v=128",
-  "./camera-analysis.js?v=8",
-  "./camera-analysis-core.js?v=3",
-  "./vendor/onnxruntime/ort.wasm.min.js?v=1",
-  "./vendor/onnxruntime/ort-wasm-simd-threaded.mjs",
+  "./app.js?v=129",
+  "./camera-analysis.js?v=9",
+  "./camera-analysis-core.js?v=4",
+  "./vendor/onnxruntime/ort.wasm.bundle.js?v=1",
   "./manifest.webmanifest"
 ];
 
@@ -30,13 +29,14 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const requestUrl = new URL(event.request.url);
+  if (requestUrl.origin !== self.location.origin || requestUrl.pathname.includes("/api/")) return;
   const isModelAsset = requestUrl.origin === self.location.origin
     && (requestUrl.pathname.endsWith(".onnx") || requestUrl.pathname.endsWith(".wasm"));
   if (isModelAsset) {
     event.respondWith(
       caches.match(event.request).then((cached) => cached || fetch(event.request).then((response) => {
         const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         return response;
       }))
     );
@@ -48,15 +48,16 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(event.request).then((response) => {
         const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         return response;
-      }).catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html")))
+      }).catch(() => caches.match(event.request).then((cached) => cached ||
+        (event.request.destination === "document" ? caches.match("./index.html") : Response.error())))
     );
     return;
   }
   event.respondWith(
     caches.match(event.request).then((cached) =>
-      cached || fetch(event.request).catch(() => caches.match("./index.html"))
+      cached || fetch(event.request).catch(() => Response.error())
     )
   );
 });

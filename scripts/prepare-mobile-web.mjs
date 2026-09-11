@@ -4,6 +4,15 @@ import { build } from "esbuild";
 
 const root = resolve(import.meta.dirname, "..");
 const output = resolve(root, "dist");
+// Embed the WASM factory so Safari never needs a secondary dynamic .mjs import.
+await build({
+  entryPoints: [resolve(root, "node_modules/onnxruntime-web/dist/ort.wasm.bundle.min.mjs")],
+  bundle: true, minify: true, format: "iife", globalName: "ort", platform: "browser",
+  external: ["node:*", "module"],
+  define: { "import.meta.url": "__ORT_SCRIPT_URL__" },
+  banner: { js: "var __ORT_SCRIPT_URL__ = document.currentScript.src;" },
+  outfile: resolve(root, "vendor/onnxruntime/ort.wasm.bundle.js")
+});
 const files = [
   "index.html",
   "styles.css",
@@ -30,8 +39,7 @@ await cp(
   resolve(output, "models", "yolov5su.onnx")
 );
 await Promise.all([
-  "ort.wasm.min.js",
-  "ort-wasm-simd-threaded.mjs",
+  "ort.wasm.bundle.js",
   "ort-wasm-simd-threaded.wasm"
 ].map((file) => cp(
   resolve(root, "vendor", "onnxruntime", file),

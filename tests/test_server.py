@@ -52,6 +52,23 @@ class PublicRelayTests(unittest.TestCase):
                 with self.subTest(method=method, path=path):
                     self.assertEqual(self.request(method, path)[0], 404)
 
+    def test_result_preflight_normalizes_configured_site_path(self):
+        origin = "https://jaden70749.github.io"
+        with mock.patch.dict(server.os.environ, {"PARKVIEW_ALLOWED_ORIGINS": origin + "/ParkView/"}):
+            status, headers, _ = self.request("OPTIONS", "/api/result", {
+                "Origin": origin,
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "authorization,bypass-tunnel-reminder",
+            })
+        self.assertEqual(status, 204)
+        self.assertEqual(headers.get_all("Access-Control-Allow-Origin"), [origin])
+        self.assertIn("bypass-tunnel-reminder", headers["Access-Control-Allow-Headers"])
+
+    def test_preflight_rejects_unapproved_origin(self):
+        status, headers, _ = self.request("OPTIONS", "/api/result", {"Origin": "https://unapproved.example"})
+        self.assertEqual(status, 403)
+        self.assertIsNone(headers.get("Access-Control-Allow-Origin"))
+
     def test_relay_cannot_use_localhost_to_bypass_authentication(self):
         with mock.patch.object(server, "AI_ALLOW_PRIVATE_NETWORK", True):
             self.assertEqual(self.request("GET", "/api/camera/preview")[0], 401)
