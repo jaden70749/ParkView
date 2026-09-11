@@ -2513,7 +2513,7 @@ textarea {
 }
 
 .slot-normal {
-  background: #9b9b9b;
+  background: #e53935;
 }
 
 .slot-available {
@@ -4136,11 +4136,6 @@ textarea {
   stroke: #ffffff;
 }
 
-.floor-slot-occupied .floor-slot-body {
-  fill: #aeb7bd;
-  stroke: #ffffff;
-}
-
 .floor-slot-disabled .floor-slot-body {
   fill: #3aaef2;
   stroke: #ffffff;
@@ -4148,6 +4143,11 @@ textarea {
 
 .floor-slot-pregnant .floor-slot-body {
   fill: #e45bc6;
+  stroke: #ffffff;
+}
+
+.floor-slot-occupied .floor-slot-body {
+  fill: #e53935;
   stroke: #ffffff;
 }
 
