@@ -83,7 +83,7 @@ function bindEvents() {
   });
 }
 
-async function toggleDeviceCameraPanel() {
+function toggleDeviceCameraPanel() {
   const opening = els.panel.hidden;
   els.panel.hidden = !opening;
   els.toggle.setAttribute("aria-expanded", String(opening));
@@ -93,7 +93,7 @@ async function toggleDeviceCameraPanel() {
     return;
   }
   els.panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  await startDeviceCamera();
+  setStatus("바로 분석하기를 누르면 CCTV 현재 화면을 분석합니다.");
 }
 
 function closeDeviceCameraPanel() {
@@ -173,7 +173,7 @@ async function loadModel() {
     });
     state.session = session;
     setModelState("ready", "AI 준비됨");
-    setStatus(state.source ? "현장 화면을 분석하고 있습니다." : "카메라를 시작하거나 사진·영상을 선택하세요.");
+    setStatus(state.source ? "현장 화면을 분석하고 있습니다." : "바로 분석하기를 눌러 CCTV 분석을 시작하세요.");
     return session;
   })().catch((error) => {
     state.modelPromise = null;

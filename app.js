@@ -4065,6 +4065,7 @@ function formatFloorName(kind, number) {
 }
 
 async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
+  const referenceAspectRatio = floorPlanReferenceAspect(floorName);
   const imageParts = state.planImages.filter(image => image.floor === floorName).flatMap((image, index) => [
     { text: `참고 사진 ${index + 1}: ${floorName}의 동일한 주차장을 다른 위치에서 촬영한 사진` },
     {
@@ -4097,7 +4098,7 @@ async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
   const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
   if (!text) throw new Error("응답에 도면 JSON이 없습니다.");
   const parsed = JSON.parse(stripJsonFence(text));
-  const draftFloors = validateGeneratedFloors(parsed);
+  const draftFloors = validateGeneratedFloors(parsed, referenceAspectRatio);
 
   try {
     const reviewedPayload = await requestGeminiGeneration({
@@ -4118,7 +4119,7 @@ async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
       .trim();
     if (reviewedText) {
       const reviewed = JSON.parse(stripJsonFence(reviewedText));
-      return validateGeneratedFloors(reviewed);
+      return validateGeneratedFloors(reviewed, referenceAspectRatio);
     }
   } catch (error) {
     console.warn("[ParkView] floor plan review skipped", error);
@@ -4148,6 +4149,10 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
   const expectedTotal = enteredTotal > 0 ? `${enteredTotal}면` : "미입력(사진에서 직접 계산)";
   const expectedDisabled = Math.max(0, Number(els.registerDisabledSpaces?.value) || 0);
   const expectedPregnant = Math.max(0, Number(els.registerPregnantSpaces?.value) || 0);
+  const referenceAspectRatio = floorPlanReferenceAspect(floorName);
+  const referenceAspectInstruction = Number.isFinite(referenceAspectRatio)
+    ? `업로드 사진의 가로÷세로 비율은 ${referenceAspectRatio.toFixed(2)}다. 주차 배치가 사진 대부분을 차지하면 최종 aspectRatio도 이 값에서 15% 이상 좁아지지 않게 한다.`
+    : "";
   return `
 너는 항공·드론·고정 카메라 사진을 실제 2D 주차장 평면도로 복원하는 측량 CAD 변환기다. 색칠된 예시 배치도를 새로 디자인하지 말고, 사진에 존재하는 주차열과 차로의 위상 관계를 탑뷰로 복원해라.
 
@@ -4158,6 +4163,7 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 지금 생성할 층은 ${floorName}이다. 전체 ${floorTotal}개 층 중 ${floorIndex + 1}번째다.
 - floors 배열에는 반드시 ${floorName} 한 층만 넣는다.
 - aspectRatio는 원근을 제거한 실제 주차 구역의 가로 길이 ÷ 세로 길이다. 사진 파일 전체나 화면 비율이 아니라 주차선이 놓인 바닥 영역의 실측 비율을 1~3.2 사이로 기록한다. 긴 가로형 배치를 정사각형으로 압축하지 않는다.
+- ${referenceAspectInstruction}
 - 첨부 사진이 여러 장이면 같은 장소를 다른 방향에서 본 보조 사진으로 취급한다. 가장 넓은 전경을 기준 좌표계로 사용하고, 다른 사진은 가려진 칸과 특수 표식을 확인하는 데만 사용한다. 중복 주차면을 두 번 세거나 서로 모순되는 별도 구조를 이어 붙이지 않는다.
 - 먼저 각 사진에서 독립된 주차열을 찾고, 각 열의 면수·방향·맞은편 열·사이 차로·출입구 순서를 내부적으로 표로 정리한 다음 JSON 좌표를 작성한다.
 - 모든 x/y/w/h/rotation은 카메라 화면의 원근 좌표가 아니라 원근을 제거한 최종 탑뷰 좌표다. 좌상단이 0,0이고 우하단이 100,100이다.
@@ -4166,7 +4172,8 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - JSON을 작성하기 전에 소실점과 평행 방향을 찾고, 도로 경계와 주차선이 탑뷰에서 평행·직각이 되도록 원근을 제거한다.
 - 빨강/초록 테두리와 0/1은 슬롯 경계와 점유 상태를 읽는 참고 정보일 뿐, 도면에 색 면·숫자·장식으로 그리지 않는다.
 - rows 배열에는 사진에서 연속된 주차열 하나당 객체 하나를 넣는다. 곡선이나 방향이 바뀌는 열은 직선 구간별로 나눈다.
-- 흰색 주차선으로 양옆 경계가 닫힌 차량 한 대 크기의 직사각형만 주차면으로 센다. 사선 빗금 영역, 휠스토퍼, 보행 통로, 차로 화살표, 종이 연결선은 주차면이 아니다.
+- 주차선 색은 흰색일 필요가 없다. 검정·노랑·흰색 테이프가 혼용되어도 모두 같은 주차면 경계로 본다. 색이 바뀌는 지점에서 열을 끊거나 양끝 칸을 누락하지 말고, 같은 직선에서 연속되면 하나의 row로 합쳐 모든 경계선 사이의 칸을 센다.
+- 차량 한 대 크기의 직사각형만 주차면으로 센다. 사선 빗금 영역, 휠스토퍼, 보행 통로, 차로 화살표, 종이 연결선은 주차면이 아니다.
 - 인쇄된 여러 판이나 이음선으로 한 주차열이 나뉘어 있으면 판마다 칸을 먼저 센 뒤 합계를 확인한다. 예를 들어 같은 열이 3칸, 4칸, 4칸으로 나뉘면 총 11칸이며 중간 구간 count는 반드시 4다.
 - row의 startX/startY는 첫 번째 주차면 중심, endX/endY는 마지막 주차면 중심의 최종 탑뷰 좌표다. 두 점을 잇는 선은 주차열의 진행축이며 모든 칸 중심이 그 직선 위에 동일 간격으로 놓여야 한다.
 - row의 count는 그 열의 전체 면수다. w는 회전 전 주차면의 짧은 폭, h는 긴 깊이이며 항상 w<h로 둔다. rotation은 긴 축이 세로일 때 0도, 가로일 때 90도인 탑뷰 회전 각도다.
@@ -4183,6 +4190,7 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
 - 사용자 입력에 장애인·임산부 숫자가 있어도 사진에서 위치를 확인할 수 없으면 일반 칸을 임의로 특수 칸으로 바꾸지 않는다.
 - 파란 바탕의 휠체어 표시는 disabled로, 분홍 바탕의 특수 주차 표시는 pregnant로 분류한다.
 - 실제 사진이 아니라 색으로 구분된 주차 배치도라면 초록 칸은 available, 회색 칸은 occupied로 그대로 분류한다. 파랑과 분홍 칸의 점유 상태는 색만으로 추측하지 말고, 특수 주차면 종류는 각각 disabled와 pregnant로 보존한다.
+- 바닥에 붙인 검정·노랑 테이프처럼 색이 선에만 있고 칸 내부가 채워져 있지 않으면 색은 점유 상태가 아니다. 차량이 없으면 테이프 색과 무관하게 available로 둔다.
 - 사진에 보이지 않는 구조를 임의로 추가하지 않는다. 사진에 보이는 외벽은 outline에 기록하고, 실제 출입구가 선명하게 보일 때만 elements에 기록한다.
 - 사진 바깥 배경과 주차장 밖의 건물·나무·보행로는 도면 요소로 만들지 않는다.
 - elements에는 실제 외벽 개구부가 보이는 경우에만 entrance 또는 exit를 넣는다. 그 밖의 lane, stripe, arrow, wall, divider, room, obstacle 요소는 절대 생성하지 않는다.
@@ -4213,6 +4221,7 @@ ${instruction}
 }
 
 function geminiPlanReviewPrompt(floorName, draft) {
+  const referenceAspectRatio = floorPlanReferenceAspect(floorName);
   return `
 너는 2D 주차장 도면의 최종 검수자다. 아래 초안 JSON과 첨부된 원본 사진을 다시 대조하고, 틀린 좌표를 고친 완전한 대체 JSON만 반환해라.
 
@@ -4222,10 +4231,10 @@ ${JSON.stringify(draft)}
 
 검수 순서:
 1. 사진에서 독립된 주차열을 다시 찾고 각 열의 실제 칸 수를 처음부터 센다.
-2. 흰색 세로 경계로 닫힌 차량 한 대 크기의 직사각형만 센다. 사선 빗금 완충 구역과 화살표는 주차면도 element도 아니다. 인쇄 판이 3칸·4칸·4칸으로 나뉘면 각 구간 수와 총 11칸을 모두 보존한다. 위쪽과 아래쪽 열의 칸 수는 따로 검산하며 총합을 맞추기 위해 칸을 반대편으로 옮기지 않는다.
+2. 검정·노랑·흰색 등 경계선 색을 무시하고, 경계선 사이의 차량 한 대 크기 직사각형을 모두 센다. 같은 직선에서 테이프 색이 바뀌어도 하나의 연속된 열이며 양끝 칸도 포함한다. 사선 빗금 완충 구역과 화살표는 주차면도 element도 아니다. 인쇄 판이 3칸·4칸·4칸으로 나뉘면 각 구간 수와 총 11칸을 모두 보존한다. 위쪽과 아래쪽 열의 칸 수는 따로 검산하며 총합을 맞추기 위해 칸을 반대편으로 옮기지 않는다.
 3. 각 열의 첫 칸 중심과 마지막 칸 중심, 열의 각도, 맞은편 열과의 거리를 사진의 원근을 제거한 탑뷰 좌표로 다시 맞춘다.
 4. 같은 열의 모든 칸은 동일 크기, 동일 각도, 동일 중심 간격이어야 한다. 서로 겹치거나 외벽 밖으로 나가면 좌표를 수정한다.
-5. aspectRatio는 사진 전체가 아니라 원근을 제거한 실제 주차 배치의 가로÷세로 비율로 다시 측정한다. 긴 배치를 정사각형으로 압축하지 않는다.
+5. aspectRatio는 사진 전체가 아니라 원근을 제거한 실제 주차 배치의 가로÷세로 비율로 다시 측정한다. 긴 배치를 정사각형으로 압축하지 않는다.${Number.isFinite(referenceAspectRatio) ? ` 업로드 사진 비율은 ${referenceAspectRatio.toFixed(2)}이며 배치가 사진을 대부분 채우면 이 비율에서 15% 이상 좁히지 않는다.` : ""}
 6. outline은 차량이나 나무 윤곽이 아니라 실제 포장면 외벽의 핵심 모서리 4~12개만 사용한다.
 7. entrance와 exit를 사진에서 각각 독립적으로 찾고, 각 중심을 실제 outline 개구부 선분 위에 둔다. 사진에 없으면 elements를 빈 배열로 둔다.
 8. elements와 zones에는 주차칸 외의 사선 구역·차로·화살표·벽·보행 공간을 만들지 않는다.
@@ -4336,10 +4345,10 @@ function floorPlanSchema() {
   };
 }
 
-function validateGeneratedFloors(plan) {
+function validateGeneratedFloors(plan, referenceAspectRatio = null) {
   const floors = Array.isArray(plan?.floors) ? plan.floors : [];
   const validFloors = floors.map((floor, floorIndex) => {
-    const aspectRatio = normalizeFloorAspectRatio(floor.aspectRatio);
+    const aspectRatio = reconcileFloorAspectRatio(floor.aspectRatio, referenceAspectRatio);
     const slots = expandGeneratedRows(floor.rows, aspectRatio);
     return {
       name: String(floor.name || `B${floorIndex + 1}`),
@@ -4710,12 +4719,14 @@ function applyGeneratedFloors(floors) {
 }
 
 async function imageFileToGeminiPart(file) {
-  const dataUrl = await resizeImageFile(file, 1600, 0.9);
+  const { dataUrl, width, height } = await resizeImageFile(file, 1600, 0.9);
   const [, meta, base64] = dataUrl.match(/^data:(.+);base64,(.+)$/) || [];
   return {
     mimeType: meta || "image/jpeg",
     base64,
-    previewUrl: dataUrl
+    previewUrl: dataUrl,
+    width,
+    height
   };
 }
 
@@ -4731,7 +4742,11 @@ function resizeImageFile(file, maxSize, quality) {
       const ctx = canvas.getContext("2d");
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL("image/jpeg", quality));
+      resolve({
+        dataUrl: canvas.toDataURL("image/jpeg", quality),
+        width: canvas.width,
+        height: canvas.height
+      });
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
@@ -4739,6 +4754,26 @@ function resizeImageFile(file, maxSize, quality) {
     };
     img.src = url;
   });
+}
+
+function floorPlanReferenceAspect(floorName) {
+  const ratios = state.planImages
+    .filter((image) => image.floor === floorName)
+    .map((image) => Number(image.width) / Number(image.height))
+    .filter((ratio) => Number.isFinite(ratio) && ratio >= 1 && ratio <= 3.2)
+    .sort((a, b) => a - b);
+  if (!ratios.length) return null;
+  const middle = Math.floor(ratios.length / 2);
+  return ratios.length % 2
+    ? ratios[middle]
+    : (ratios[middle - 1] + ratios[middle]) / 2;
+}
+
+function reconcileFloorAspectRatio(generatedValue, referenceValue) {
+  const generated = normalizeFloorAspectRatio(generatedValue);
+  const reference = Number(referenceValue);
+  if (!Number.isFinite(reference) || reference < 1 || reference > 3.2) return generated;
+  return generated < reference * 0.85 ? reference : generated;
 }
 
 function stripJsonFence(text) {

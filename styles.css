@@ -3390,7 +3390,7 @@ textarea {
 
 .device-analysis-toolbar {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   padding: 10px;
   border-bottom: 1px solid #e2e3e7;
@@ -3422,9 +3422,11 @@ textarea {
 }
 
 .device-analysis-toolbar .device-primary-command {
+  min-height: 52px;
   border-color: #d7aa00;
   background: #f8c400;
   color: #1d1a0b;
+  font-size: 13px;
 }
 
 .device-analysis-toolbar button:disabled {
@@ -3586,7 +3588,7 @@ textarea {
 
 @media (max-width: 430px) {
   .device-analysis-toolbar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .device-analysis-settings {

@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-title" content="ParkView">
   <title>ParkView</title>
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=107">
+  <link rel="stylesheet" href="./styles.css?v=108">
 </head>
 <body>
   <main id="app" class="app-shell">
@@ -423,8 +423,8 @@
           <button id="deviceCameraToggle" class="device-camera-toggle" type="button" aria-expanded="false" aria-controls="deviceCameraPanel">
             <i data-lucide="scan-line" aria-hidden="true"></i>
             <span>
-              <strong>기기 카메라 연결</strong>
-              <small>휴대폰 카메라에서 바로 차량 감지</small>
+              <strong>실시간 차량 분석</strong>
+              <small>CCTV 현재 화면에서 차량 감지</small>
             </span>
             <i data-lucide="chevron-down" aria-hidden="true"></i>
           </button>
@@ -432,30 +432,20 @@
             <div class="device-analysis-heading">
               <div>
                 <strong>실시간 차량 감지</strong>
-                <small>영상은 서버로 전송되지 않습니다.</small>
+                <small>CCTV 프레임을 기기 내 AI로 분석합니다.</small>
               </div>
               <span id="deviceModelBadge" class="device-model-badge">연결 대기</span>
             </div>
 
-            <div class="device-analysis-toolbar" aria-label="카메라 입력 선택">
+            <div class="device-analysis-toolbar" aria-label="실시간 차량 분석 시작">
               <button id="deviceStartCameraButton" class="device-primary-command" type="button">
-                <i data-lucide="camera" aria-hidden="true"></i>
-                <span>카메라 연결</span>
-              </button>
-              <button id="deviceSwitchCameraButton" type="button" disabled>
-                <i data-lucide="switch-camera" aria-hidden="true"></i>
-                <span>전환</span>
-              </button>
-              <label class="device-file-command" for="deviceSourceFile">
-                <i data-lucide="image-up" aria-hidden="true"></i>
-                <span>사진·영상</span>
-              </label>
-              <input id="deviceSourceFile" type="file" accept="image/*,video/*">
-              <button id="deviceStopButton" type="button" disabled>
-                <i data-lucide="square" aria-hidden="true"></i>
-                <span>중지</span>
+                <i data-lucide="scan-line" aria-hidden="true"></i>
+                <span>바로 분석하기</span>
               </button>
             </div>
+            <button id="deviceSwitchCameraButton" type="button" hidden disabled></button>
+            <input id="deviceSourceFile" type="file" accept="image/*,video/*" hidden>
+            <button id="deviceStopButton" type="button" hidden disabled></button>
 
             <div class="device-analysis-viewport">
               <video id="deviceSourceVideo" playsinline muted></video>
@@ -463,14 +453,14 @@
               <canvas id="deviceResultCanvas" width="1280" height="720"></canvas>
               <div id="deviceViewportPlaceholder" class="device-viewport-placeholder">
                 <i data-lucide="camera" aria-hidden="true"></i>
-                <strong>카메라가 연결되지 않았습니다.</strong>
-                <span>카메라 연결을 누르면 권한 요청이 열립니다.</span>
+                <strong>분석 대기 중입니다.</strong>
+                <span>바로 분석하기를 누르면 CCTV 화면을 가져옵니다.</span>
               </div>
               <span id="deviceSourceBadge" class="device-source-badge" hidden>기기 카메라</span>
             </div>
 
             <p id="deviceAnalysisStatus" class="device-analysis-status" role="status" aria-live="polite">
-              카메라 연결을 눌러 시작하세요.
+              바로 분석하기를 눌러 시작하세요.
             </p>
             <p id="deviceOccupancyStatus" class="device-analysis-status" role="status">주차 가능 여부는 CCTV 주차면 등록 후 확인할 수 있습니다.</p>
             <a id="cameraCalibrationLink" class="secondary-button full-width-button" href="./calibrate.html" target="_blank" rel="noopener">CCTV 주차면 등록</a>
@@ -533,8 +523,8 @@
       document.write('<script src="./native-bridge-source.js?v=100"><\/script>');
     }
   </script>
-  <script src="./app.js?v=123"></script>
+  <script src="./app.js?v=124"></script>
   <script src="./vendor/onnxruntime/ort.wasm.min.js?v=1"></script>
-  <script type="module" src="./camera-analysis.js?v=5"></script>
+  <script type="module" src="./camera-analysis.js?v=6"></script>
 </body>
 </html>

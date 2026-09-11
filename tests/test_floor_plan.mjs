@@ -233,6 +233,38 @@ test("floor plan keeps a 3-4-4 layout on both sides", () => {
   );
 });
 
+test("a wide reference photo prevents a compressed plan and preserves a nine-slot row", () => {
+  const context = loadAppContext();
+  vm.runInContext(`
+    state.planImages = [{ floor: "1F", width: 1600, height: 1000 }];
+    wideReferencePlan = {
+      floors: [{
+        name: "1F",
+        aspectRatio: 1.1,
+        outline: [{x:4,y:4},{x:96,y:4},{x:96,y:96},{x:4,y:96}],
+        zones: [],
+        elements: [],
+        detectedSlotCount: 9,
+        rows: [{
+          startX: 18, startY: 18, endX: 82, endY: 18,
+          count: 9, w: 6, h: 12, rotation: 0,
+          statuses: Array(9).fill("available"),
+          kinds: Array(9).fill("normal")
+        }]
+      }]
+    };
+  `, context);
+
+  assert.equal(vm.runInContext('floorPlanReferenceAspect("1F")', context), 1.6);
+  const floor = vm.runInContext(
+    'validateGeneratedFloors(wideReferencePlan, floorPlanReferenceAspect("1F"))[0]',
+    context
+  );
+  assert.equal(floor.aspectRatio, 1.6);
+  assert.equal(floor.slots.length, 9);
+  assert.equal(floor.slots[8].rowPosition, 8);
+});
+
 test("compressed AI coordinates are fitted to the full drawing area", () => {
   const context = loadAppContext();
   context.compressedFloor = {
