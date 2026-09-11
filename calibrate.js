@@ -4,6 +4,9 @@ const state = {
   slots: [],
   kind: "normal"
 };
+const setupParams = new URLSearchParams(window.location.search);
+const setupLotId = setupParams.get("lot_id") || "";
+const cameraBase = String(window.PARKVIEW_CONFIG?.cameraApiBaseUrl || "").trim().replace(/\/+$/, "");
 
 const els = {
   adminToken: document.querySelector("#adminToken"),
@@ -26,7 +29,12 @@ const els = {
 
 const ctx = els.canvas.getContext("2d");
 
+function currentFloorId() {
+  return (els.floorId.value.trim() || "B1").toUpperCase();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  els.floorId.value = setupParams.get("floor_id") || "B1";
   bindEvents();
   render();
 });
@@ -51,6 +59,7 @@ function bindEvents() {
 function authHeaders(extra = {}) {
   return {
     ...extra,
+    ...(cameraBase.endsWith(".loca.lt") ? { "bypass-tunnel-reminder": "true" } : {}),
     Authorization: `Bearer ${els.adminToken.value.trim()}`
   };
 }
@@ -61,7 +70,7 @@ async function loadRegions() {
     return;
   }
   try {
-    const response = await fetch("/api/regions", {
+    const response = await fetch(`${cameraBase}/api/regions`, {
       cache: "no-store",
       headers: authHeaders()
     });
@@ -70,6 +79,9 @@ async function loadRegions() {
       throw new Error(payload.error || `HTTP ${response.status}`);
     }
     const payload = await response.json();
+    if (payload.slots?.length && (payload.lot_id !== setupLotId || payload.floor_id !== currentFloorId())) {
+      throw new Error("다른 주차장 또는 층의 주차면이 등록돼 있습니다. 기존 설정을 덮어쓸 수 없습니다.");
+    }
     state.slots = Array.isArray(payload.slots) ? payload.slots : [];
     const highest = state.slots.reduce(
       (value, slot) => Math.max(value, Number(slot.slot_index) + 1),
@@ -90,7 +102,7 @@ async function loadCameraFrame() {
   }
   els.sourceStatus.textContent = "CCTV에서 프레임을 가져오는 중입니다...";
   try {
-    const response = await fetch(`/api/calibration-frame?t=${Date.now()}`, {
+    const response = await fetch(`${cameraBase}/api/camera/preview?t=${Date.now()}`, {
       cache: "no-store",
       headers: authHeaders()
     });
@@ -138,7 +150,7 @@ function addCanvasPoint(event) {
 
 function addCompletedSlot() {
   const slotNumber = Math.max(1, Number(els.slotNumber.value) || 1);
-  const floor = (els.floorId.value.trim() || "B1").toUpperCase();
+  const floor = currentFloorId();
   state.slots.push({
     id: `${floor}-${String(slotNumber).padStart(3, "0")}`,
     slot_index: slotNumber - 1,
@@ -169,6 +181,10 @@ function undoLast() {
 }
 
 async function saveRegions() {
+  if (!setupLotId) {
+    els.saveStatus.textContent = "주차장 관리 화면의 CCTV 주차면 등록 버튼으로 열어 주세요.";
+    return;
+  }
   if (!els.adminToken.value.trim()) {
     els.saveStatus.textContent = "관리자 토큰을 입력하세요.";
     return;
@@ -180,18 +196,25 @@ async function saveRegions() {
   els.saveButton.disabled = true;
   els.saveStatus.textContent = "주차면 좌표를 저장하는 중입니다...";
   try {
-    const response = await fetch("/api/regions", {
+    const existingResponse = await fetch(`${cameraBase}/api/regions`, { cache: "no-store", headers: authHeaders() });
+    if (!existingResponse.ok) throw new Error("기존 주차면을 확인할 수 없습니다.");
+    const existing = await existingResponse.json();
+    if (existing.slots?.length && (existing.lot_id !== setupLotId || existing.floor_id !== currentFloorId())) {
+      throw new Error("다른 주차장 또는 층의 설정이 있어 덮어쓸 수 없습니다.");
+    }
+    const response = await fetch(`${cameraBase}/api/regions`, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         coordinate_system: "normalized_camera_image",
-        floor_id: (els.floorId.value.trim() || "B1").toUpperCase(),
+        lot_id: setupLotId,
+        floor_id: currentFloorId(),
         slots: state.slots
       })
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
-    els.saveStatus.textContent = `${payload.count}개 주차면을 저장했습니다.`;
+    els.saveStatus.textContent = `${payload.count}개 주차면을 저장했습니다. 원래 화면에서 카메라 연결을 다시 눌러 적용하세요.`;
   } catch (error) {
     els.saveStatus.textContent = `저장 실패: ${error.message}`;
   } finally {

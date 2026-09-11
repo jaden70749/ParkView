@@ -54,7 +54,7 @@ def load_environment_file(path: Path) -> None:
 load_environment_file(ROOT / ".env")
 
 MODEL_PATH = Path(
-    os.environ.get("PARKVIEW_MODEL_PATH", ROOT / "models" / "parkview-toycar-v4.pt")
+    os.environ.get("PARKVIEW_MODEL_PATH", ROOT / "models" / "yolov5su.pt")
 ).expanduser()
 REGIONS_PATH = Path(
     os.environ.get("PARKVIEW_REGIONS_PATH", ROOT / "parking_regions.json")
@@ -75,7 +75,7 @@ MIN_SCORE = float(os.environ.get("PARKVIEW_CONFIDENCE", "0.25"))
 VEHICLE_CLASSES = {
     value.strip().lower()
     for value in os.environ.get(
-        "PARKVIEW_VEHICLE_CLASSES", "toy_car"
+        "PARKVIEW_VEHICLE_CLASSES", "car,motorcycle,bus,truck"
     ).split(",")
     if value.strip()
 }
@@ -410,6 +410,7 @@ def detect_objects(image_bytes: bytes, debug: bool = False) -> dict[str, Any]:
             conf=MIN_SCORE,
             iou=0.45,
             imgsz=INFERENCE_SIZE,
+            rect=False,
             max_det=100,
             device="cpu",
             verbose=False,
@@ -479,6 +480,8 @@ def detect_objects(image_bytes: bytes, debug: bool = False) -> dict[str, Any]:
         "ready": True,
         "analyzed_at": utc_now(),
         "site_id": SITE_ID,
+        "lot_id": config.get("lot_id"),
+        "calibration_floor_id": config.get("floor_id"),
         "floor_id": FLOOR_ID,
         "model": MODEL_PATH.name,
         "strategy": "vehicle_detection",
@@ -952,9 +955,7 @@ class AnalysisWorker:
                     >= EMPTY_CONFIRMATIONS
                 ):
                     self._stable_status[slot_id] = "empty"
-            stable = self._stable_status.get(
-                slot_id, candidate
-            )
+            stable = self._stable_status.get(slot_id, "unknown")
             stabilized.append(
                 {**result, "status": stable}
             )

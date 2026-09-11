@@ -3518,6 +3518,14 @@ textarea {
   color: #b62f2b;
 }
 
+#cameraCalibrationLink {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 10px 11px;
+  text-decoration: none;
+}
+
 .device-analysis-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

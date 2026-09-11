@@ -11,7 +11,7 @@ ParkView는 기기 카메라 또는 설치형 CCTV 영상의 차량을 감지하
 - `calibrate.html`: 카메라 ROI와 원근 보정 좌표 등록
 - `models/`: YOLO 모델 파일
 
-기기 카메라 분석은 `models/parkview-toycar-v4.onnx`, 현장 분석 서버는 같은 모델의 PyTorch 원본인 `models/parkview-toycar-v4.pt`를 사용합니다.
+브라우저 분석은 COCO 차량 클래스가 포함된 `models/yolov5su.onnx`, 현장 분석 서버는 같은 모델의 PyTorch 원본인 `models/yolov5su.pt`를 사용합니다. 사람이나 휴대전화 같은 비차량 객체는 주차 판정에서 제외합니다.
 
 ## 환경변수
 
@@ -43,6 +43,8 @@ GitHub Pages에서 CCTV를 보려면 `server.py`를 실행한 PC 앞에 Cloudfla
 
 현재 Localtunnel 주소를 복구할 때는 CCTV와 같은 네트워크에 있는 Mac에서 두 터미널을 계속 실행합니다.
 
+Mac에서는 `start-parkview-public.command`를 실행하면 서버와 터널을 함께 시작하고, 터널이 끊겼을 때 자동으로 재연결합니다.
+
 ```bash
 # 터미널 1: 공개 API 전용 서버 (웹 화면은 GitHub Pages에서 엽니다)
 PARKVIEW_PUBLIC_RELAY=true PARKVIEW_DEBUG=false python3 server.py --host 127.0.0.1 --port 5180
@@ -59,6 +61,8 @@ npx --yes localtunnel --port 5180 --subdomain odd-areas-move --local-host 127.0.
 `주차장 관리 > 등록된 주차장 > 현장 분석 > 기기 카메라 연결`을 누르면 휴대폰, 태블릿, 노트북 카메라 권한을 즉시 요청하고 분석을 시작합니다. 영상은 서버로 전송하지 않고 ONNX Runtime Web과 학습된 YOLO 모델로 기기 안에서 처리합니다. 이 방식에는 RTSP 주소, VLC, 관리자 토큰, 별도 중계 컴퓨터가 필요하지 않습니다. 같은 관리 화면에서 사진과 영상 파일도 선택할 수 있습니다.
 
 카메라 연결을 처음 누를 때 약 35MB의 모델과 WebAssembly 실행 파일을 내려받습니다. 이후 파일은 서비스 워커 캐시에 저장됩니다. 웹에서는 HTTPS로 배포된 GitHub Pages에서 카메라 권한이 동작하며, iOS와 Android 설치 앱에는 카메라 권한 설명이 포함되어 있습니다.
+
+고정 CCTV로 주차 가능 여부를 표시하려면 관리 화면의 `CCTV 주차면 등록`에서 현재 주차장 도면과 같은 순서로 각 주차면의 네 모서리를 지정해야 합니다. 차량 중심이 등록된 주차면 안에 있으면 주차중으로 판정하고, 빈 상태가 연속으로 확인된 뒤에만 주차 가능으로 바꿉니다. 카메라 위치나 화각을 변경하면 주차면을 다시 등록해야 합니다.
 
 ### 설치형 CCTV 연결
 

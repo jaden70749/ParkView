@@ -130,6 +130,13 @@ class RegionMatchingTests(unittest.TestCase):
 
 
 class StabilityTests(unittest.TestCase):
+    def test_initial_empty_frame_remains_unknown_until_confirmed(self):
+        worker = server.AnalysisWorker()
+        empty = {"id": "B1-001", "status": "empty"}
+        with mock.patch.object(server, "EMPTY_CONFIRMATIONS", 2):
+            self.assertEqual(worker._stabilize([empty])[0]["status"], "unknown")
+            self.assertEqual(worker._stabilize([empty])[0]["status"], "empty")
+
     def test_occupied_slot_requires_two_empty_results_to_clear(self):
         worker = server.AnalysisWorker()
         occupied = {"id": "B1-001", "status": "occupied"}

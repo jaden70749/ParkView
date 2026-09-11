@@ -1,5 +1,6 @@
 export const MODEL_INPUT_SIZE = 640;
 export const DEFAULT_CONFIDENCE = 0.25;
+export const VEHICLE_CLASS_IDS = [2, 3, 5, 7]; // COCO: car, motorcycle, bus, truck
 export const DEFAULT_IOU_THRESHOLD = 0.45;
 
 export function createLetterboxTransform(sourceWidth, sourceHeight, size = MODEL_INPUT_SIZE) {
@@ -39,7 +40,8 @@ export function decodeYoloOutput(
   output,
   transform,
   confidenceThreshold = DEFAULT_CONFIDENCE,
-  iouThreshold = DEFAULT_IOU_THRESHOLD
+  iouThreshold = DEFAULT_IOU_THRESHOLD,
+  allowedClassIds = null
 ) {
   const dims = Array.from(output?.dims || []);
   const data = output?.data;
@@ -74,6 +76,7 @@ export function decodeYoloOutput(
       }
     }
     if (!Number.isFinite(score) || score < confidenceThreshold) continue;
+    if (allowedClassIds && !allowedClassIds.includes(classIndex)) continue;
 
     const centerX = valueAt(0, index);
     const centerY = valueAt(1, index);
@@ -125,4 +128,46 @@ export function intersectionOverUnion(first, second) {
 
 function clamp(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+// Camera pixels and the drawn floor plan are different coordinate systems.
+// Only explicitly calibrated camera polygons may determine availability.
+export function matchCameraSlots(detections, config, width, height) {
+  if (config?.coordinate_system !== "normalized_camera_image" || !config.slots?.length
+      || !(width > 0 && height > 0)) return [];
+  const slots = config.slots.filter((slot) => Array.isArray(slot.polygon)
+    && slot.polygon.length >= 3 && slot.polygon.every((point) => Array.isArray(point)
+      && point.length === 2 && point.every((value) => Number.isFinite(value) && value >= 0 && value <= 1)));
+  return slots.map((slot) => {
+    const occupied = detections.some(({ bbox }) => {
+      if (!bbox?.every(Number.isFinite)) return false;
+      const [x, y, w, h] = bbox;
+      return pointInsidePolygon([(x + w / 2) / width, (y + h / 2) / height], slot.polygon);
+    });
+    return { ...slot, status: occupied ? "occupied" : "empty" };
+  });
+}
+
+function pointInsidePolygon([x, y], polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [ax, ay] = polygon[i];
+    const [bx, by] = polygon[j];
+    const cross = (x - ax) * (by - ay) - (y - ay) * (bx - ax);
+    if (Math.abs(cross) < 1e-9 && x >= Math.min(ax, bx) && x <= Math.max(ax, bx)
+        && y >= Math.min(ay, by) && y <= Math.max(ay, by)) return true;
+    if ((ay > y) !== (by > y) && x < (bx - ax) * (y - ay) / (by - ay) + ax) inside = !inside;
+  }
+  return inside;
+}
+
+export function stabilizeCameraSlots(results, history, confirmations = 3) {
+  return results.map((slot) => {
+    const previous = history.get(slot.id) || { status: "unknown", emptyCount: 0 };
+    const emptyCount = slot.status === "empty" ? previous.emptyCount + 1 : 0;
+    const status = slot.status === "occupied" ? "occupied"
+      : emptyCount >= confirmations ? "empty" : previous.status;
+    history.set(slot.id, { status, emptyCount });
+    return { ...slot, status };
+  });
 }

@@ -377,6 +377,7 @@ function bindElements() {
 
 function bindEvents() {
   window.addEventListener("parkview:cctv-state", handleNativeCctvState);
+  window.addEventListener("parkview:camera-slots", handleCameraSlotResults);
   els.menuButton.addEventListener("click", openMainMenu);
   els.menuCloseButton.addEventListener("click", closeMainMenu);
   els.menuScrim.addEventListener("click", closeMainMenu);
@@ -1743,6 +1744,13 @@ function renderManagement() {
 }
 
 function renderManagementFloor() {
+  const calibrationLink = document.querySelector("#cameraCalibrationLink");
+  if (calibrationLink) {
+    const setupUrl = new URL("./calibrate.html", window.location.href);
+    setupUrl.searchParams.set("lot_id", String(state.selectedLot?.id || ""));
+    setupUrl.searchParams.set("floor_id", state.floors[state.floorIndex]?.name || "B1");
+    calibrationLink.href = setupUrl.href;
+  }
   const floor = state.floors[state.floorIndex];
   if (!floor) return;
   els.managementFloorName.textContent = floor.name;
@@ -4742,7 +4750,10 @@ function applyServerSlotResults(slotResults) {
   if (!floor) return { available: 0, occupied: 0, mapped: 0, unreliable: true };
 
   const resultsByIndex = new Map(
-    slotResults.map((result) => [Number(result.slot_index), result])
+    slotResults.filter((result) => ["occupied", "empty"].includes(result.status)
+      && Number.isInteger(Number(result.slot_index)) && Number(result.slot_index) >= 0
+      && Number(result.slot_index) < floor.slots.length)
+      .map((result) => [Number(result.slot_index), result])
   );
   if (resultsByIndex.size === 0) {
     return { ...countFloorStatus(floor), mapped: 0, unreliable: true };
@@ -4755,6 +4766,17 @@ function applyServerSlotResults(slotResults) {
   });
   refreshParkingStateViews();
   return { ...countFloorStatus(floor), mapped: resultsByIndex.size, ignored: 0 };
+}
+
+function handleCameraSlotResults(event) {
+  const result = event.detail;
+  const floor = state.floors[state.floorIndex];
+  // A camera calibration belongs to one lot and floor, not every open plan.
+  if (!result?.lotId || String(result.lotId) !== String(state.selectedLot?.id)
+      || result.floorId !== floor?.name || !Array.isArray(result.slots)) return;
+  const analyzedAt = new Date(result.analyzedAt).getTime();
+  if (!Number.isFinite(analyzedAt) || Math.abs(Date.now() - analyzedAt) > 15000) return;
+  applyServerSlotResults(result.slots);
 }
 
 function countFloorStatus(floor) {
@@ -4874,6 +4896,17 @@ function renderDeviceCameraStatus() {
   if (els.cameraIntervalStatus) els.cameraIntervalStatus.textContent = "실시간";
   els.analysisStatus.textContent = formatAnalysisTime(result.analyzedAt);
   els.objectStatus.textContent = `${isCctv ? "고정 CCTV" : "기기 카메라"}에서 차량 ${Number(result.count) || 0}대를 감지했습니다.`;
+  if (isCctv) {
+    const matches = result.lotId && String(result.lotId) === String(state.selectedLot?.id)
+      && result.floorId === state.floors[state.floorIndex]?.name;
+    if (matches && result.slotResults?.length) {
+      const occupied = result.slotResults.filter((slot) => slot.status === "occupied").length;
+      const available = result.slotResults.filter((slot) => slot.status === "empty").length;
+      els.objectStatus.textContent += ` · 등록된 면 중 주차중 ${occupied}면 / 가능 ${available}면`;
+    } else {
+      els.objectStatus.textContent += " · 이 도면의 주차면 등록 필요";
+    }
+  }
   return true;
 }
 
@@ -5099,7 +5132,8 @@ async function refreshEdgeStatus() {
     }
 
     const currentFloor = state.floors[state.floorIndex];
-    const matchesCurrentFloor = !result?.floor_id || result.floor_id === currentFloor?.name;
+    const matchesCurrentFloor = result?.lot_id && String(result.lot_id) === String(state.selectedLot?.id)
+      && result.floor_id === currentFloor?.name && result.calibration_floor_id === currentFloor?.name;
 
     if (cameraConnected && result?.slot_results?.length && matchesCurrentFloor) {
       const counts = applyServerSlotResults(result.slot_results);
@@ -5107,7 +5141,7 @@ async function refreshEdgeStatus() {
       els.objectStatus.textContent = `현재 가능 ${counts.available}면 · 주차중 ${counts.occupied}면`;
     } else if (cameraConnected && result?.slot_results?.length && !matchesCurrentFloor) {
       els.analysisStatus.textContent = "이 층 결과 없음";
-      els.objectStatus.textContent = `${result.floor_id} 카메라만 연결되어 있습니다.`;
+      els.objectStatus.textContent = "CCTV 주차면이 현재 주차장·층과 연결되지 않았습니다. 주차면 등록을 확인해 주세요.";
     } else if (manualMode) {
       els.analysisStatus.textContent = "수동";
       els.objectStatus.textContent = "카메라 없이 도면의 주차면을 눌러 상태를 직접 변경할 수 있습니다.";
@@ -5117,7 +5151,9 @@ async function refreshEdgeStatus() {
         : "대기 중";
       els.objectStatus.textContent = health.last_error
         ? `분석 대기: ${health.last_error}`
-        : "현장 분석 서비스가 30초마다 주차면 상태를 갱신합니다.";
+        : result?.mapping_ready === false
+          ? "주차면 좌표가 등록되지 않아 주차 가능 여부를 판정할 수 없습니다. CCTV 주차면을 등록해 주세요."
+          : "현장 분석 결과를 기다리고 있습니다.";
     }
   } catch (error) {
     els.cameraConnectionChip.textContent = "수동 관리";

@@ -7,8 +7,46 @@ import {
   createLetterboxTransform,
   decodeYoloOutput,
   imageDataToTensorData,
-  intersectionOverUnion
+  intersectionOverUnion,
+  matchCameraSlots,
+  stabilizeCameraSlots
 } from "../camera-analysis-core.js";
+
+test("COCO vehicle decoding excludes people from vehicle and parking counts", () => {
+  const data = new Float32Array(84 * 2);
+  for (let i = 0; i < 2; i++) {
+    data[i] = 200 + i * 200; data[2 + i] = 300;
+    data[4 + i] = 100; data[6 + i] = 120;
+  }
+  data[6 * 2] = 0.8; // car (class 2)
+  data[4 * 2 + 1] = 0.99; // person (class 0)
+  const result = decodeYoloOutput({ dims: [1, 84, 2], data }, createLetterboxTransform(640, 640), 0.25, 0.45, [2, 3, 5, 7]);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].classIndex, 2);
+});
+
+test("camera polygons map a car to the occupied bay without counting the adjacent empty bay", () => {
+  const config = { coordinate_system: "normalized_camera_image", slots: [
+    { id: "left", slot_index: 0, polygon: [[0, 0], [0.5, 0], [0.5, 1], [0, 1]] },
+    { id: "right", slot_index: 1, polygon: [[0.5, 0], [1, 0], [1, 1], [0.5, 1]] }
+  ] };
+  const results = matchCameraSlots([{ bbox: [650, 100, 200, 300] }], config, 1000, 500);
+  assert.deepEqual(results.map((slot) => slot.status), ["empty", "occupied"]);
+  assert.deepEqual(matchCameraSlots([], null, 1000, 500), []);
+  assert.deepEqual(matchCameraSlots([], { ...config, coordinate_system: "normalized_plan" }, 1000, 500), []);
+});
+
+test("availability starts unknown and short missed detections do not clear an occupied bay", () => {
+  const history = new Map();
+  const empty = [{ id: "one", status: "empty" }];
+  assert.equal(stabilizeCameraSlots(empty, history)[0].status, "unknown");
+  assert.equal(stabilizeCameraSlots(empty, history)[0].status, "unknown");
+  assert.equal(stabilizeCameraSlots(empty, history)[0].status, "empty");
+  assert.equal(stabilizeCameraSlots([{ id: "one", status: "occupied" }], history)[0].status, "occupied");
+  assert.equal(stabilizeCameraSlots(empty, history)[0].status, "occupied");
+  assert.equal(stabilizeCameraSlots(empty, history)[0].status, "occupied");
+  assert.equal(stabilizeCameraSlots(empty, history)[0].status, "empty");
+});
 
 test("letterbox preserves a 16:9 image without stretching", () => {
   const transform = createLetterboxTransform(1280, 720, 640);
@@ -107,7 +145,7 @@ async function cameraButtonHarness({ relay = true, enteredToken = "", savedToken
   };
   document.querySelector("#cameraAdminToken").value = enteredToken;
   const context = vm.createContext({
-    document, DEFAULT_CONFIDENCE: 0.25, MODEL_INPUT_SIZE: 640,
+    document, DEFAULT_CONFIDENCE: 0.25, MODEL_INPUT_SIZE: 640, matchCameraSlots, stabilizeCameraSlots,
     window: {
       location: { hostname: "jaden70749.github.io", href: "https://jaden70749.github.io/ParkView/" },
       PARKVIEW_CONFIG: { cameraApiBaseUrl: relay ? "https://odd-areas-move.loca.lt" : "" },
@@ -116,6 +154,7 @@ async function cameraButtonHarness({ relay = true, enteredToken = "", savedToken
     sessionStorage: { getItem: () => savedToken },
     navigator: { mediaDevices: { getUserMedia: async () => { permissionRequests++; return { getTracks: () => [] }; } } },
     fetch: async (url, options) => {
+      if (url.endsWith("/api/regions")) return { ok: true, json: async () => ({ slots: [] }) };
       requests.push({ url, options });
       return { ok: status === 200, status, blob: async () => ({}), json: async () => ({}) };
     },

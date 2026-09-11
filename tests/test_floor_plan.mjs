@@ -117,6 +117,34 @@ test("CCTV relay headers preserve authentication and bypass the tunnel reminder 
   }
 });
 
+test("live parking results update only their calibrated lot and floor, preserving unknown slots", () => {
+  const context = loadAppContext();
+  vm.runInContext(`
+    state.selectedLot = { id: "lot-a" };
+    state.floorIndex = 0;
+    state.floors = [{ name: "B1", slots: [{status:"available"}, {status:"occupied"}] }];
+    refreshParkingStateViews = () => {};
+  `, context);
+  context.detail = {
+    lotId: "lot-other", floorId: "B1", analyzedAt: new Date().toISOString(),
+    slots: [{ slot_index: 0, status: "occupied" }, { slot_index: 1, status: "unknown" }]
+  };
+  vm.runInContext("handleCameraSlotResults({detail})", context);
+  assert.equal(vm.runInContext("state.floors[0].slots[0].status", context), "available");
+  context.detail.lotId = "lot-a";
+  context.detail.floorId = "B2";
+  vm.runInContext("handleCameraSlotResults({detail})", context);
+  assert.equal(vm.runInContext("state.floors[0].slots[0].status", context), "available");
+  context.detail.floorId = "B1";
+  vm.runInContext("handleCameraSlotResults({detail})", context);
+  assert.equal(vm.runInContext("state.floors[0].slots[0].status", context), "occupied");
+  assert.equal(vm.runInContext("state.floors[0].slots[1].status", context), "occupied");
+  context.detail.slots[0].status = "empty";
+  context.detail.analyzedAt = new Date(Date.now() - 60000).toISOString();
+  vm.runInContext("handleCameraSlotResults({detail})", context);
+  assert.equal(vm.runInContext("state.floors[0].slots[0].status", context), "occupied");
+});
+
 test("an iPhone RTSP link launches through VLC without changing the stream to HTTPS", () => {
   const context = loadAppContext();
   context.navigator.userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)";

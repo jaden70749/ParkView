@@ -472,6 +472,8 @@
             <p id="deviceAnalysisStatus" class="device-analysis-status" role="status" aria-live="polite">
               카메라 연결을 눌러 시작하세요.
             </p>
+            <p id="deviceOccupancyStatus" class="device-analysis-status" role="status">주차 가능 여부는 CCTV 주차면 등록 후 확인할 수 있습니다.</p>
+            <a id="cameraCalibrationLink" class="secondary-button full-width-button" href="./calibrate.html" target="_blank" rel="noopener">CCTV 주차면 등록</a>
 
             <div class="device-analysis-metrics" aria-label="분석 결과">
               <div><span>감지 차량</span><strong id="deviceVehicleCount">0대</strong></div>
@@ -531,8 +533,8 @@
       document.write('<script src="./native-bridge-source.js?v=100"><\/script>');
     }
   </script>
-  <script src="./app.js?v=121"></script>
+  <script src="./app.js?v=123"></script>
   <script src="./vendor/onnxruntime/ort.wasm.min.js?v=1"></script>
-  <script type="module" src="./camera-analysis.js?v=4"></script>
+  <script type="module" src="./camera-analysis.js?v=5"></script>
 </body>
 </html>

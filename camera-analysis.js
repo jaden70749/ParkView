@@ -1,12 +1,15 @@
 import {
   DEFAULT_CONFIDENCE,
+  VEHICLE_CLASS_IDS,
   MODEL_INPUT_SIZE,
   createLetterboxTransform,
   decodeYoloOutput,
-  imageDataToTensorData
+  imageDataToTensorData,
+  matchCameraSlots,
+  stabilizeCameraSlots
 } from "./camera-analysis-core.js";
 
-const MODEL_URL = "./models/parkview-toycar-v4.onnx";
+const MODEL_URL = "./models/yolov5su.onnx";
 const RESULT_STORAGE_KEY = "parkview.deviceCamera.latest";
 const ANALYSIS_CHANNEL = "parkview-camera-analysis";
 const FRAME_INTERVAL_MS = 250;
@@ -25,6 +28,9 @@ const state = {
   previewFrame: 0,
   cctvFrameBusy: false,
   cctvTimer: 0,
+  regions: null,
+  slotResults: [],
+  slotHistory: new Map(),
   confidence: DEFAULT_CONFIDENCE
 };
 
@@ -45,7 +51,8 @@ const els = {
   vehicleCount: document.querySelector("#deviceVehicleCount"),
   inferenceTime: document.querySelector("#deviceInferenceTime"),
   confidenceRange: document.querySelector("#deviceConfidenceRange"),
-  confidenceValue: document.querySelector("#deviceConfidenceValue")
+  confidenceValue: document.querySelector("#deviceConfidenceValue"),
+  occupancyStatus: document.querySelector("#deviceOccupancyStatus")
 };
 
 const resultContext = els.resultCanvas?.getContext("2d");
@@ -250,6 +257,7 @@ async function startCctvCamera() {
   els.startCameraButton.disabled = true;
   els.stopButton.disabled = false;
   try {
+    await loadCameraRegions(previewUrl, token);
     await loadCctvFrame(previewUrl, token);
     showSource("고정 CCTV");
     await loadModel();
@@ -264,10 +272,28 @@ async function startCctvCamera() {
   }
 }
 
+async function loadCameraRegions(previewUrl, token) {
+  state.regions = null;
+  state.slotResults = [];
+  state.slotHistory.clear();
+  try {
+    const regionsUrl = previewUrl.replace(/\/api\/camera\/preview$/, "/api/regions");
+    const response = await fetch(regionsUrl, {
+      cache: "no-store",
+      headers: cameraRequestHeaders(regionsUrl, { Authorization: `Bearer ${token}` })
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    state.regions = await response.json();
+    if (els.occupancyStatus) els.occupancyStatus.textContent = state.regions.slots?.length
+      ? "주차면 등록됨 · 분석 대기 중"
+      : "주차 가능 여부 미확인 · 먼저 CCTV 주차면을 등록해 주세요.";
+  } catch (_error) {
+    if (els.occupancyStatus) els.occupancyStatus.textContent = "주차면 정보를 읽지 못했습니다. 관리자 토큰과 주차면 등록을 확인해 주세요.";
+  }
+}
+
 async function loadCctvFrame(previewUrl, token) {
-  const headers = {
-    "bypass-tunnel-reminder": "true"
-  };
+  const headers = cameraRequestHeaders(previewUrl);
   if (token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(`${previewUrl}?t=${Date.now()}`, {
     cache: "no-store",
@@ -289,6 +315,16 @@ async function loadCctvFrame(previewUrl, token) {
   }
   state.source = els.sourceImage;
   drawPreview();
+}
+
+function cameraRequestHeaders(url, extra = {}) {
+  const absoluteMatch = String(url).match(/^https?:\/\/([^/?#]+)/i);
+  const hostname = absoluteMatch
+    ? absoluteMatch[1].split(":")[0].toLowerCase()
+    : String(window.location.hostname || "").toLowerCase();
+  return hostname.endsWith(".loca.lt")
+    ? { ...extra, "bypass-tunnel-reminder": "true" }
+    : { ...extra };
 }
 
 function scheduleCctvFrame(previewUrl, token, runId) {
@@ -378,7 +414,13 @@ async function analyzeCurrentFrame() {
       outputs = await session.run({ [session.inputNames[0]]: tensor });
       const elapsed = performance.now() - started;
       const output = outputs[session.outputNames[0]];
-      state.detections = decodeYoloOutput(output, transform, state.confidence);
+      state.detections = decodeYoloOutput(
+        output,
+        transform,
+        state.confidence,
+        0.45,
+        VEHICLE_CLASS_IDS
+      );
       updateResult(elapsed);
       drawPreview();
     } finally {
@@ -429,6 +471,17 @@ function drawPreview() {
     els.resultCanvas.height = canvasHeight;
   }
   resultContext.drawImage(state.source, 0, 0, canvasWidth, canvasHeight);
+  for (const slot of state.slotResults) {
+    resultContext.beginPath();
+    slot.polygon.forEach(([x, y], index) => {
+      if (index === 0) resultContext.moveTo(x * canvasWidth, y * canvasHeight);
+      else resultContext.lineTo(x * canvasWidth, y * canvasHeight);
+    });
+    resultContext.closePath();
+    resultContext.strokeStyle = slot.status === "occupied" ? "#ef4444" : slot.status === "empty" ? "#22c55e" : "#fbbf24";
+    resultContext.lineWidth = 3;
+    resultContext.stroke();
+  }
   const scaleX = canvasWidth / width;
   const scaleY = canvasHeight / height;
   for (const detection of state.detections) {
@@ -460,11 +513,29 @@ function updateResult(elapsed) {
   setStatus(count > 0 ? `차량 ${count}대를 감지했습니다.` : "감지된 차량이 없습니다.");
   updateManagementResult(count);
   const { width, height } = sourceDimensions(state.source);
+  state.slotResults = state.sourceType === "cctv"
+    ? stabilizeCameraSlots(matchCameraSlots(state.detections, state.regions, width, height), state.slotHistory)
+    : [];
+  if (state.slotResults.length) {
+    const occupied = state.slotResults.filter((slot) => slot.status === "occupied").length;
+    const available = state.slotResults.filter((slot) => slot.status === "empty").length;
+    const unknown = state.slotResults.length - occupied - available;
+    if (els.occupancyStatus) els.occupancyStatus.textContent = `주차중 ${occupied}면 · 가능 ${available}면 · 확인 중 ${unknown}면`;
+    window.dispatchEvent(new CustomEvent("parkview:camera-slots", { detail: {
+      lotId: state.regions.lot_id,
+      floorId: state.regions.floor_id,
+      analyzedAt: new Date().toISOString(),
+      slots: state.slotResults
+    } }));
+  }
   const payload = {
     version: 1,
     analyzedAt: new Date().toISOString(),
-    model: "parkview-toycar-v4",
+    model: "yolov5su",
     source: state.sourceType,
+    lotId: state.regions?.lot_id,
+    floorId: state.regions?.floor_id,
+    slotResults: state.slotResults,
     image: { width, height },
     count,
     detections: state.detections.map((detection) => ({
@@ -492,6 +563,8 @@ function prepareForNewSource() {
   state.running = false;
   state.runId += 1;
   state.detections = [];
+  state.slotResults = [];
+  state.slotHistory.clear();
   cancelAnimationFrame(state.previewFrame);
   window.clearTimeout(state.cctvTimer);
   state.cctvTimer = 0;

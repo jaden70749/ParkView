@@ -9,6 +9,9 @@ const files = [
   "styles.css",
   "camera-analysis.js",
   "camera-analysis-core.js",
+  "calibrate.html",
+  "calibrate.js",
+  "calibrate.css",
   "manifest.webmanifest",
   "sw.js"
 ];
@@ -23,8 +26,8 @@ await Promise.all([
 await Promise.all(files.map((file) => cp(resolve(root, file), resolve(output, file))));
 await cp(resolve(root, "data", "parking-lots.json"), resolve(output, "data", "parking-lots.json"));
 await cp(
-  resolve(root, "models", "parkview-toycar-v4.onnx"),
-  resolve(output, "models", "parkview-toycar-v4.onnx")
+  resolve(root, "models", "yolov5su.onnx"),
+  resolve(output, "models", "yolov5su.onnx")
 );
 await Promise.all([
   "ort.wasm.min.js",
