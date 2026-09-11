@@ -265,6 +265,12 @@ test("a wide reference photo prevents a compressed plan and preserves a nine-slo
   assert.equal(floor.slots[8].rowPosition, 8);
 });
 
+test("floor plan prompts preserve a central driving aisle as empty space", () => {
+  assert.match(appSource, /화살표가 놓인 넓은 빈 영역은 명백한 중앙 차로/);
+  assert.match(appSource, /두 열의 안쪽 경계 사이 간격을 최소 주차칸 깊이만큼/);
+  assert.match(appSource, /차로는 주차열 사이의 빈 공간으로만 표현한다/);
+});
+
 test("compressed AI coordinates are fitted to the full drawing area", () => {
   const context = loadAppContext();
   context.compressedFloor = {
