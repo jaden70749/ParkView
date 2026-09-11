@@ -1,0 +1,5 @@
+{
+  "url": "https://bool-via-this-random.trycloudflare.com",
+  "provider": "cloudflare-quick-tunnel",
+  "persistent": false
+}
