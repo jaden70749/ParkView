@@ -4873,26 +4873,57 @@ function cameraFloorSlots(results) {
   });
 }
 
+function cameraTopDownLayout(slots) {
+  const items = slots.map(slot => {
+    const points = slot.cameraPolygon;
+    return { slot, cx: points.reduce((sum,p) => sum+p[0],0)/points.length,
+      cy: points.reduce((sum,p) => sum+p[1],0)/points.length,
+      width: Math.max(...points.map(p => p[0]))-Math.min(...points.map(p => p[0])) };
+  }).sort((a,b) => a.cy-b.cy || a.cx-b.cx || a.slot.cameraSlotId.localeCompare(b.slot.cameraSlotId));
+  const columns = [];
+  // Track each strip from far to near; its center may drift with perspective.
+  items.forEach(item => {
+    const candidates = columns.map(column => ({ column, last: column[column.length-1] }))
+      .filter(({last}) => item.cy > last.cy+1e-6
+        && Math.abs(item.cx-last.cx) < (item.width+last.width)*0.25)
+      .sort((a,b) => Math.abs(item.cx-a.last.cx)-Math.abs(item.cx-b.last.cx));
+    if (candidates.length) candidates[0].column.push(item);
+    else columns.push([item]);
+  });
+  const mean = (column, field) => column.reduce((sum,item) => sum+item[field],0)/column.length;
+  columns.sort((a,b) => mean(a,"cx")-mean(b,"cx"));
+  const placements = new Map();
+  let x = 0;
+  columns.forEach((column, index) => {
+    if (index) {
+      const previous = columns[index-1];
+      const gap = (mean(column,"cx")-mean(previous,"cx"))
+        / Math.max(0.0001,(mean(column,"width")+mean(previous,"width"))/2);
+      x += Math.max(2, 2*gap);
+    }
+    column.forEach((item,row) => placements.set(item.slot.cameraSlotId, { x, y: row, w: 2, h: 1 }));
+  });
+  return { placements, width: x+2, height: Math.max(1,...columns.map(c => c.length)) };
+}
+
 function renderCameraFloorPlan(container, floor) {
   const slots = floor.slots.filter(s => validCameraPolygon(s.cameraPolygon));
   container.replaceChildren();
   container.classList.toggle("has-plan", slots.length > 0);
   if (!slots.length) return;
-  // Keep the camera projection: no guessed rows, counts, or invented parking spaces.
-  const sx = 160, sy = 90;
-  const points = slots.flatMap(s => s.cameraPolygon.map(p => [p[0]*sx, p[1]*sy]));
-  const minX = Math.min(...points.map(p => p[0]))-2, minY = Math.min(...points.map(p => p[1]))-2;
-  const width = Math.max(...points.map(p => p[0]))-minX+2, height = Math.max(...points.map(p => p[1]))-minY+2;
+  const layout = cameraTopDownLayout(slots);
+  const minX = -0.6, minY = -0.6;
+  const width = layout.width+1.2, height = layout.height+1.2;
   container.style.setProperty("--floor-plan-aspect", String(width/height));
   const svg = createSvgElement("svg", { class: "floor-plan-svg", viewBox: `${minX} ${minY} ${width} ${height}`,
-    role: "img", "aria-label": `${floor.name} CCTV 좌표 도면`, preserveAspectRatio: "xMidYMid meet" });
+    role: "img", "aria-label": `${floor.name} 주차장 평면도`, preserveAspectRatio: "xMidYMid meet" });
   slots.forEach(slot => {
     const group = createSvgElement("g", { class: `floor-slot floor-slot-${slot.kind} floor-slot-${slot.status}`,
       "data-camera-slot-id": slot.cameraSlotId, "aria-label": `${slot.cameraSlotId} ${slot.status}` });
     const title = createSvgElement("title");
     title.textContent = slot.cameraSlotId;
-    group.append(title, createSvgElement("polygon", { class: "floor-slot-body",
-      points: slot.cameraPolygon.map(p => `${p[0]*sx},${p[1]*sy}`).join(" ") }));
+    group.append(title, createSvgElement("rect", { class: "floor-slot-body",
+      ...layout.placements.get(slot.cameraSlotId), style: "stroke-width:1px" }));
     svg.append(group);
   });
   container.append(svg);

@@ -143,6 +143,28 @@ test("camera plan replaces guessed counts and maps shuffled results only by ID",
   assert.equal(context.cameraFloorSlots([{...results[0],polygon:[[NaN,0],[1,0],[1,1]]}]),null);
 });
 
+test("perspective strips render as four straight top-down columns without losing IDs", () => {
+  const context = loadAppContext();
+  const slots = [18,19,19,17].flatMap((count,column) => Array.from({length:count},(_,row) => {
+    const y = .15+row*.03;
+    const cx = [.22,.44,.54,.77][column] + (column-1.5)*row*.001;
+    const width = .05+row*.001;
+    return { cameraSlotId:`${column}-${row}`,cameraPolygon:[[cx-width/2,y],[cx+width/2,y],
+      [cx+width/2,y+.02],[cx-width/2,y+.02]] };
+  }));
+  const original = JSON.stringify(slots);
+  const layout = context.cameraTopDownLayout(slots);
+  const reversed = context.cameraTopDownLayout([...slots].reverse());
+  assert.equal(layout.placements.size,73);
+  assert.equal(new Set([...layout.placements.values()].map(p => p.x)).size,4);
+  slots.forEach(slot => {
+    const p = layout.placements.get(slot.cameraSlotId);
+    assert.equal(p.w,2); assert.equal(p.h,1);
+    assert.equal(JSON.stringify(p),JSON.stringify(reversed.placements.get(slot.cameraSlotId)));
+  });
+  assert.equal(JSON.stringify(slots),original);
+});
+
 test("direct camera links are validated without exposing an admin token", () => {
   const context = loadAppContext();
   context.window.location.hostname = "jaden70749.github.io";
