@@ -7,7 +7,7 @@ const state = {
   savedSlots: "",
   selected: -1,
   dragging: null,
-  mode: "add",
+  mode: "region",
   candidates: null,
   roi: null
 };
@@ -292,37 +292,60 @@ function moveCanvasPoint(event) {
 }
 
 async function detectRegions() {
+  if (els.detectButton.disabled) return;
+  if (!state.roi && state.slots.length === 1 && state.slots[0].polygon.length === 4) {
+    const polygon = state.slots[0].polygon;
+    const area = Math.abs(polygon.reduce((sum, p, i) => {
+      const q = polygon[(i+1)%polygon.length];
+      return sum+p[0]*q[1]-p[1]*q[0];
+    }, 0))/2;
+    if (area > 0.03 && window.confirm("큰 영역이 주차칸 1개로 추가되어 있습니다. 이 영역 안에서 주차칸을 찾을까요? 기존 좌표는 감지 결과를 적용할 때까지 유지됩니다.")) {
+      state.roi = polygon.map(point => [...point]);
+      state.points = [];
+      render();
+    }
+  }
   if (!state.roi) {
-    els.saveStatus.textContent = "감지 구역 선택을 누르고, 주차장 전체를 감싸는 모서리 4개를 순서대로 선택해 주세요.";
+    detectionStatus("감지 구역 선택을 누르고, 주차장 전체를 감싸는 모서리 4개를 순서대로 선택해 주세요.");
     return;
   }
   if (!state.image || !els.adminToken.value.trim() || !setupLotId) {
-    els.saveStatus.textContent = "주차장 정보, 관리자 토큰과 CCTV 이미지가 필요합니다.";
+    detectionStatus("주차장 정보, 관리자 토큰과 CCTV 이미지가 필요합니다.");
     return;
   }
   els.detectButton.disabled = true;
+  els.detectButton.textContent = "주차면 찾는 중...";
   const sourceImage = state.image;
-  els.saveStatus.textContent = "주차면 감지 중...";
+  detectionStatus("주차면 감지 중...");
   try {
     const imageCanvas = document.createElement("canvas");
     imageCanvas.width = state.image.naturalWidth;
     imageCanvas.height = state.image.naturalHeight;
     imageCanvas.getContext("2d").drawImage(state.image, 0, 0);
     const blob = await new Promise(resolve => imageCanvas.toBlob(resolve, "image/jpeg", 0.94));
+    if (!blob) throw new Error("사진을 변환하지 못했습니다. 프레임을 다시 불러와 주세요.");
     const response = await fetch(regionsUrl("/api/regions/detect"), {
       method: "POST", headers: authHeaders({ "Content-Type": "image/jpeg" }), body: blob,
-      signal: AbortSignal.timeout(120000)
+      signal: AbortSignal.timeout(30000)
     });
     const result = await response.json();
     if (state.image !== sourceImage) throw new Error("이미지가 변경되었습니다. 새 이미지에서 다시 감지해 주세요.");
     if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
     if (!result.slots?.length) throw new Error("감지된 주차면이 없습니다. 기존 좌표는 유지됩니다.");
     state.candidates = result.slots;
-    els.saveStatus.textContent = `${result.slots.length}면 감지됨. 적용하면 현재 편집 중인 좌표를 대체합니다.`;
+    detectionStatus(`${result.slots.length}면 감지됨. 아래 감지 결과 적용을 누른 뒤 좌표를 저장해 주세요.`);
     render();
   } catch (error) {
-    els.saveStatus.textContent = `자동 감지 실패: ${error.message}`;
-  } finally { els.detectButton.disabled = false; }
+    detectionStatus(`자동 감지 실패: ${error.message}`);
+  } finally {
+    els.detectButton.disabled = false;
+    els.detectButton.textContent = "구획선으로 주차면 찾기";
+  }
+}
+
+function detectionStatus(message) {
+  els.sourceStatus.textContent = message;
+  els.saveStatus.textContent = message;
 }
 
 function addCompletedSlot() {

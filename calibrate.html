@@ -24,14 +24,14 @@
         <button id="detectButton" class="camera-button" type="button">구획선으로 주차면 찾기</button>
         <button id="reloadRegionsButton" class="file-button" type="button">저장된 좌표 불러오기</button>
       </div>
-      <p id="sourceStatus">프레임을 불러오면 등록을 시작합니다.</p>
+      <p id="sourceStatus" role="status" aria-live="polite">프레임을 불러오면 등록을 시작합니다.</p>
     </section>
 
     <section class="canvas-section">
       <div class="kind-control" aria-label="좌표 편집 모드">
-        <button data-mode="add" aria-pressed="true" type="button">추가</button>
+        <button data-mode="region" aria-pressed="true" type="button">감지 구역 선택</button>
+        <button data-mode="add" aria-pressed="false" type="button">주차칸 추가</button>
         <button data-mode="edit" aria-pressed="false" type="button">꼭짓점 수정</button>
-        <button data-mode="region" aria-pressed="false" type="button">감지 구역 선택</button>
       </div>
       <div class="source-actions">
         <button id="applyDetectionButton" class="camera-button" type="button" hidden>감지 결과 적용</button>
@@ -79,6 +79,6 @@
     </section>
   </main>
   <script src="./config.js?v=4"></script>
-  <script src="./calibrate.js?v=4"></script>
+  <script src="./calibrate.js?v=5"></script>
 </body>
 </html>
