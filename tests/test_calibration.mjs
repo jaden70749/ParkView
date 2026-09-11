@@ -57,3 +57,43 @@ test("network failure is visible and the button is enabled again", async () => {
 test("new calibration opens in region selection mode", () => {
   assert.match(source, /mode: "region"/);
 });
+
+const training = source.slice(source.indexOf("function defaultTrainingGroup()"), source.indexOf("function authHeaders("));
+function trainingHarness({ group = "", error = "" } = {}) {
+  const nodes = {
+    "#trainingSampleButton": { disabled: false }, "#trainingGroup": { value: group },
+    "#trainingSplit": { value: "train" }, "#trainingStatus": {}
+  };
+  const sent = [];
+  const context = vm.createContext({
+    state: { image: { naturalWidth: 100, naturalHeight: 100 }, slots: [{ id: "1F-001" }], points: [] },
+    els: { adminToken: { value: "test-token" } }, setupLotId: "test-lot", cameraBase: "", AbortSignal,
+    currentFloorId: () => "1F", authHeaders: h => h,
+    document: { querySelector: id => nodes[id], createElement: () => ({
+      getContext: () => ({ drawImage() {} }), toDataURL: () => "data:image/jpeg;base64,abc"
+    }) },
+    fetch: async (url, options) => {
+      sent.push(JSON.parse(options.body));
+      return { ok: !error, json: async () => error ? { error } : { count: 1 } };
+    }
+  });
+  vm.runInContext(training, context);
+  return { nodes, sent, run: () => context.saveTrainingSample() };
+}
+
+test("blank training group is automatically filled before sending", async () => {
+  const h = trainingHarness();
+  await h.run();
+  assert.match(h.sent[0].group, /^test-lot-1F-\d{4}-\d{2}-\d{2}$/);
+  assert.equal(h.nodes["#trainingGroup"].value, h.sent[0].group);
+  assert.match(h.nodes["#trainingStatus"].textContent, /저장했습니다/);
+  assert.equal(h.nodes["#trainingSampleButton"].disabled, false);
+});
+
+test("custom training group is preserved and server rejection is visible beside button", async () => {
+  const h = trainingHarness({ group: "camera-A", error: "학습과 검증에 동시에 사용할 수 없습니다" });
+  await h.run();
+  assert.equal(h.sent[0].group, "camera-A");
+  assert.match(h.nodes["#trainingStatus"].textContent, /학습과 검증/);
+  assert.equal(h.nodes["#trainingSampleButton"].disabled, false);
+});

@@ -47,6 +47,7 @@ function currentFloorId() {
 document.addEventListener("DOMContentLoaded", () => {
   els.floorId.value = setupParams.get("floor_id") || "B1";
   els.floorId.readOnly = true;
+  document.querySelector("#trainingGroup").value = defaultTrainingGroup();
   bindEvents();
   render();
 });
@@ -134,13 +135,29 @@ async function saveEmptyReference() {
   finally { button.disabled = false; }
 }
 
+function defaultTrainingGroup() {
+  return `${setupLotId}-${currentFloorId()}-${new Date().toISOString().slice(0, 10)}`;
+}
+
+function trainingStatus(message) {
+  document.querySelector("#trainingStatus").textContent = message;
+}
+
 async function saveTrainingSample() {
+  const button = document.querySelector("#trainingSampleButton");
+  if (button.disabled) return;
   if (!state.image || !state.slots.length || state.candidates || state.points.length) {
-    els.saveStatus.textContent = "사진과 확정한 주차면 좌표가 필요합니다.";
+    trainingStatus("사진과 확정한 주차면 좌표가 필요합니다.");
     return;
   }
-  const button = document.querySelector("#trainingSampleButton");
+  if (!setupLotId || !els.adminToken.value.trim()) {
+    trainingStatus("주차장 정보와 관리자 토큰이 필요합니다.");
+    return;
+  }
+  const groupInput = document.querySelector("#trainingGroup");
+  if (!groupInput.value.trim()) groupInput.value = defaultTrainingGroup();
   button.disabled = true;
+  trainingStatus("학습 자료 저장 중...");
   try {
     const canvas = document.createElement("canvas");
     canvas.width = state.image.naturalWidth;
@@ -149,15 +166,15 @@ async function saveTrainingSample() {
     const response = await fetch(`${cameraBase}/api/regions/training-sample`, {
       method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ lot_id: setupLotId, floor_id: currentFloorId(), slots: state.slots,
-        group: document.querySelector("#trainingGroup").value.trim(),
+        group: groupInput.value.trim(),
         split: document.querySelector("#trainingSplit").value,
         image_base64: canvas.toDataURL("image/jpeg", 0.94).split(",")[1] }),
       signal: AbortSignal.timeout(30000)
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-    els.saveStatus.textContent = `사진 1장과 주차면 ${result.count}개를 학습 자료로 저장했습니다.`;
-  } catch (error) { els.saveStatus.textContent = `학습 자료 저장 실패: ${error.message}`; }
+    trainingStatus(`사진 1장과 주차면 ${result.count}개를 학습 자료로 저장했습니다.`);
+  } catch (error) { trainingStatus(`학습 자료 저장 실패: ${error.message}`); }
   finally { button.disabled = false; }
 }
 
