@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build:web": "node scripts/prepare-mobile-web.mjs",
-    "test:web": "node --test tests/test_floor_plan.mjs tests/test_camera_analysis.mjs",
+    "test:web": "node --test tests/test_floor_plan.mjs tests/test_camera_analysis.mjs tests/test_edge_polling.mjs",
     "test:model": "node scripts/verify-camera-model.mjs",
     "cap:sync": "npm run build:web && cap sync",
     "cap:ios": "npm run cap:sync && cap open ios",

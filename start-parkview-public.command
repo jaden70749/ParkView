@@ -10,21 +10,26 @@ export PARKVIEW_DEBUG=false
 SERVER_PID=""
 
 cleanup() {
+  local status=$?
   trap - EXIT INT TERM
   if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
     kill "$SERVER_PID" 2>/dev/null
   fi
-  exit 0
+  exit "$status"
 }
 
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 python3 server.py --host 127.0.0.1 --port 5180 &
 SERVER_PID=$!
 
 echo "ParkView CCTV server is starting..."
+READY=0
 for _ in {1..30}; do
   if curl -fsS --max-time 1 http://127.0.0.1:5180/api/health >/dev/null 2>&1; then
+    READY=1
     break
   fi
   if ! kill -0 "$SERVER_PID" 2>/dev/null; then
@@ -34,6 +39,11 @@ for _ in {1..30}; do
   fi
   sleep 1
 done
+
+if [[ "$READY" != 1 ]]; then
+  echo "ParkView server did not become ready. Public tunnel was not started."
+  exit 1
+fi
 
 echo "Keep this window open. The tunnel reconnects automatically if it drops."
 

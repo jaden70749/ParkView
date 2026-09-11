@@ -171,6 +171,9 @@ const state = {
   adminView: "home",
   registrationStep: 0,
   edgeStatusTimer: null,
+  edgeStatusRequest: null,
+  edgeStatusRetryAt: 0,
+  edgeStatusFailures: 0,
   directCameraUrl: "",
   nativeCctvConnected: false,
   runtimeConfig: null,
@@ -5118,6 +5121,7 @@ async function connectCameraFromAdmin(event) {
       ? `${result.image.width}×${result.image.height}`
       : "프레임 수신";
     setCameraConnectFeedback(`${resolution} 확인 완료 · ${result.floor_id || floor?.name || "B1"}`, "success");
+    state.edgeStatusRetryAt = 0;
     await refreshEdgeStatus();
   } catch (error) {
     setCameraConnectFeedback(`연결 실패: ${error.message}`, "error");
@@ -5152,21 +5156,30 @@ async function connectNativeCctvFromAdmin(url) {
 }
 
 async function refreshEdgeStatus() {
+  if (state.edgeStatusRequest || Date.now() < state.edgeStatusRetryAt) return;
   if (renderDeviceCameraStatus()) return;
   if (renderNativeCctvStatus()) return;
   if (isDirectCameraMode() && renderDirectCameraStatus()) return;
+  const controller = new AbortController();
+  state.edgeStatusRequest = controller;
+  const timeout = window.setTimeout(() => controller.abort(), 10000);
   try {
     const healthUrl = cameraApiUrl("/api/health");
     const resultUrl = cameraApiUrl("/api/result");
     if (!healthUrl || !resultUrl) throw new Error("로컬 카메라 서버가 연결되지 않았습니다");
-    const [healthResponse, resultResponse] = await Promise.all([
-      fetch(healthUrl, { cache: "no-store", headers: cameraApiHeaders(healthUrl) }),
-      fetch(resultUrl, { cache: "no-store", headers: cameraApiHeaders(resultUrl) })
-    ]);
-    if (!healthResponse.ok) throw new Error(`분석 서버 HTTP ${healthResponse.status}`);
-
+    const healthResponse = await fetch(healthUrl, {
+      cache: "no-store", headers: cameraApiHeaders(healthUrl), signal: controller.signal
+    });
+    if (!healthResponse.ok) throw Object.assign(new Error(`분석 서버 HTTP ${healthResponse.status}`), { status: healthResponse.status });
     const health = await healthResponse.json();
-    const result = resultResponse.ok ? await resultResponse.json() : null;
+    const resultResponse = await fetch(resultUrl, {
+      cache: "no-store", headers: cameraApiHeaders(resultUrl), signal: controller.signal
+    });
+    if (!resultResponse.ok) throw Object.assign(new Error(`분석 결과 HTTP ${resultResponse.status}`), { status: resultResponse.status });
+    const result = await resultResponse.json();
+    if (state.edgeStatusRequest !== controller) return;
+    state.edgeStatusFailures = 0;
+    state.edgeStatusRetryAt = 0;
     const cameraConnected = health.camera?.connected === true;
     const configured = health.camera?.configured === true;
     const manualMode = !cameraConnected;
@@ -5208,15 +5221,24 @@ async function refreshEdgeStatus() {
           : "현장 분석 결과를 기다리고 있습니다.";
     }
   } catch (error) {
-    els.cameraConnectionChip.textContent = "수동 관리";
+    if (state.edgeStatusRequest !== controller) return;
+    state.edgeStatusFailures = Math.min(state.edgeStatusFailures + 1, 4);
+    state.edgeStatusRetryAt = Date.now() + Math.min(60000, 5000 * 2 ** state.edgeStatusFailures);
+    const unauthorized = error.status === 401 || error.status === 403;
+    els.cameraConnectionChip.textContent = unauthorized ? "인증 확인 필요" : "서버 연결 끊김";
     els.cameraConnectionChip.classList.remove("is-linked");
     els.cameraConnectionChip.classList.remove("is-live");
-    els.cameraConnectionChip.classList.remove("is-error");
-    els.cameraConnectionChip.classList.add("is-manual");
-    els.cameraStatus.textContent = "선택 연결";
+    els.cameraConnectionChip.classList.add("is-error");
+    els.cameraConnectionChip.classList.remove("is-manual");
+    els.cameraStatus.textContent = unauthorized ? "인증 실패" : "재연결 중";
     if (els.cameraIntervalStatus) els.cameraIntervalStatus.textContent = "해당 없음";
-    els.analysisStatus.textContent = "수동";
-    els.objectStatus.textContent = "카메라 없이 도면 생성·등록·주차면 상태 변경을 사용할 수 있습니다.";
+    els.analysisStatus.textContent = "확인 불가";
+    els.objectStatus.textContent = unauthorized
+      ? "CCTV 서버의 관리자 토큰을 확인해 주세요."
+      : "CCTV 서버에 연결되지 않습니다. 연결이 복구되면 자동으로 다시 확인합니다.";
+  } finally {
+    window.clearTimeout(timeout);
+    if (state.edgeStatusRequest === controller) state.edgeStatusRequest = null;
   }
 }
 
@@ -5228,6 +5250,7 @@ function formatAnalysisTime(value) {
 
 function startEdgeStatusPolling() {
   if (state.edgeStatusTimer) return;
+  state.edgeStatusRetryAt = 0;
   refreshEdgeStatus();
   state.edgeStatusTimer = window.setInterval(refreshEdgeStatus, 5000);
 }
@@ -5235,6 +5258,9 @@ function startEdgeStatusPolling() {
 function stopEdgeStatusPolling() {
   if (state.edgeStatusTimer) window.clearInterval(state.edgeStatusTimer);
   state.edgeStatusTimer = null;
+  const pending = state.edgeStatusRequest;
+  state.edgeStatusRequest = null;
+  pending?.abort();
 }
 
 function showScreen(screen) {
