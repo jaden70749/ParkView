@@ -1,6 +1,5 @@
 export const MODEL_INPUT_SIZE = 640;
 export const DEFAULT_CONFIDENCE = 0.25;
-export const VEHICLE_CLASS_IDS = [2, 3, 5, 7]; // COCO: car, motorcycle, bus, truck
 export const DEFAULT_IOU_THRESHOLD = 0.45;
 
 export function createLetterboxTransform(sourceWidth, sourceHeight, size = MODEL_INPUT_SIZE) {

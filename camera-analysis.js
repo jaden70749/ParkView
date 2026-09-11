@@ -1,13 +1,12 @@
 import {
   DEFAULT_CONFIDENCE,
-  VEHICLE_CLASS_IDS,
   MODEL_INPUT_SIZE,
   createLetterboxTransform,
   decodeYoloOutput,
   imageDataToTensorData,
   matchCameraSlots,
   stabilizeCameraSlots
-} from "./camera-analysis-core.js";
+} from "./camera-analysis-core.js?v=2";
 
 const MODEL_URL = "./models/yolov5su.onnx";
 const RESULT_STORAGE_KEY = "parkview.deviceCamera.latest";
@@ -414,13 +413,7 @@ async function analyzeCurrentFrame() {
       outputs = await session.run({ [session.inputNames[0]]: tensor });
       const elapsed = performance.now() - started;
       const output = outputs[session.outputNames[0]];
-      state.detections = decodeYoloOutput(
-        output,
-        transform,
-        state.confidence,
-        0.45,
-        VEHICLE_CLASS_IDS
-      );
+      state.detections = decodeYoloOutput(output, transform, state.confidence, 0.45);
       updateResult(elapsed);
       drawPreview();
     } finally {
@@ -493,7 +486,7 @@ function drawPreview() {
     resultContext.strokeStyle = "#ffd028";
     resultContext.lineWidth = Math.max(3, canvasWidth / 360);
     resultContext.strokeRect(left, top, renderedWidth, renderedHeight);
-    const label = `차량 ${Math.round(detection.score * 100)}%`;
+    const label = `객체 ${Math.round(detection.score * 100)}%`;
     const fontSize = Math.max(14, Math.round(canvasWidth / 52));
     resultContext.font = `800 ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
     const labelWidth = resultContext.measureText(label).width + 14;
@@ -508,9 +501,9 @@ function drawPreview() {
 
 function updateResult(elapsed) {
   const count = state.detections.length;
-  els.vehicleCount.textContent = `${count}대`;
+  els.vehicleCount.textContent = `${count}개`;
   els.inferenceTime.textContent = `${Math.round(elapsed)}ms`;
-  setStatus(count > 0 ? `차량 ${count}대를 감지했습니다.` : "감지된 차량이 없습니다.");
+  setStatus(count > 0 ? `객체 ${count}개를 감지했습니다.` : "감지된 객체가 없습니다.");
   updateManagementResult(count);
   const { width, height } = sourceDimensions(state.source);
   state.slotResults = state.sourceType === "cctv"
@@ -577,7 +570,7 @@ function prepareForNewSource() {
   state.objectUrl = "";
   state.source = null;
   state.sourceType = "";
-  els.vehicleCount.textContent = "0대";
+  els.vehicleCount.textContent = "0개";
   els.inferenceTime.textContent = "-";
   els.switchCameraButton.disabled = true;
   els.stopButton.disabled = true;
@@ -666,7 +659,7 @@ function updateManagementResult(count) {
   if (analysisStatus) analysisStatus.textContent = "방금";
   if (objectStatus) {
     const sourceLabel = state.sourceType === "cctv" ? "고정 CCTV" : "기기 카메라";
-    objectStatus.textContent = `${sourceLabel}에서 차량 ${count}대를 감지했습니다.`;
+    objectStatus.textContent = `${sourceLabel}에서 객체 ${count}개를 감지했습니다.`;
   }
 }
 

@@ -12,7 +12,7 @@ import {
   stabilizeCameraSlots
 } from "../camera-analysis-core.js";
 
-test("COCO vehicle decoding excludes people from vehicle and parking counts", () => {
+test("YOLO keeps every detected object class for parking occupancy", () => {
   const data = new Float32Array(84 * 2);
   for (let i = 0; i < 2; i++) {
     data[i] = 200 + i * 200; data[2 + i] = 300;
@@ -20,17 +20,17 @@ test("COCO vehicle decoding excludes people from vehicle and parking counts", ()
   }
   data[6 * 2] = 0.8; // car (class 2)
   data[4 * 2 + 1] = 0.99; // person (class 0)
-  const result = decodeYoloOutput({ dims: [1, 84, 2], data }, createLetterboxTransform(640, 640), 0.25, 0.45, [2, 3, 5, 7]);
-  assert.equal(result.length, 1);
-  assert.equal(result[0].classIndex, 2);
+  const result = decodeYoloOutput({ dims: [1, 84, 2], data }, createLetterboxTransform(640, 640), 0.25, 0.45);
+  assert.equal(result.length, 2);
+  assert.deepEqual(result.map((detection) => detection.classIndex).sort((a, b) => a - b), [0, 2]);
 });
 
-test("camera polygons map a car to the occupied bay without counting the adjacent empty bay", () => {
+test("camera polygons map any YOLO object to the occupied bay without counting the adjacent empty bay", () => {
   const config = { coordinate_system: "normalized_camera_image", slots: [
     { id: "left", slot_index: 0, polygon: [[0, 0], [0.5, 0], [0.5, 1], [0, 1]] },
     { id: "right", slot_index: 1, polygon: [[0.5, 0], [1, 0], [1, 1], [0.5, 1]] }
   ] };
-  const results = matchCameraSlots([{ bbox: [650, 100, 200, 300] }], config, 1000, 500);
+  const results = matchCameraSlots([{ classIndex: 0, bbox: [650, 100, 200, 300] }], config, 1000, 500);
   assert.deepEqual(results.map((slot) => slot.status), ["empty", "occupied"]);
   assert.deepEqual(matchCameraSlots([], null, 1000, 500), []);
   assert.deepEqual(matchCameraSlots([], { ...config, coordinate_system: "normalized_plan" }, 1000, 500), []);
@@ -166,7 +166,7 @@ async function cameraButtonHarness({ relay = true, enteredToken = "", savedToken
     HTMLVideoElement: class {}, HTMLMediaElement: { HAVE_METADATA: 1 },
     cancelAnimationFrame() {}, requestAnimationFrame: () => 1
   });
-  vm.runInContext(source.replace(/^import\s*\{[\s\S]*?\}\s*from\s*"\.\/camera-analysis-core\.js";\s*/, ""), context);
+  vm.runInContext(source.replace(/^import\s*\{[\s\S]*?\}\s*from\s*"\.\/camera-analysis-core\.js(?:\?v=\d+)?";\s*/, ""), context);
   // Exercise the real click, source selection, authentication and frame flow;
   // ONNX execution is covered separately by the model tests.
   vm.runInContext("loadModel = async () => ({}); analyzeCurrentFrame = async () => {}; runContinuousAnalysis = async () => {};", context);

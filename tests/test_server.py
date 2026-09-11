@@ -68,6 +68,16 @@ class PublicRelayTests(unittest.TestCase):
 
 
 class RegionMatchingTests(unittest.TestCase):
+    def test_all_yolo_classes_are_enabled_by_default(self):
+        with mock.patch.object(server, "DETECTION_CLASSES", set()):
+            self.assertTrue(server.detection_class_enabled("person"))
+            self.assertTrue(server.detection_class_enabled("cell phone"))
+
+    def test_optional_detection_class_filter_remains_supported(self):
+        with mock.patch.object(server, "DETECTION_CLASSES", {"car"}):
+            self.assertTrue(server.detection_class_enabled("car"))
+            self.assertFalse(server.detection_class_enabled("person"))
+
     def test_camera_polygon_matches_detection_center(self):
         config = {
             "coordinate_system": "normalized_camera_image",

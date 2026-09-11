@@ -72,10 +72,11 @@ FLOOR_ID = os.environ.get("PARKVIEW_FLOOR_ID", "B1").strip()
 CAPTURE_INTERVAL = max(5, int(os.environ.get("PARKVIEW_ANALYSIS_INTERVAL", "30")))
 INFERENCE_SIZE = int(os.environ.get("PARKVIEW_IMAGE_SIZE", "640"))
 MIN_SCORE = float(os.environ.get("PARKVIEW_CONFIDENCE", "0.25"))
-VEHICLE_CLASSES = {
+DETECTION_CLASSES = {
     value.strip().lower()
     for value in os.environ.get(
-        "PARKVIEW_VEHICLE_CLASSES", "car,motorcycle,bus,truck"
+        "PARKVIEW_DETECTION_CLASSES",
+        os.environ.get("PARKVIEW_VEHICLE_CLASSES", ""),
     ).split(",")
     if value.strip()
 }
@@ -391,6 +392,10 @@ def match_detections_to_regions(
     )
 
 
+def detection_class_enabled(source_class: str) -> bool:
+    return not DETECTION_CLASSES or source_class.lower() in DETECTION_CLASSES
+
+
 def detect_objects(image_bytes: bytes, debug: bool = False) -> dict[str, Any]:
     image = ImageOps.exif_transpose(
         Image.open(io.BytesIO(image_bytes))
@@ -426,10 +431,7 @@ def detect_objects(image_bytes: bytes, debug: bool = False) -> dict[str, Any]:
             prediction.names[int(class_tensor)]
         ).lower()
         score = float(score_tensor)
-        if (
-            source_class not in VEHICLE_CLASSES
-            or score < MIN_SCORE
-        ):
+        if score < MIN_SCORE or not detection_class_enabled(source_class):
             continue
         x1, y1, x2, y2 = (float(value) for value in box.tolist())
         box_width = max(0.0, x2 - x1)
@@ -484,11 +486,11 @@ def detect_objects(image_bytes: bytes, debug: bool = False) -> dict[str, Any]:
         "calibration_floor_id": config.get("floor_id"),
         "floor_id": FLOOR_ID,
         "model": MODEL_PATH.name,
-        "strategy": "vehicle_detection",
+        "strategy": "yolo_object_occupancy",
         "settings": {
             "imgsz": INFERENCE_SIZE,
             "confidence": MIN_SCORE,
-            "classes": sorted(VEHICLE_CLASSES),
+            "classes": sorted(DETECTION_CLASSES) or ["all"],
         },
         "image": {
             "width": width,
@@ -916,7 +918,7 @@ class AnalysisWorker:
                 self._last_analysis_error = None
                 self._camera_connected = True
             print(
-                f"ANALYSIS_COMPLETE vehicles={payload['count']} "
+                f"ANALYSIS_COMPLETE objects={payload['count']} "
                 f"slots={len(payload['slot_results'])} "
                 f"elapsed_ms={payload['elapsed_ms']}",
                 flush=True,
@@ -966,7 +968,7 @@ class AnalysisWorker:
             return {
                 "ready": MODEL_PATH.exists(),
                 "model": MODEL_PATH.name,
-                "strategy": "edge_rtsp_vehicle_detection",
+                "strategy": "edge_rtsp_object_occupancy",
                 "analysis_interval_seconds": CAPTURE_INTERVAL,
                 "region_count": len(
                     load_region_config()["slots"]

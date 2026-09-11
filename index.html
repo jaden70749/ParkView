@@ -423,21 +423,21 @@
           <button id="deviceCameraToggle" class="device-camera-toggle" type="button" aria-expanded="false" aria-controls="deviceCameraPanel">
             <i data-lucide="scan-line" aria-hidden="true"></i>
             <span>
-              <strong>실시간 차량 분석</strong>
-              <small>CCTV 현재 화면에서 차량 감지</small>
+              <strong>실시간 주차면 분석</strong>
+              <small>주차칸 안의 YOLO 객체로 점유 판정</small>
             </span>
             <i data-lucide="chevron-down" aria-hidden="true"></i>
           </button>
-          <section id="deviceCameraPanel" class="device-analysis-panel" aria-label="기기 카메라 차량 분석" hidden>
+          <section id="deviceCameraPanel" class="device-analysis-panel" aria-label="CCTV 주차면 객체 분석" hidden>
             <div class="device-analysis-heading">
               <div>
-                <strong>실시간 차량 감지</strong>
-                <small>CCTV 프레임을 기기 내 AI로 분석합니다.</small>
+                <strong>실시간 객체 감지</strong>
+                <small>주차칸 안에 YOLO 객체가 있으면 주차 중으로 표시합니다.</small>
               </div>
               <span id="deviceModelBadge" class="device-model-badge">연결 대기</span>
             </div>
 
-            <div class="device-analysis-toolbar" aria-label="실시간 차량 분석 시작">
+            <div class="device-analysis-toolbar" aria-label="실시간 객체 분석 시작">
               <button id="deviceStartCameraButton" class="device-primary-command" type="button">
                 <i data-lucide="scan-line" aria-hidden="true"></i>
                 <span>바로 분석하기</span>
@@ -466,7 +466,7 @@
             <a id="cameraCalibrationLink" class="secondary-button full-width-button" href="./calibrate.html" target="_blank" rel="noopener">CCTV 주차면 등록</a>
 
             <div class="device-analysis-metrics" aria-label="분석 결과">
-              <div><span>감지 차량</span><strong id="deviceVehicleCount">0대</strong></div>
+              <div><span>감지 객체</span><strong id="deviceVehicleCount">0개</strong></div>
               <div><span>분석 시간</span><strong id="deviceInferenceTime">-</strong></div>
               <div><span>처리 방식</span><strong>기기 내 AI</strong></div>
             </div>
@@ -523,8 +523,8 @@
       document.write('<script src="./native-bridge-source.js?v=100"><\/script>');
     }
   </script>
-  <script src="./app.js?v=124"></script>
+  <script src="./app.js?v=125"></script>
   <script src="./vendor/onnxruntime/ort.wasm.min.js?v=1"></script>
-  <script type="module" src="./camera-analysis.js?v=6"></script>
+  <script type="module" src="./camera-analysis.js?v=7"></script>
 </body>
 </html>

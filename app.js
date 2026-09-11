@@ -4930,7 +4930,7 @@ function renderDeviceCameraStatus() {
   els.cameraStatus.textContent = "분석 완료";
   if (els.cameraIntervalStatus) els.cameraIntervalStatus.textContent = "실시간";
   els.analysisStatus.textContent = formatAnalysisTime(result.analyzedAt);
-  els.objectStatus.textContent = `${isCctv ? "고정 CCTV" : "기기 카메라"}에서 차량 ${Number(result.count) || 0}대를 감지했습니다.`;
+  els.objectStatus.textContent = `${isCctv ? "고정 CCTV" : "기기 카메라"}에서 객체 ${Number(result.count) || 0}개를 감지했습니다.`;
   if (isCctv) {
     const matches = result.lotId && String(result.lotId) === String(state.selectedLot?.id)
       && result.floorId === state.floors[state.floorIndex]?.name;
