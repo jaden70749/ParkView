@@ -139,6 +139,13 @@ test("camera plan replaces guessed counts and maps shuffled results only by ID",
   assert.equal(groups.length,73);
   assert.equal(groups[3].attributes.get("data-camera-slot-id"),"bay-3");
   assert.ok(groups[3].attributes.get("class").includes("occupied"));
+  groups.forEach(group => {
+    const rect = group.children.find(child => child.tagName === "rect");
+    assert.ok(Number(rect.attributes.get("width")) > 0);
+    assert.ok(Number(rect.attributes.get("height")) > 0);
+    assert.equal(rect.attributes.has("w"), false);
+    assert.equal(rect.attributes.has("h"), false);
+  });
   assert.equal(context.cameraFloorSlots([results[0],results[0]]),null);
   assert.equal(context.cameraFloorSlots([{...results[0],polygon:[[NaN,0],[1,0],[1,1]]}]),null);
 });

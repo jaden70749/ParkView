@@ -4922,8 +4922,10 @@ function renderCameraFloorPlan(container, floor) {
       "data-camera-slot-id": slot.cameraSlotId, "aria-label": `${slot.cameraSlotId} ${slot.status}` });
     const title = createSvgElement("title");
     title.textContent = slot.cameraSlotId;
+    const placement = layout.placements.get(slot.cameraSlotId);
     group.append(title, createSvgElement("rect", { class: "floor-slot-body",
-      ...layout.placements.get(slot.cameraSlotId), style: "stroke-width:1px" }));
+      x: placement.x, y: placement.y, width: placement.w, height: placement.h,
+      style: "stroke-width:1px" }));
     svg.append(group);
   });
   container.append(svg);
