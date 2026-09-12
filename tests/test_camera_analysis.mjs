@@ -3,6 +3,19 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
+test("device confidence is fixed at 75 percent and removed controls are not accessed", async () => {
+  const js = await readFile(new URL("../camera-analysis.js", import.meta.url), "utf8");
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(js, /const FIXED_CONFIDENCE = 0\.75/);
+  assert.match(js, /decodeYoloOutput\(output, transform, FIXED_CONFIDENCE/);
+  for (const id of ["deviceVehicleCount", "deviceInferenceTime", "deviceConfidenceRange", "deviceConfidenceValue"]) {
+    assert.ok(!html.includes(`id="${id}"`));
+    assert.ok(!js.includes(`#${id}`));
+  }
+  assert.ok(!js.includes("els.vehicleCount"));
+  assert.ok(!js.includes("els.inferenceTime"));
+});
+
 import {
   createLetterboxTransform,
   decodeYoloOutput,

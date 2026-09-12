@@ -1,5 +1,4 @@
 import {
-  DEFAULT_CONFIDENCE,
   MODEL_INPUT_SIZE,
   createLetterboxTransform,
   decodeYoloOutput,
@@ -13,6 +12,7 @@ const MODEL_URL = "./models/yolov5su.onnx";
 const RESULT_STORAGE_KEY = "parkview.deviceCamera.latest";
 const ANALYSIS_CHANNEL = "parkview-camera-analysis";
 const FRAME_INTERVAL_MS = 250;
+const FIXED_CONFIDENCE = 0.75;
 
 const state = {
   session: null,
@@ -31,8 +31,7 @@ const state = {
   cctvTimer: 0,
   regions: null,
   slotResults: [],
-  slotHistory: new Map(),
-  confidence: DEFAULT_CONFIDENCE
+  slotHistory: new Map()
 };
 
 const els = {
@@ -49,10 +48,6 @@ const els = {
   viewportPlaceholder: document.querySelector("#deviceViewportPlaceholder"),
   sourceBadge: document.querySelector("#deviceSourceBadge"),
   analysisStatus: document.querySelector("#deviceAnalysisStatus"),
-  vehicleCount: document.querySelector("#deviceVehicleCount"),
-  inferenceTime: document.querySelector("#deviceInferenceTime"),
-  confidenceRange: document.querySelector("#deviceConfidenceRange"),
-  confidenceValue: document.querySelector("#deviceConfidenceValue"),
   occupancyStatus: document.querySelector("#deviceOccupancyStatus")
 };
 
@@ -77,11 +72,6 @@ function bindEvents() {
   els.switchCameraButton.addEventListener("click", switchDeviceCamera);
   els.stopButton.addEventListener("click", stopSource);
   els.sourceFile.addEventListener("change", handleSourceFile);
-  els.confidenceRange.addEventListener("input", () => {
-    state.confidence = Number(els.confidenceRange.value) / 100;
-    els.confidenceValue.textContent = `${els.confidenceRange.value}%`;
-    if (state.sourceType === "image" && state.source) analyzeCurrentFrame();
-  });
 }
 
 function toggleDeviceCameraPanel() {
@@ -440,7 +430,7 @@ async function analyzeCurrentFrame() {
       outputs = await session.run({ [session.inputNames[0]]: tensor });
       const elapsed = performance.now() - started;
       const output = outputs[session.outputNames[0]];
-      state.detections = decodeYoloOutput(output, transform, state.confidence, 0.45);
+      state.detections = decodeYoloOutput(output, transform, FIXED_CONFIDENCE, 0.45);
       updateResult(elapsed);
       drawPreview();
     } finally {
@@ -534,8 +524,6 @@ function updateResult(elapsed, serverSlots = null, analyzedAt = null) {
     : []);
   state.matchedDetections = matchedCameraDetections(state.detections, state.slotResults);
   const count = serverSlots ? serverSlots.filter(s => s.status === "occupied").length : state.matchedDetections.length;
-  els.vehicleCount.textContent = `${count}개`;
-  els.inferenceTime.textContent = `${Math.round(elapsed)}ms`;
   setStatus(count > 0 ? `주차칸 안의 객체 ${count}개를 감지했습니다.` : "주차칸 안에 감지된 객체가 없습니다.");
   updateManagementResult(count);
   if (state.slotResults.length) {
@@ -600,8 +588,6 @@ function prepareForNewSource() {
   state.objectUrl = "";
   state.source = null;
   state.sourceType = "";
-  els.vehicleCount.textContent = "0개";
-  els.inferenceTime.textContent = "-";
   els.switchCameraButton.disabled = true;
   els.stopButton.disabled = true;
   if (stoppingCctv) {
