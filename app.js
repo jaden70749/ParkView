@@ -4931,9 +4931,23 @@ function renderCameraFloorPlan(container, floor) {
   container.append(svg);
 }
 
-function applyServerSlotResults(slotResults) {
+let lastParkingConsoleResult = "";
+
+function logParkingOccupancy(slotResults, lotId, floorId, analyzedAt = "") {
+  const entries = slotResults.filter(r => Number.isInteger(r.slot_index) && r.slot_index >= 0)
+    .slice().sort((a,b) => a.slot_index-b.slot_index);
+  if (!entries.length) return;
+  const line = entries.map(r => `${r.slot_index+1}: ${r.status === "occupied" ? 1 : r.status === "empty" ? 0 : "?"}`).join(", ");
+  const key = JSON.stringify([lotId, floorId, analyzedAt, line]);
+  if (key === lastParkingConsoleResult) return;
+  lastParkingConsoleResult = key;
+  console.log(`[ParkView 주차면 · ${floorId}] ${line}`);
+}
+
+function applyServerSlotResults(slotResults, analyzedAt = "") {
   const floor = state.floors[state.floorIndex];
   if (!floor) return { available: 0, occupied: 0, mapped: 0, unreliable: true };
+  logParkingOccupancy(slotResults, state.selectedLot?.id, floor.name, analyzedAt);
 
   const cameraSlots = cameraFloorSlots(slotResults);
   if (cameraSlots) {
@@ -4986,7 +5000,7 @@ function handleCameraSlotResults(event) {
       || result.floorId !== floor?.name || !Array.isArray(result.slots)) return;
   const analyzedAt = new Date(result.analyzedAt).getTime();
   if (!Number.isFinite(analyzedAt) || Math.abs(Date.now() - analyzedAt) > 15000) return;
-  applyServerSlotResults(result.slots);
+  applyServerSlotResults(result.slots, result.analyzedAt);
 }
 
 function countFloorStatus(floor) {
@@ -5356,7 +5370,7 @@ async function refreshEdgeStatus() {
       && result.floor_id === currentFloor?.name && result.calibration_floor_id === currentFloor?.name;
 
     if (cameraConnected && result?.slot_results?.length && matchesCurrentFloor) {
-      const counts = applyServerSlotResults(result.slot_results);
+      const counts = applyServerSlotResults(result.slot_results, result.analyzed_at);
       els.analysisStatus.textContent = formatAnalysisTime(result.analyzed_at);
       els.objectStatus.textContent = `현재 가능 ${counts.available}면 · 주차중 ${counts.occupied}면`;
     } else if (cameraConnected && result?.slot_results?.length && !matchesCurrentFloor) {

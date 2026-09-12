@@ -172,6 +172,20 @@ test("perspective strips render as four straight top-down columns without losing
   assert.equal(JSON.stringify(slots),original);
 });
 
+test("console occupancy is numbered, distinguishes unknown, and deduplicates repeated frames", () => {
+  const context = loadAppContext();
+  const lines = [];
+  context.console = { log: message => lines.push(message) };
+  const slots = [{slot_index:2,status:"occupied"},{slot_index:0,status:"empty"},{slot_index:1,status:"unknown"}];
+  context.logParkingOccupancy(slots,"lot","1F","frame1");
+  context.logParkingOccupancy(slots,"lot","1F","frame1");
+  assert.equal(lines.length,1);
+  assert.match(lines[0], /1: 0, 2: \?, 3: 1$/);
+  context.logParkingOccupancy(slots,"lot","1F","frame2");
+  assert.equal(lines.length,2);
+  assert.equal(slots[0].slot_index,2);
+});
+
 test("direct camera links are validated without exposing an admin token", () => {
   const context = loadAppContext();
   context.window.location.hostname = "jaden70749.github.io";
