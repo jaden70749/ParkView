@@ -8,7 +8,9 @@
   const update = () => {
     const button = document.querySelector('#demoModeButton');
     button.setAttribute('aria-pressed', String(demo.active));
-    button.textContent = demo.active ? '수동 시연 종료' : '수동 시연';
+    const label = demo.active ? '수동 시연 종료' : '수동 시연 시작';
+    button.setAttribute('aria-label', label);
+    button.setAttribute('title', label);
     document.querySelector('#demoModeStatus').textContent = demo.active
       ? `수동 시연 · ${demo.revealed ? '사전 설정 7칸 표시' : 'CCTV 영상 확인'}` : '';
     window.dispatchEvent(new CustomEvent('parkview:demo-mode'));

@@ -3058,6 +3058,23 @@ textarea {
   to { transform: rotate(360deg); }
 }
 
+.demo-key-button {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  flex: 0 0 40px;
+  align-self: flex-start;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 20px;
+}
+
+.demo-key-button[aria-pressed="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
 .full-width-button {
   width: 100%;
   min-height: 48px;

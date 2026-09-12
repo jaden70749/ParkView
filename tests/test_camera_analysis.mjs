@@ -6,7 +6,8 @@ import vm from "node:vm";
 test("manual demo uses only seven requested slots and ignores typing or other floors", async () => {
   const code = await readFile(new URL("../demo-mode.js", import.meta.url), "utf8");
   const handlers = {};
-  const button = { setAttribute() {}, addEventListener: (name,fn) => { handlers[name]=fn; } };
+  const attributes = {};
+  const button = { textContent: "\\", setAttribute(name, value) { attributes[name] = value; }, addEventListener: (name,fn) => { handlers[name]=fn; } };
   const status = {};
   const window = { PARKVIEW_ACTIVE_FLOOR_CONTEXT: {lotId:"lot",floorId:"1F"}, dispatchEvent() {} };
   vm.runInNewContext(code, { window, CustomEvent: class {}, document: {
@@ -16,6 +17,9 @@ test("manual demo uses only seven requested slots and ignores typing or other fl
   handlers.click();
   const demo = window.PARKVIEW_DEMO;
   assert.equal(demo.active,true);
+  assert.equal(button.textContent, "\\");
+  assert.equal(attributes["aria-label"], "수동 시연 종료");
+  assert.equal(attributes["aria-pressed"], "true");
   assert.equal(demo.occupied(66),false);
   handlers.keydown({key:"₩",target:{closest:()=>true}});
   assert.equal(demo.revealed,false);
@@ -26,6 +30,9 @@ test("manual demo uses only seven requested slots and ignores typing or other fl
   assert.equal(demo.revealed,true);
   handlers.click();
   assert.equal(demo.active,false);
+  assert.equal(button.textContent, "\\");
+  assert.equal(attributes["aria-label"], "수동 시연 시작");
+  assert.equal(attributes["aria-pressed"], "false");
   assert.equal(demo.revealed,false);
 });
 
