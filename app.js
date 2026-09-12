@@ -4907,7 +4907,10 @@ function cameraTopDownLayout(slots) {
 }
 
 function renderCameraFloorPlan(container, floor) {
-  const slots = floor.slots.filter(s => validCameraPolygon(s.cameraPolygon));
+  const demo = window.PARKVIEW_DEMO;
+  const manual = demo?.applies(state.selectedLot?.id, floor.name);
+  const slots = floor.slots.filter(s => validCameraPolygon(s.cameraPolygon)).map(slot => manual
+    ? { ...slot, status: demo.occupied(Number(slot.cameraSlotId.split('-').pop())) ? "occupied" : "available" } : slot);
   container.replaceChildren();
   container.classList.toggle("has-plan", slots.length > 0);
   if (!slots.length) return;
@@ -4932,6 +4935,9 @@ function renderCameraFloorPlan(container, floor) {
 }
 
 let lastParkingConsoleResult = "";
+document.addEventListener("DOMContentLoaded", () => {
+  window.addEventListener("parkview:demo-mode", () => renderManagementFloor());
+});
 
 function logParkingOccupancy(slotResults, lotId, floorId, analyzedAt = "") {
   const entries = slotResults.filter(r => Number.isInteger(r.slot_index) && r.slot_index >= 0)
@@ -4947,6 +4953,10 @@ function logParkingOccupancy(slotResults, lotId, floorId, analyzedAt = "") {
 function applyServerSlotResults(slotResults, analyzedAt = "") {
   const floor = state.floors[state.floorIndex];
   if (!floor) return { available: 0, occupied: 0, mapped: 0, unreliable: true };
+  if (window.PARKVIEW_DEMO?.applies(state.selectedLot?.id, floor.name)) {
+    renderManagementFloor();
+    return { ...countFloorStatus(floor), mapped: 0, unreliable: true };
+  }
   logParkingOccupancy(slotResults, state.selectedLot?.id, floor.name, analyzedAt);
 
   const cameraSlots = cameraFloorSlots(slotResults);

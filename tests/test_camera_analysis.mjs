@@ -3,6 +3,32 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
+test("manual demo uses only seven requested slots and ignores typing or other floors", async () => {
+  const code = await readFile(new URL("../demo-mode.js", import.meta.url), "utf8");
+  const handlers = {};
+  const button = { setAttribute() {}, addEventListener: (name,fn) => { handlers[name]=fn; } };
+  const status = {};
+  const window = { PARKVIEW_ACTIVE_FLOOR_CONTEXT: {lotId:"lot",floorId:"1F"}, dispatchEvent() {} };
+  vm.runInNewContext(code, { window, CustomEvent: class {}, document: {
+    querySelector: id => id === "#demoModeButton" ? button : status,
+    addEventListener: (name,fn) => { handlers[name]=fn; }
+  } });
+  handlers.click();
+  const demo = window.PARKVIEW_DEMO;
+  assert.equal(demo.active,true);
+  assert.equal(demo.occupied(66),false);
+  handlers.keydown({key:"₩",target:{closest:()=>true}});
+  assert.equal(demo.revealed,false);
+  handlers.keydown({key:"₩",preventDefault(){}});
+  assert.deepEqual(Array.from({length:73},(_,i)=>i+1).filter(i=>demo.occupied(i)),[38,47,50,54,59,66,71]);
+  assert.equal(demo.applies("lot","2F"),false);
+  handlers.keydown({key:"₩",repeat:true});
+  assert.equal(demo.revealed,true);
+  handlers.click();
+  assert.equal(demo.active,false);
+  assert.equal(demo.revealed,false);
+});
+
 test("device confidence is fixed at 75 percent and removed controls are not accessed", async () => {
   const js = await readFile(new URL("../camera-analysis.js", import.meta.url), "utf8");
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");

@@ -65,6 +65,12 @@ window.addEventListener("pagehide", stopSource);
 window.addEventListener("parkview:stop-device-camera", closeDeviceCameraPanel);
 window.addEventListener("parkview:cctv-frame", handleCctvFrame);
 window.addEventListener("parkview:cctv-state", handleCctvState);
+window.addEventListener("parkview:demo-mode", () => {
+  state.slotResults = [];
+  state.detections = [];
+  state.matchedDetections = [];
+  if (state.source) { drawPreview(); analyzeCurrentFrame(); }
+});
 
 function bindEvents() {
   els.toggle.addEventListener("click", toggleDeviceCameraPanel);
@@ -400,6 +406,12 @@ async function runContinuousAnalysis(runId) {
 
 async function analyzeCurrentFrame() {
   if (!state.source) return;
+  if (manualDemoActive()) {
+    setModelState("ready", "수동 시연");
+    setStatus("수동 시연 · 사전 설정 데이터");
+    drawPreview();
+    return;
+  }
   try {
     if (state.sourceType === "cctv" && state.regions?.occupancy_strategy === "empty_reference_difference") {
       const url = getCameraPreviewUrl().replace(/\/api\/camera\/preview$/, "/api/result");
@@ -481,7 +493,11 @@ function drawPreview() {
     els.resultCanvas.height = canvasHeight;
   }
   resultContext.drawImage(state.source, 0, 0, canvasWidth, canvasHeight);
-  for (const slot of state.slotResults) {
+  const demo = window.PARKVIEW_DEMO;
+  const previewSlots = manualDemoActive() ? (state.regions?.slots || []).map(slot => ({
+    ...slot, status: demo.occupied(slot.slot_index+1) ? "occupied" : "empty"
+  })) : state.slotResults;
+  for (const slot of previewSlots) {
     resultContext.beginPath();
     slot.polygon.forEach(([x, y], index) => {
       if (index === 0) resultContext.moveTo(x * canvasWidth, y * canvasHeight);
@@ -518,6 +534,7 @@ function drawPreview() {
 }
 
 function updateResult(elapsed, serverSlots = null, analyzedAt = null) {
+  if (manualDemoActive()) return;
   const { width, height } = sourceDimensions(state.source);
   state.slotResults = serverSlots || (state.sourceType === "cctv"
     ? stabilizeCameraSlots(matchCameraSlots(state.detections, state.regions, width, height), state.slotHistory)
@@ -566,6 +583,10 @@ function updateResult(elapsed, serverSlots = null, analyzedAt = null) {
   } catch {
     // The live result remains available even when browser storage is restricted.
   }
+}
+
+function manualDemoActive() {
+  return state.sourceType === "cctv" && window.PARKVIEW_DEMO?.applies(state.regions?.lot_id, state.regions?.floor_id);
 }
 
 function prepareForNewSource() {
