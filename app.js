@@ -2912,14 +2912,18 @@ function renderList() {
 function lotCard(lot) {
   const recommendationRank = state.recommendationRanks.get(String(lot.id));
   const hasRealtime = hasLiveAvailability(lot);
+  const spaceText = hasRealtime
+    ? `잔여 ${availabilityLabel(lot)}`
+    : Number.isFinite(lot.totalSpaces) ? `총 ${lot.totalSpaces}면` : "잔여 미확인";
+  const feeText = priceLabel(lot, !hasRealtime);
   const destinationDistance = destinationDistanceMeters(lot);
   const distanceText = state.searchDestination
     ? `${formatLotDistance(lot)} · 목적지 ${formatDistance(destinationDistance)}`
     : formatLotDistance(lot);
   const button = document.createElement("button");
-  button.className = `lot-card${recommendationRank && recommendationRank <= 3 ? " is-recommended" : ""}`;
+  button.className = `lot-card${recommendationRank && recommendationRank <= 3 ? " is-recommended" : ""}${hasRealtime ? " has-live-availability" : ""}`;
   button.type = "button";
-  button.setAttribute("aria-label", `${lot.name}, ${distanceText}, ${lot.isOpen ? "운영 중" : "운영 종료"}, ${availabilityLabel(lot)}, ${priceLabel(lot)}`);
+  button.setAttribute("aria-label", `${lot.name}, ${distanceText}, ${lot.isOpen ? "운영 중" : "운영 종료"}, ${spaceText}, ${feeText}`);
   button.innerHTML = `
     <span class="lot-main">
       <span class="lot-title-row">
@@ -2932,8 +2936,8 @@ function lotCard(lot) {
       </span>
     </span>
     <span class="lot-side">
-      <span class="lot-availability${hasRealtime ? " is-live" : ""}">${hasRealtime ? "잔여 " : ""}${escapeHtml(availabilityLabel(lot))}</span>
-      <span class="lot-price">${escapeHtml(priceLabel(lot))}</span>
+      <span class="lot-availability${hasRealtime ? " is-live" : ""}">${escapeHtml(spaceText)}</span>
+      <span class="lot-price">${escapeHtml(feeText)}</span>
     </span>
     <span class="lot-card-chevron" aria-hidden="true"><i data-lucide="chevron-right"></i></span>
   `;

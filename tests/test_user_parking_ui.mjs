@@ -21,7 +21,9 @@ function helpers() {
     escapeHtml: value => String(value),
     hasLiveAvailability: item => item.hasRealtime === true && Number.isFinite(item.availableSpaces) && Number.isFinite(item.totalSpaces),
     availabilityLabel: item => item.hasRealtime ? `${item.availableSpaces}/${item.totalSpaces}면` : "면수 정보 없음",
-    priceLabel: item => item.hourlyPrice === null ? "요금 정보 없음" : `1시간 ₩${item.hourlyPrice.toLocaleString("ko-KR")}`,
+    priceLabel: (item, compact = false) => item.hourlyPrice === null
+      ? compact ? "요금 미확인" : "요금 정보 없음"
+      : `1시간 ₩${item.hourlyPrice.toLocaleString("ko-KR")}`,
     formatLotDistance: () => "30m",
     destinationDistanceMeters: () => 30,
     formatDistance: () => "30m",
@@ -40,9 +42,11 @@ test("nearby row distinguishes live availability from missing data", () => {
   const live = context.lotCard(lot());
   const unknown = context.lotCard(lot({ hasRealtime: false, availableSpaces: null, totalSpaces: null, hourlyPrice: null }));
   assert.match(live.innerHTML, /class="lot-availability is-live">잔여 64\/73면/);
+  assert.match(live.className, /has-live-availability/);
   assert.match(live.innerHTML, /1시간 ₩5,000/);
-  assert.match(unknown.innerHTML, /class="lot-availability">면수 정보 없음/);
-  assert.doesNotMatch(unknown.innerHTML, /잔여 면수 정보 없음|is-live/);
+  assert.match(unknown.innerHTML, /class="lot-availability">잔여 미확인/);
+  assert.match(unknown.innerHTML, /요금 미확인/);
+  assert.doesNotMatch(unknown.className, /has-live-availability/);
   assert.match(live.innerHTML, /data-lucide="chevron-right"/);
 });
 
