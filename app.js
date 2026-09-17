@@ -2896,6 +2896,7 @@ function renderList() {
   const list = state.filteredLots.slice(0, visibleCount);
   if (list.length) {
     els.lotList.replaceChildren(...list.map((lot) => lotCard(lot)));
+    refreshIcons();
     return;
   }
   const empty = document.createElement("p");
@@ -2910,25 +2911,31 @@ function renderList() {
 
 function lotCard(lot) {
   const recommendationRank = state.recommendationRanks.get(String(lot.id));
+  const hasRealtime = hasLiveAvailability(lot);
   const destinationDistance = destinationDistanceMeters(lot);
   const distanceText = state.searchDestination
     ? `${formatLotDistance(lot)} · 목적지 ${formatDistance(destinationDistance)}`
     : formatLotDistance(lot);
   const button = document.createElement("button");
   button.className = `lot-card${recommendationRank && recommendationRank <= 3 ? " is-recommended" : ""}`;
+  button.type = "button";
+  button.setAttribute("aria-label", `${lot.name}, ${distanceText}, ${lot.isOpen ? "운영 중" : "운영 종료"}, ${availabilityLabel(lot)}, ${priceLabel(lot)}`);
   button.innerHTML = `
     <span class="lot-main">
       <span class="lot-title-row">
         ${recommendationRank && recommendationRank <= 3 ? `<em class="recommendation-badge">추천 ${recommendationRank}</em>` : ""}
-        <h2>${escapeHtml(lot.name)}</h2>
+        <span class="lot-name">${escapeHtml(lot.name)}</span>
       </span>
-      <p>${escapeHtml(distanceText)}</p>
-      <span class="open-dot">${lot.isOpen ? "운영중" : "운영종료"}</span>
+      <span class="lot-meta">
+        <span class="lot-distance">${escapeHtml(distanceText)}</span>
+        <span class="open-dot${lot.isOpen ? "" : " is-closed"}">${lot.isOpen ? "운영 중" : "운영 종료"}</span>
+      </span>
     </span>
     <span class="lot-side">
-      <span><span class="lot-status${lot.isOpen ? "" : " closed"}">${lot.isOpen ? "운영" : "마감"}</span> ${availabilityLabel(lot)}</span>
-      <span>${priceLabel(lot)}</span>
+      <span class="lot-availability${hasRealtime ? " is-live" : ""}">${hasRealtime ? "잔여 " : ""}${escapeHtml(availabilityLabel(lot))}</span>
+      <span class="lot-price">${escapeHtml(priceLabel(lot))}</span>
     </span>
+    <span class="lot-card-chevron" aria-hidden="true"><i data-lucide="chevron-right"></i></span>
   `;
   button.addEventListener("click", () => selectLot(lot, true));
   return button;
@@ -2991,13 +2998,22 @@ function renderLotDetail(lot) {
   const operatingHours = `${lot.weekdayStart} ~ ${lot.weekdayEnd}`;
   const floor = lot.floors[state.floorIndex];
   const floorPlanMarkup = floor ? `
-    <p class="detail-section-label">층별 위치 안내</p>
-    <div class="floor-head">
-      <button class="floor-nav" id="detailPrev" aria-label="이전 층" ${state.floorIndex === 0 ? "disabled" : ""}>‹</button>
-      <strong>${escapeHtml(floor.name)}</strong>
-      <button class="floor-nav" id="detailNext" aria-label="다음 층" ${state.floorIndex === lot.floors.length - 1 ? "disabled" : ""}>›</button>
-    </div>
-    <div id="detailFloorPlan" class="floor-plan blueprint-plan"></div>
+    <section class="detail-floor-section" aria-label="층별 위치 안내">
+      <div class="detail-floor-heading">
+        <h3 class="detail-section-label">층별 위치 안내</h3>
+        <div class="floor-head">
+          <button class="floor-nav" id="detailPrev" type="button" aria-label="이전 층" ${state.floorIndex === 0 ? "disabled" : ""}><i data-lucide="chevron-left" aria-hidden="true"></i></button>
+          <strong>${escapeHtml(floor.name)}</strong>
+          <button class="floor-nav" id="detailNext" type="button" aria-label="다음 층" ${state.floorIndex === lot.floors.length - 1 ? "disabled" : ""}><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+        </div>
+      </div>
+      <div id="detailFloorPlan" class="floor-plan blueprint-plan"></div>
+      ${Array.isArray(floor.slots) && floor.slots.length ? `<div class="floor-legend" aria-label="주차면 상태 범례">
+        <span><i class="floor-legend-swatch is-available"></i>주차 가능</span>
+        <span><i class="floor-legend-swatch is-occupied"></i>주차 중</span>
+        <span><i class="floor-legend-swatch is-unknown"></i>확인 불가</span>
+      </div>` : ""}
+    </section>
   ` : "";
   els.lotDetail.innerHTML = `
     <header class="detail-hero">
@@ -3030,14 +3046,18 @@ function renderLotDetail(lot) {
     </section>
 
     <section id="detailVacancySection" class="detail-content-section">
-      <p class="detail-section-label">${hasRealtime ? "실시간 주차 현황" : "주차면 정보"}</p>
+      <div class="detail-section-heading">
+        <h3 class="detail-section-label">${hasRealtime ? "실시간 주차 현황" : "주차면 정보"}</h3>
+        ${hasRealtime ? '<span class="detail-live-badge"><i></i>LIVE</span>' : ""}
+      </div>
       <div class="vacancy-card${!hasTotalSpaces && !hasRealtime ? " is-unavailable" : ""}">
-        <span>${hasRealtime
-          ? "현재 이용 가능한 자리 <em>LIVE</em>"
+        <span class="vacancy-caption">${hasRealtime
+          ? "이용 가능한 자리"
           : hasTotalSpaces ? "전체 주차면 · 실시간 잔여 미제공" : "전체 주차면"}</span>
         <strong>${hasRealtime
           ? `${lot.availableSpaces}<small> / ${lot.totalSpaces}면</small>`
           : hasTotalSpaces ? `총 ${lot.totalSpaces}<small>면</small>` : "면수 정보 없음"}</strong>
+        ${hasRealtime && lot.totalSpaces > 0 ? `<div class="vacancy-gauge" role="img" aria-label="전체 ${lot.totalSpaces}면 중 ${lot.availableSpaces}면 이용 가능"><span style="width: ${Math.round(clamp(lot.availableSpaces / lot.totalSpaces * 100, 0, 100))}%"></span></div>` : ""}
       </div>
     </section>
     ${floorPlanMarkup}
