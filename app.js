@@ -589,6 +589,16 @@ function nativeBridge() {
   return window.ParkViewNative?.isNative ? window.ParkViewNative : null;
 }
 
+function requestBrowserCoordinates(options) {
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => resolve({ latitude: coords.latitude, longitude: coords.longitude }),
+      reject,
+      options
+    );
+  });
+}
+
 async function getCurrentCoordinates() {
   state.lastLocationError = null;
   const native = nativeBridge();
@@ -604,17 +614,21 @@ async function getCurrentCoordinates() {
       return null;
     }
   }
-  if (!navigator.geolocation) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => resolve({ latitude: coords.latitude, longitude: coords.longitude }),
-      (error) => {
-        state.lastLocationError = error;
-        resolve(null);
-      },
-      { enableHighAccuracy: false, timeout: 15000, maximumAge: 120000 }
-    );
-  });
+  if (!navigator.geolocation) return null;
+  try {
+    return await requestBrowserCoordinates({ enableHighAccuracy: false, timeout: 15000, maximumAge: 120000 });
+  } catch (error) {
+    if (error?.code !== 2 && error?.code !== 3) {
+      state.lastLocationError = error;
+      return null;
+    }
+  }
+  try {
+    return await requestBrowserCoordinates({ enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  } catch (error) {
+    state.lastLocationError = error;
+    return null;
+  }
 }
 
 function showPermissionPanel(kind, options = {}) {
@@ -659,7 +673,7 @@ function locationFailureMessage() {
     return "현재 위치 요청이 허용되지 않았습니다. 활성화 버튼을 눌러 다시 요청해 주세요.";
   }
   if (state.lastLocationError?.code === 2) {
-    return "기기의 위치 서비스를 확인할 수 없습니다. 위치 서비스를 켠 뒤 다시 시도해 주세요.";
+    return "현재 위치를 가져오지 못했습니다. 기기 위치 서비스와 브라우저 위치 권한을 확인하고 Wi-Fi를 켠 뒤 다시 시도해 주세요.";
   }
   if (state.lastLocationError?.code === 3) {
     return "현재 위치 확인 시간이 초과됐습니다. GPS 수신이 잘 되는 곳에서 다시 시도해 주세요.";
