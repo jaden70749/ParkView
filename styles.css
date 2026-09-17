@@ -1490,7 +1490,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 5px;
-  color: #52625b;
+  color: #57616a;
   font-size: 11px;
   font-weight: 600;
 }
@@ -1527,7 +1527,7 @@ textarea {
 }
 
 .lot-availability.is-live {
-  color: #087c52;
+  color: #a57500;
   font-size: 13px;
   font-weight: 850;
   font-variant-numeric: tabular-nums;
@@ -1842,8 +1842,8 @@ textarea {
   gap: 5px;
   padding: 4px 7px;
   border-radius: 4px;
-  background: #e7f5ed;
-  color: #087c52;
+  background: var(--brand);
+  color: #24220f;
   font-size: 10px;
   font-weight: 850;
 }
@@ -1852,28 +1852,29 @@ textarea {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #11a66b;
+  background: #24220f;
 }
 
 .vacancy-card {
   margin-top: 12px;
   padding: 14px 16px;
-  border: 1px solid #dce7e2;
+  border: 1px solid #dfe3e6;
+  border-left: 3px solid var(--brand);
   border-radius: 6px;
-  background: #f4f8f6;
+  background: #f8f9fa;
 }
 
 .vacancy-caption {
   display: block;
   margin-bottom: 6px;
-  color: #57665f;
+  color: #59636b;
   font-size: 12px;
   font-weight: 650;
 }
 
 .vacancy-card strong {
   display: block;
-  color: #087c52;
+  color: #a57500;
   font-size: 30px;
   line-height: 1.1;
   font-weight: 800;
@@ -1881,7 +1882,7 @@ textarea {
 }
 
 .vacancy-card strong small {
-  color: #6f7c76;
+  color: #737b82;
   font-size: 14px;
   font-weight: 600;
 }
@@ -1898,14 +1899,14 @@ textarea {
   margin-top: 14px;
   overflow: hidden;
   border-radius: 5px;
-  background: #dbe6e1;
+  background: #e2e5e8;
 }
 
 .vacancy-gauge span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #11a66b;
+  background: var(--brand);
 }
 
 .detail-floor-section {
@@ -3876,18 +3877,18 @@ textarea {
 #lotDetail .floor-plan.blueprint-plan {
   width: 100%;
   margin: 12px 0 0;
-  border: 1px solid #d0dad9;
+  border: 1px solid #d4d9dd;
   border-radius: 6px;
-  background: #e8eeec;
+  background: #e9ecef;
 }
 
 #lotDetail .floor-plan-svg {
-  background: #e8eeec;
+  background: #e9ecef;
 }
 
 #lotDetail .floor-canvas,
 #lotDetail .floor-footprint {
-  fill: #e8eeec;
+  fill: #e9ecef;
 }
 
 .blueprint-plan .plan-element {
