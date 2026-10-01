@@ -83,7 +83,7 @@ function loadAppContext() {
   return context;
 }
 
-test("hosted page keeps RTSP camera settings on the local CCTV host", async () => {
+test("hosted page accepts and connects a direct RTSP camera link", async () => {
   const context = loadAppContext();
   context.window.location.hostname = "parkview.example";
   context.window.setTimeout = () => 0;
@@ -114,13 +114,13 @@ test("hosted page keeps RTSP camera settings on the local CCTV host", async () =
     objectStatus: new FakeElement("p")
   };
   vm.runInContext("Object.assign(els, statusElements); toggleCameraConnectionForm()", context);
-  assert.equal(context.statusElements.cameraRtspUrl.disabled, true);
-  assert.equal(context.statusElements.cameraConnectButton.disabled, true);
-  assert.equal(context.statusElements.cameraAdminTokenField.hidden, true);
-  assert.equal(context.statusElements.cameraConnectFeedback.textContent, "");
+  context.statusElements.cameraRtspUrl.value = "rtsp://camera.example/stream";
+
+  assert.equal(context.statusElements.cameraRtspUrl.disabled, false);
+  assert.equal(context.statusElements.cameraConnectButton.disabled, false);
   await vm.runInContext("connectCameraFromAdmin({preventDefault() {}})", context);
-  assert.equal(vm.runInContext("state.directCameraUrl", context), "");
-  assert.match(context.statusElements.cameraConnectFeedback.textContent, /127\.0\.0\.1:5180/);
+  assert.equal(vm.runInContext("state.directCameraUrl", context), "rtsp://camera.example/stream");
+  assert.match(context.statusElements.cameraConnectFeedback.textContent, /연결했습니다/);
 });
 
 test("adjacent rotated parking rows keep equal sizes without overlapping", () => {
