@@ -70,6 +70,20 @@ class CameraRelayTests(unittest.TestCase):
         }
         self.assertIn("authorization", allowed_headers)
 
+    def test_main_pages_origin_allows_admin_camera_headers(self):
+        status, headers, _body = self.request("OPTIONS", "/api/camera/configure", headers={
+            "Origin": "https://jaden70749.github.io",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        })
+        self.assertEqual(status, 204)
+        self.assertEqual(headers.get("Access-Control-Allow-Origin"), "https://jaden70749.github.io")
+        allowed_headers = {
+            header.strip().lower()
+            for header in headers.get("Access-Control-Allow-Headers", "").split(",")
+        }
+        self.assertTrue({"authorization", "content-type"}.issubset(allowed_headers))
+
 
 if __name__ == "__main__":
     unittest.main()
