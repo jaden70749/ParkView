@@ -5181,6 +5181,8 @@ function toggleCameraConnectionForm() {
   els.cameraConnectionForm.hidden = !opening;
   els.cameraSetupToggle.setAttribute("aria-expanded", String(opening));
   if (!opening) return;
+  if (els.cameraRtspUrl) els.cameraRtspUrl.disabled = false;
+  if (els.cameraConnectButton) els.cameraConnectButton.disabled = false;
   const directMode = isDirectCameraMode();
   const nativeMode = window.ParkViewNative?.supportsCctv === true;
   if (els.cameraAdminTokenField) els.cameraAdminTokenField.hidden = nativeMode || directMode;
@@ -5817,6 +5819,6 @@ function escapeHtml(value) {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js?v=149", { updateViaCache: "none" }).catch(() => {});
+    navigator.serviceWorker.register("./sw.js?v=150", { updateViaCache: "none" }).catch(() => {});
   }
 }

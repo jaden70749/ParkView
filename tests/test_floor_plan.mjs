@@ -95,12 +95,12 @@ test("hosted page accepts and connects a direct RTSP camera link", async () => {
     cameraConnectionForm: { hidden: true },
     cameraSetupToggle: new FakeElement("button"),
     cameraRtspUrl: Object.assign(new FakeElement("input"), {
-      disabled: false,
+      disabled: true,
       value: "rtsp://camera.example/stream",
       focus() {}
     }),
     cameraConnectButton: Object.assign(new FakeElement("button"), {
-      disabled: false,
+      disabled: true,
       querySelector: () => ({ textContent: "" })
     }),
     cameraAdminTokenField: { hidden: false },
