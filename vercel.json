@@ -1,0 +1,21 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build:web",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/api/health",
+      "destination": "https://parkview-plan-api.onrender.com/api/health"
+    },
+    {
+      "source": "/api/public-config",
+      "destination": "https://parkview-plan-api.onrender.com/api/public-config"
+    },
+    {
+      "source": "/api/camera/:path*",
+      "destination": "https://parkview-plan-api.onrender.com/api/camera/:path*"
+    }
+  ]
+}

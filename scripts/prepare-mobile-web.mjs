@@ -73,9 +73,10 @@ function envValue(name) {
 }
 
 const cameraRelay = JSON.parse(await readFile(resolve(root, "deploy/camera-relay.json"), "utf8"));
+const sameOriginApi = Boolean(process.env.VERCEL);
 const config = {
-  edgeApiBaseUrl: envValue("PARKVIEW_EDGE_API_BASE_URL"),
-  cameraApiBaseUrl: envValue("PARKVIEW_CAMERA_API_BASE_URL") || cameraRelay.url,
+  edgeApiBaseUrl: sameOriginApi ? "" : envValue("PARKVIEW_EDGE_API_BASE_URL") || cameraRelay.url,
+  cameraApiBaseUrl: sameOriginApi ? "" : envValue("PARKVIEW_CAMERA_API_BASE_URL") || cameraRelay.url,
   kakaoJavaScriptKey: envValue("KAKAO_JAVASCRIPT_KEY")
 };
 await writeFile(

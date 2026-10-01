@@ -1,0 +1,14 @@
+hardware/
+android/
+ios/
+tests/
+datasets/
+runs/
+backups/
+debug/
+.occupancy-references/
+*.py
+*.pt
+*.command
+requirements.txt
+render.yaml

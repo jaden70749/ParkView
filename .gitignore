@@ -12,3 +12,5 @@ datasets/
 runs/
 .occupancy-references/
 .parkview-camera-settings.json
+.vercel/
+.env.local

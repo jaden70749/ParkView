@@ -227,7 +227,10 @@ async function startDeviceCamera({ keepFacingMode = false } = {}) {
 function getCameraPreviewUrl() {
   const configuredBase = String(window.PARKVIEW_CONFIG?.cameraApiBaseUrl || "").trim().replace(/\/+$/, "");
   const share = getPublicCameraShare();
-  if (share && configuredBase) return `${configuredBase}/api/camera/frame?camera_id=${encodeURIComponent(share.cameraId)}`;
+  const sameOriginBase = window.location.hostname.endsWith(".vercel.app") ? window.location.origin : "";
+  if (share && (configuredBase || sameOriginBase)) {
+    return `${configuredBase || sameOriginBase}/api/camera/frame?camera_id=${encodeURIComponent(share.cameraId)}`;
+  }
   return ["localhost", "127.0.0.1"].includes(window.location.hostname)
     ? "/api/camera/preview" : "";
 }
