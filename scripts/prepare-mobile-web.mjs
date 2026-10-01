@@ -15,6 +15,7 @@ await build({
 });
 const files = [
   "index.html",
+  "favicon.svg",
   "styles.css",
   "camera-analysis.js",
   "camera-analysis-core.js",

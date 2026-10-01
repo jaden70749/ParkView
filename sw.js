@@ -1,15 +1,16 @@
-const CACHE_NAME = "parkview-v152";
+const CACHE_NAME = "parkview-v153";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css?v=115",
   "./config.js?v=4",
   "./native-bridge-source.js?v=100",
-  "./app.js?v=148",
-  "./camera-analysis.js?v=13",
+  "./app.js?v=149",
+  "./camera-analysis.js?v=14",
   "./camera-analysis-core.js?v=4",
   "./vendor/onnxruntime/ort.wasm.bundle.js?v=1",
-  "./manifest.webmanifest"
+  "./manifest.webmanifest",
+  "./favicon.svg"
 ];
 
 self.addEventListener("install", (event) => {

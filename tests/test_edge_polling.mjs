@@ -93,3 +93,15 @@ test("successful reconnect clears failure backoff", async () => {
   assert.equal(h.state.edgeStatusRetryAt, 0);
   assert.equal(h.els.cameraConnectionChip.textContent, "수동 관리");
 });
+
+test("relay health without local camera state does not request the local result endpoint", async () => {
+  const urls = [];
+  const h = harness(async url => {
+    urls.push(url);
+    return { ok: true, json: async () => ({ ok: true, service: "parkview-plan-api" }) };
+  });
+  await h.refresh();
+  assert.deepEqual(urls, ["https://relay.example/api/health"]);
+  assert.equal(h.els.cameraConnectionChip.textContent, "수동 관리");
+  assert.equal(h.state.edgeStatusFailures, 0);
+});

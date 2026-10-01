@@ -14,6 +14,7 @@ const CAMERA_API_BASE_URL = String(
 const CAMERA_ADMIN_TOKEN_STORAGE = "parkview.cameraAdminToken";
 const DIRECT_CAMERA_LINK_SESSION = "parkview.directCameraLink.session";
 const DEVICE_CAMERA_RESULT_STORAGE = "parkview.deviceCamera.latest";
+const RUNTIME_CONFIG_TIMEOUT_MS = 20000;
 
 function edgeApiUrl(path) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
@@ -52,7 +53,7 @@ async function loadRuntimeConfig() {
   }
 
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 8000);
+  const timeout = window.setTimeout(() => controller.abort(), RUNTIME_CONFIG_TIMEOUT_MS);
   try {
     const response = await fetch(edgeApiUrl("/api/public-config"), {
       cache: "no-store",
@@ -74,7 +75,9 @@ async function loadRuntimeConfig() {
     };
   } catch (error) {
     state.runtimeConfig = staticConfig;
-    console.warn("Runtime configuration unavailable.", error);
+    if (error?.name !== "AbortError") {
+      console.warn("Runtime configuration unavailable.", error);
+    }
   } finally {
     window.clearTimeout(timeout);
   }
@@ -5500,11 +5503,14 @@ async function refreshEdgeStatus() {
     });
     if (!healthResponse.ok) throw Object.assign(new Error(`분석 서버 HTTP ${healthResponse.status}`), { status: healthResponse.status });
     const health = await healthResponse.json();
-    const resultResponse = await fetch(resultUrl, {
-      cache: "no-store", headers: cameraApiHeaders(resultUrl), signal: controller.signal
-    });
-    if (!resultResponse.ok) throw Object.assign(new Error(`분석 결과 HTTP ${resultResponse.status}`), { status: resultResponse.status });
-    const result = await resultResponse.json();
+    let result = null;
+    if (health.camera) {
+      const resultResponse = await fetch(resultUrl, {
+        cache: "no-store", headers: cameraApiHeaders(resultUrl), signal: controller.signal
+      });
+      if (!resultResponse.ok) throw Object.assign(new Error(`분석 결과 HTTP ${resultResponse.status}`), { status: resultResponse.status });
+      result = await resultResponse.json();
+    }
     if (state.edgeStatusRequest !== controller) return;
     state.edgeStatusFailures = 0;
     state.edgeStatusRetryAt = 0;
