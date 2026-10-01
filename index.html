@@ -393,7 +393,6 @@
             <label class="form-field"><span>운영 상태</span><select id="managementLotStatusInput"><option value="open">운영</option><option value="closed">마감</option></select></label>
           </div>
           <button id="managementLotSaveButton" class="secondary-button full-width-button" type="button">기본 정보 저장</button>
-          <a id="localCameraSetupLink" class="secondary-button full-width-button" href="http://127.0.0.1:5180/" target="_blank" rel="noopener" hidden>CCTV 연결 컴퓨터에서 설정 열기</a>
           <div class="share-link-row">
             <div><strong>공개 CCTV 링크</strong><small id="cameraShareStatus">카메라 연결 후 생성됩니다.</small></div>
             <button id="cameraShareCopyButton" class="secondary-button" type="button" disabled>링크 복사</button>
@@ -528,7 +527,7 @@
       document.write('<script src="./native-bridge-source.js?v=100"><\/script>');
     }
   </script>
-  <script src="./app.js?v=146"></script>
+  <script src="./app.js?v=148"></script>
   <script src="./vendor/onnxruntime/ort.wasm.bundle.js?v=1"></script>
   <script type="module" src="./camera-analysis.js?v=13"></script>
 </body>

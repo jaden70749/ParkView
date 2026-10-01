@@ -16,6 +16,18 @@
     {
       "source": "/api/camera/:path*",
       "destination": "https://parkview-plan-api.onrender.com/api/camera/:path*"
+    },
+    {
+      "source": "/api/result",
+      "destination": "https://parkview-plan-api.onrender.com/api/result"
+    },
+    {
+      "source": "/api/regions",
+      "destination": "https://parkview-plan-api.onrender.com/api/regions"
+    },
+    {
+      "source": "/api/regions/:path*",
+      "destination": "https://parkview-plan-api.onrender.com/api/regions/:path*"
     }
   ]
 }

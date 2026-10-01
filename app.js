@@ -22,10 +22,7 @@ function edgeApiUrl(path) {
 
 function cameraApiUrl(path) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  const localHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
-  if (localHost) return normalizedPath;
-  if (normalizedPath === "/api/health" || normalizedPath === "/api/result") return "";
-  return "";
+  return `${CAMERA_API_BASE_URL}${normalizedPath}`;
 }
 
 function cameraApiHeaders(url, headers = {}) {
@@ -229,6 +226,7 @@ const els = {};
 
 document.addEventListener("DOMContentLoaded", async () => {
   bindElements();
+  enableCameraConnectionControls();
   bindEvents();
   refreshIcons();
   state.favoriteLotIds = loadFavoriteLotIds();
@@ -349,7 +347,6 @@ function bindElements() {
     managementLotPriceInput: document.querySelector("#managementLotPriceInput"),
     managementLotStatusInput: document.querySelector("#managementLotStatusInput"),
     managementLotSaveButton: document.querySelector("#managementLotSaveButton"),
-    localCameraSetupLink: document.querySelector("#localCameraSetupLink"),
     cameraShareStatus: document.querySelector("#cameraShareStatus"),
     cameraShareCopyButton: document.querySelector("#cameraShareCopyButton"),
     cameraShareUrl: document.querySelector("#cameraShareUrl"),
@@ -1518,7 +1515,7 @@ function setAdminView(view) {
   } else {
     els.adminEyebrow.textContent = "ParkView Admin";
     els.adminTitle.textContent = "운영 관리";
-    if (!state.publicCameraViewer && isLocalCameraHost()) startEdgeStatusPolling();
+    if (!state.publicCameraViewer) startEdgeStatusPolling();
   }
   els.adminScreen.scrollTop = 0;
 }
@@ -1779,10 +1776,6 @@ function renderManagement() {
   if (!lot || !lot.isRegistered) return;
   els.managementLotName.textContent = lot.name;
   els.managementLotAddress.textContent = lot.address;
-  if (state.publicCameraViewer) {
-    els.managementLotName.textContent = "실시간 CCTV";
-    els.managementLotAddress.textContent = "공개 카메라 화면";
-  }
   const status = els.managementView.querySelector(".management-status");
   status.textContent = lot.isOpen ? "운영" : "마감";
   status.style.background = lot.isOpen ? "#2fc962" : "#ef3c42";
@@ -1795,7 +1788,6 @@ function renderManagement() {
   if (els.managementLotAddressInput) els.managementLotAddressInput.value = lot.address || "";
   if (els.managementLotPriceInput) els.managementLotPriceInput.value = Number(lot.hourlyPrice) || 0;
   if (els.managementLotStatusInput) els.managementLotStatusInput.value = lot.isOpen === false ? "closed" : "open";
-  if (els.localCameraSetupLink) els.localCameraSetupLink.hidden = isLocalCameraHost();
   renderCameraShareSettings();
   renderManagementFloor();
 }
@@ -1879,10 +1871,7 @@ function renderManagementFloor() {
     }))
   } : null;
   if (calibrationLink) {
-    const setupUrl = new URL(
-      isLocalCameraHost() ? "./calibrate.html" : "http://127.0.0.1:5180/calibrate.html",
-      window.location.href
-    );
+    const setupUrl = new URL("./calibrate.html", window.location.href);
     setupUrl.searchParams.set("lot_id", String(state.selectedLot?.id || ""));
     setupUrl.searchParams.set("floor_id", floor?.name || "B1");
     calibrationLink.href = setupUrl.href;
@@ -5181,8 +5170,7 @@ function toggleCameraConnectionForm() {
   els.cameraConnectionForm.hidden = !opening;
   els.cameraSetupToggle.setAttribute("aria-expanded", String(opening));
   if (!opening) return;
-  if (els.cameraRtspUrl) els.cameraRtspUrl.disabled = false;
-  if (els.cameraConnectButton) els.cameraConnectButton.disabled = false;
+  enableCameraConnectionControls();
   const directMode = isDirectCameraMode();
   const nativeMode = window.ParkViewNative?.supportsCctv === true;
   if (els.cameraAdminTokenField) els.cameraAdminTokenField.hidden = nativeMode || directMode;
@@ -5201,8 +5189,17 @@ function toggleCameraConnectionForm() {
   window.setTimeout(() => els.cameraRtspUrl?.focus(), 0);
 }
 
-function isLocalCameraHost() {
-  return ["localhost", "127.0.0.1"].includes(window.location.hostname);
+function enableCameraConnectionControls() {
+  if (els.cameraRtspUrl) {
+    els.cameraRtspUrl.disabled = false;
+    els.cameraRtspUrl.readOnly = false;
+    els.cameraRtspUrl.removeAttribute?.("disabled");
+    els.cameraRtspUrl.removeAttribute?.("readonly");
+  }
+  if (els.cameraConnectButton) {
+    els.cameraConnectButton.disabled = false;
+    els.cameraConnectButton.removeAttribute?.("disabled");
+  }
 }
 
 function loadAdminToken() {
@@ -5411,7 +5408,7 @@ async function connectCameraFromAdmin(event) {
     return;
   }
   if (token.length < 20) {
-    setCameraConnectFeedback("로컬 서버의 관리자 토큰을 입력해 주세요.", "error");
+    setCameraConnectFeedback("관리자 토큰을 입력해 주세요.", "error");
     els.cameraAdminToken?.focus();
     return;
   }
@@ -5497,7 +5494,7 @@ async function refreshEdgeStatus() {
   try {
     const healthUrl = cameraApiUrl("/api/health");
     const resultUrl = cameraApiUrl("/api/result");
-    if (!healthUrl || !resultUrl) throw new Error("로컬 카메라 서버가 연결되지 않았습니다");
+    if (!healthUrl || !resultUrl) throw new Error("카메라 서버가 연결되지 않았습니다");
     const healthResponse = await fetch(healthUrl, {
       cache: "no-store", headers: cameraApiHeaders(healthUrl), signal: controller.signal
     });
@@ -5602,7 +5599,7 @@ function showScreen(screen) {
   els.adminScreen.classList.toggle("active", screen === "admin");
 
   if (screen === "admin" && els.managementView?.classList.contains("active")
-      && !state.publicCameraViewer && isLocalCameraHost()) {
+      && !state.publicCameraViewer) {
     startEdgeStatusPolling();
   } else {
     stopEdgeStatusPolling();
@@ -5819,6 +5816,6 @@ function escapeHtml(value) {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js?v=150", { updateViaCache: "none" }).catch(() => {});
+    navigator.serviceWorker.register("./sw.js?v=152", { updateViaCache: "none" }).catch(() => {});
   }
 }

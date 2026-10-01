@@ -3324,29 +3324,6 @@ textarea {
   padding: 0 0 calc(30px + env(safe-area-inset-bottom));
 }
 
-body.public-camera-viewer .management-toolbar {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-body.public-camera-viewer .management-toolbar > :first-child,
-body.public-camera-viewer .management-toolbar > :last-child,
-body.public-camera-viewer .management-toolbar #managementSettingsButton,
-body.public-camera-viewer .management-summary,
-body.public-camera-viewer .plan-management-section,
-body.public-camera-viewer .camera-setup-toggle,
-body.public-camera-viewer .camera-connection-form,
-body.public-camera-viewer .management-delete-area {
-  display: none !important;
-}
-
-body.public-camera-viewer .management-toolbar strong {
-  font-size: 18px;
-}
-
-body.public-camera-viewer .edge-management-section {
-  border-top: 0;
-}
-
 .management-toolbar {
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr) 38px auto;

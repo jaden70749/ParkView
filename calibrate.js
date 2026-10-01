@@ -13,10 +13,9 @@ const state = {
 };
 const setupParams = new URLSearchParams(window.location.search);
 const setupLotId = (setupParams.get("lot_id") || "").trim();
-const isLocalCalibrationHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
-const cameraBase = isLocalCalibrationHost
-  ? String(window.PARKVIEW_CONFIG?.cameraApiBaseUrl || "").trim().replace(/\/+$/, "")
-  : "";
+const cameraBase = String(
+  window.PARKVIEW_CONFIG?.cameraApiBaseUrl || ""
+).trim().replace(/\/+$/, "");
 
 const els = {
   adminToken: document.querySelector("#adminToken"),
@@ -48,12 +47,6 @@ function currentFloorId() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  if (!isLocalCalibrationHost) {
-    const localUrl = new URL("http://127.0.0.1:5180/calibrate.html");
-    localUrl.search = window.location.search;
-    window.location.replace(localUrl.href);
-    return;
-  }
   els.floorId.value = setupParams.get("floor_id") || "B1";
   els.floorId.readOnly = true;
   document.querySelector("#trainingGroup").value = defaultTrainingGroup();

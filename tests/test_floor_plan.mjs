@@ -83,7 +83,7 @@ function loadAppContext() {
   return context;
 }
 
-test("hosted page accepts and connects a direct RTSP camera link", async () => {
+test("hosted page enables RTSP input and requires the administrator token", async () => {
   const context = loadAppContext();
   context.window.location.hostname = "parkview.example";
   context.window.setTimeout = () => 0;
@@ -104,7 +104,7 @@ test("hosted page accepts and connects a direct RTSP camera link", async () => {
       querySelector: () => ({ textContent: "" })
     }),
     cameraAdminTokenField: { hidden: false },
-    cameraAdminToken: { value: "" },
+    cameraAdminToken: { value: "", focus() {} },
     cameraOpenButton,
     cameraConnectFeedback: new FakeElement("p"),
     cameraConnectionChip: new FakeElement("span"),
@@ -119,8 +119,8 @@ test("hosted page accepts and connects a direct RTSP camera link", async () => {
   assert.equal(context.statusElements.cameraRtspUrl.disabled, false);
   assert.equal(context.statusElements.cameraConnectButton.disabled, false);
   await vm.runInContext("connectCameraFromAdmin({preventDefault() {}})", context);
-  assert.equal(vm.runInContext("state.directCameraUrl", context), "rtsp://camera.example/stream");
-  assert.match(context.statusElements.cameraConnectFeedback.textContent, /연결했습니다/);
+  assert.equal(vm.runInContext("state.directCameraUrl", context), "");
+  assert.match(context.statusElements.cameraConnectFeedback.textContent, /관리자 토큰/);
 });
 
 test("adjacent rotated parking rows keep equal sizes without overlapping", () => {
@@ -226,7 +226,7 @@ test("console occupancy is numbered, distinguishes unknown, and deduplicates rep
   assert.equal(slots[0].slot_index,2);
 });
 
-test("direct camera links are validated without exposing an admin token", () => {
+test("deployed camera links use the protected camera API", () => {
   const context = loadAppContext();
   context.window.location.hostname = "jaden70749.github.io";
   context.cameraLink = "rtsp://camera-user:camera-password@192.168.0.26:554/stream";
@@ -235,7 +235,7 @@ test("direct camera links are validated without exposing an admin token", () => 
   vm.runInContext("saveDirectCameraLink(normalizeCameraLink(cameraLink))", context);
 
   assert.equal(normalized, context.cameraLink);
-  assert.equal(vm.runInContext("isDirectCameraMode()", context), true);
+  assert.equal(vm.runInContext("isDirectCameraMode()", context), false);
   assert.equal(vm.runInContext("loadDirectCameraLink()", context), context.cameraLink);
   assert.throws(
     () => vm.runInContext('normalizeCameraLink("javascript:alert(1)")', context),

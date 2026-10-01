@@ -1,11 +1,11 @@
-const CACHE_NAME = "parkview-v150";
+const CACHE_NAME = "parkview-v152";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css?v=115",
   "./config.js?v=4",
   "./native-bridge-source.js?v=100",
-  "./app.js?v=146",
+  "./app.js?v=148",
   "./camera-analysis.js?v=13",
   "./camera-analysis-core.js?v=4",
   "./vendor/onnxruntime/ort.wasm.bundle.js?v=1",
@@ -20,9 +20,14 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))
-    ).then(() => self.clients.claim())
+    caches.keys().then(async (keys) => {
+      const previousCaches = keys.filter((key) => key !== CACHE_NAME);
+      await Promise.all(previousCaches.map((key) => caches.delete(key)));
+      await self.clients.claim();
+      if (!previousCaches.some((key) => key.startsWith("parkview-v"))) return;
+      const windows = await self.clients.matchAll({ type: "window" });
+      await Promise.all(windows.map((client) => client.navigate(client.url)));
+    })
   );
 });
 
