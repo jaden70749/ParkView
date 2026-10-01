@@ -5185,7 +5185,7 @@ function toggleCameraConnectionForm() {
     els.cameraRtspUrl.disabled = true;
     els.cameraConnectButton.disabled = true;
     if (els.cameraAdminTokenField) els.cameraAdminTokenField.hidden = true;
-    setCameraConnectFeedback("CCTV 연결 컴퓨터에서 로컬 설정 주소를 열어 주세요.");
+    setCameraConnectFeedback("");
     return;
   }
   const directMode = isDirectCameraMode();

@@ -117,7 +117,7 @@ test("hosted page keeps RTSP camera settings on the local CCTV host", async () =
   assert.equal(context.statusElements.cameraRtspUrl.disabled, true);
   assert.equal(context.statusElements.cameraConnectButton.disabled, true);
   assert.equal(context.statusElements.cameraAdminTokenField.hidden, true);
-  assert.match(context.statusElements.cameraConnectFeedback.textContent, /로컬 설정 주소/);
+  assert.equal(context.statusElements.cameraConnectFeedback.textContent, "");
   await vm.runInContext("connectCameraFromAdmin({preventDefault() {}})", context);
   assert.equal(vm.runInContext("state.directCameraUrl", context), "");
   assert.match(context.statusElements.cameraConnectFeedback.textContent, /127\.0\.0\.1:5180/);
