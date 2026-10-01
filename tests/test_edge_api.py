@@ -64,6 +64,11 @@ class CameraRelayTests(unittest.TestCase):
         })
         self.assertEqual(status, 204)
         self.assertEqual(headers.get("Access-Control-Allow-Origin"), "https://waymakerschool.github.io")
+        allowed_headers = {
+            header.strip().lower()
+            for header in headers.get("Access-Control-Allow-Headers", "").split(",")
+        }
+        self.assertIn("authorization", allowed_headers)
 
 
 if __name__ == "__main__":
