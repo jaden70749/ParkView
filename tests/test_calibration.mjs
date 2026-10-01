@@ -85,6 +85,17 @@ test("new calibration opens in region selection mode", () => {
   assert.match(source, /mode: "region"/);
 });
 
+test("hosted calibration redirects to the local CCTV server", () => {
+  assert.match(source, /\["localhost", "127\.0\.0\.1"\]\.includes\(window\.location\.hostname\)/);
+  assert.match(source, /http:\/\/127\.0\.0\.1:5180\/calibrate\.html/);
+  assert.match(source, /window\.location\.replace\(localUrl\.href\)/);
+});
+
+test("management calibration link targets the local CCTV server when deployed", async () => {
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  assert.match(app, /isLocalCameraHost\(\) \? "\.\/calibrate\.html" : "http:\/\/127\.0\.0\.1:5180\/calibrate\.html"/);
+});
+
 const training = source.slice(source.indexOf("function defaultTrainingGroup()"), source.indexOf("function authHeaders("));
 function trainingHarness({ group = "", error = "" } = {}) {
   const nodes = {

@@ -51,6 +51,63 @@ class VisionTests(unittest.TestCase):
         self.config["reference_id"] = vision.save_reference(encode(self.frame))
         self.assertFalse(vision.analyze(encode(self.frame[::2, ::2]), self.config)[1])
 
+    def test_local_shadow_on_floor_is_not_a_parked_object(self):
+        self.config["reference_id"] = vision.save_reference(encode(self.frame))
+        shadow = self.frame.copy()
+        shadow[50:270, 50:270] = np.clip(shadow[50:270, 50:270].astype(int)-35, 0, 255)
+        result = vision.analyze(encode(shadow), self.config)[0][0]
+        self.assertEqual(result["occupied"], 0)
+        self.assertAlmostEqual(result["lighting_offset"], -35, delta=1)
+        cv2.rectangle(shadow, (140, 140), (180, 175), (210, 210, 210), -1)
+        self.assertEqual(vision.analyze(encode(shadow), self.config)[0][0]["occupied"], 1)
+
+    def test_thin_video_artifact_is_removed_but_dark_object_is_kept(self):
+        self.config["reference_id"] = vision.save_reference(encode(self.frame))
+        noisy = self.frame.copy()
+        cv2.line(noisy, (120, 150), (200, 150), (0, 0, 0), 1)
+        self.assertEqual(vision.analyze(encode(noisy), self.config)[0][0]["occupied"], 0)
+        cv2.rectangle(noisy, (140, 140), (180, 175), (60, 60, 60), -1)
+        self.assertEqual(vision.analyze(encode(noisy), self.config)[0][0]["occupied"], 1)
+
+    def test_small_camera_jitter_on_textured_floor_is_not_occupancy(self):
+        rng = np.random.default_rng(42)
+        texture = rng.integers(110, 210, (400, 600), dtype=np.uint8)
+        self.frame = np.repeat(texture[:, :, None], 3, axis=2)
+        cv2.rectangle(self.frame, (100, 100), (220, 220), (20, 20, 20), 6)
+        self.config["reference_id"] = vision.save_reference(encode(self.frame))
+        shifted = cv2.warpAffine(self.frame, np.float32([[1, 0, -.5], [0, 1, -1]]),
+                                 (600, 400), borderMode=cv2.BORDER_REFLECT)
+        results, ready, _ = vision.analyze(encode(shifted), self.config)
+        self.assertTrue(ready)
+        self.assertEqual(results[0]["occupied"], 0)
+        cv2.rectangle(shifted, (140, 140), (180, 175), (40, 40, 40), -1)
+        self.assertEqual(vision.analyze(encode(shifted), self.config)[0][0]["occupied"], 1)
+        moved = cv2.warpAffine(self.frame, np.float32([[1, 0, 7], [0, 1, 0]]),
+                               (600, 400), borderMode=cv2.BORDER_REFLECT)
+        results, ready, _ = vision.analyze(encode(moved), self.config)
+        self.assertFalse(ready)
+        self.assertIsNone(results[0]["occupied"])
+
+    def test_vehicle_can_move_between_bays_with_small_rotation(self):
+        rng = np.random.default_rng(12)
+        texture = rng.integers(120, 200, (400, 600), dtype=np.uint8)
+        frame = np.repeat(texture[:, :, None], 3, axis=2)
+        cv2.rectangle(frame, (100, 100), (220, 220), (20, 20, 20), 6)
+        cv2.rectangle(frame, (260, 100), (380, 220), (20, 20, 20), 6)
+        self.config["slots"].append({"id": "2", "slot_index": 1,
+            "polygon": [[.438,.255],[.63,.255],[.63,.545],[.438,.545]]})
+        self.config["reference_id"] = vision.save_reference(encode(frame))
+        warp = cv2.getRotationMatrix2D((300, 200), .15, 1)
+        for occupied_index, x in enumerate([140, 300]):
+            current = frame.copy()
+            cv2.rectangle(current, (x, 140), (x+40, 175), (50, 50, 50), -1)
+            current = cv2.warpAffine(current, warp, (600, 400), borderMode=cv2.BORDER_REFLECT)
+            cv2.rectangle(current, (460, 20), (580, 90), (10, 10, 10), -1)
+            result, ready, _ = vision.analyze(encode(current), self.config)
+            self.assertTrue(ready)
+            self.assertEqual([r["occupied"] for r in result],
+                             [int(i == occupied_index) for i in range(2)])
+
     def test_closed_black_lines_generate_reviewable_polygons(self):
         frame = np.full((600, 800, 3), 180, np.uint8)
         for x in [100, 170, 400]:
@@ -68,3 +125,14 @@ class VisionTests(unittest.TestCase):
             result = worker._stabilize([{"id": "1", "status": "unknown"}])
         self.assertIsNone(result[0]["occupied"])
         self.assertEqual(result[0]["status"], "unknown")
+
+    def test_one_frame_flash_does_not_mark_an_empty_bay_occupied(self):
+        worker = server.AnalysisWorker()
+        empty = {"id": "1", "status": "empty", "strategy": "empty_reference_difference"}
+        occupied = {**empty, "status": "occupied"}
+        for _ in range(server.EMPTY_CONFIRMATIONS):
+            worker._stabilize([empty])
+        self.assertEqual(worker._stabilize([occupied])[0]["occupied"], 0)
+        self.assertEqual(worker._stabilize([empty])[0]["occupied"], 0)
+        self.assertEqual(worker._stabilize([occupied])[0]["occupied"], 0)
+        self.assertEqual(worker._stabilize([occupied])[0]["occupied"], 1)

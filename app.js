@@ -1879,7 +1879,10 @@ function renderManagementFloor() {
     }))
   } : null;
   if (calibrationLink) {
-    const setupUrl = new URL("./calibrate.html", window.location.href);
+    const setupUrl = new URL(
+      isLocalCameraHost() ? "./calibrate.html" : "http://127.0.0.1:5180/calibrate.html",
+      window.location.href
+    );
     setupUrl.searchParams.set("lot_id", String(state.selectedLot?.id || ""));
     setupUrl.searchParams.set("floor_id", floor?.name || "B1");
     calibrationLink.href = setupUrl.href;

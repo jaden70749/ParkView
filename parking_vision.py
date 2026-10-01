@@ -96,13 +96,48 @@ def analyze(raw, config):
         return results, False, "영상 크기가 변경되었습니다. 기준 사진을 다시 등록해 주세요"
     gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
     base = cv2.cvtColor(reference, cv2.COLOR_RGB2GRAY)
+    h, w = gray.shape
+    polygons = [np.round(np.array(s["polygon"])*[w-1, h-1]).astype(np.int32) for s in slots]
     shift, response = cv2.phaseCorrelate(base.astype(np.float32), gray.astype(np.float32))
     if response > 0.15 and np.hypot(*shift) > 3:
         return results, False, "카메라 위치가 바뀌었습니다. 좌표와 기준 사진을 다시 확인해 주세요"
-    h, w = gray.shape
-    lighting_offset = np.median(gray.astype(float)-base.astype(float))
-    for slot, result in zip(slots, results):
-        polygon = np.round(np.array(slot["polygon"])*[w-1, h-1]).astype(np.int32)
+    warp = np.float32([[1, 0, shift[0]], [0, 1, shift[1]]]) if response > 0.3 else None
+    # Register fixed tape and nearby floor, excluding cars and the rest of the room.
+    if polygons:
+        registration_mask = np.zeros((h, w), np.uint8)
+        cv2.fillConvexPoly(registration_mask, cv2.convexHull(np.concatenate(polygons)), 255)
+        registration_mask = cv2.dilate(registration_mask, np.ones((21, 21), np.uint8))
+        for polygon in polygons:
+            interior = np.zeros((h, w), np.uint8)
+            cv2.fillPoly(interior, [polygon], 255)
+            interior = cv2.erode(interior, np.ones((5, 5), np.uint8))
+            registration_mask[interior > 0] = 0
+        try:
+            score, candidate = cv2.findTransformECC(
+                base, gray, np.eye(2, 3, dtype=np.float32), cv2.MOTION_AFFINE,
+                (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 80, 1e-5), registration_mask, 5)
+            if score >= 0.9:
+                points = np.concatenate(polygons).astype(np.float32)
+                moved = cv2.transform(points[None], candidate)[0]
+                if np.max(np.linalg.norm(moved-points, axis=1)) > 3:
+                    return results, False, "카메라 위치가 바뀌었습니다. 좌표와 기준 사진을 다시 확인해 주세요"
+                warp = candidate
+        except cv2.error:
+            pass
+    # Move only the comparison image; saved polygons and reference stay unchanged.
+    if warp is not None:
+        base = cv2.warpAffine(base, warp,
+                             (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+    # Estimate illumination only from surrounding floor, never from parked objects.
+    excluded = np.zeros((h, w), np.uint8)
+    for polygon in polygons:
+        cv2.fillPoly(excluded, [polygon], 255)
+    excluded = cv2.dilate(excluded, np.ones((5, 5), np.uint8))
+    difference = (cv2.GaussianBlur(gray, (3, 3), 0).astype(np.float32)
+                  - cv2.GaussianBlur(base, (3, 3), 0).astype(np.float32))
+    floor = (excluded == 0) & (base > 40) & (base < 235) & (gray > 20) & (gray < 245)
+    lighting_offset = float(np.median(difference[floor])) if floor.any() else 0.0
+    for polygon, result in zip(polygons, results):
         x, y, bw, bh = cv2.boundingRect(polygon)
         mask = np.zeros((bh, bw), np.uint8)
         cv2.fillPoly(mask, [polygon-[x, y]], 255)
@@ -112,13 +147,22 @@ def analyze(raw, config):
         count = int(inside.sum())
         if count < 30:
             continue
-        delta = gray[y:y+bh, x:x+bw].astype(float)-base[y:y+bh, x:x+bw].astype(float)
-        delta -= lighting_offset
-        changed = ((np.abs(delta) > 18) & inside).astype(np.uint8)
+        padding = max(8, int(max(bw, bh)*0.3))
+        x0, y0 = max(0, x-padding), max(0, y-padding)
+        x1, y1 = min(w, x+bw+padding), min(h, y+bh+padding)
+        surrounding = difference[y0:y1, x0:x1][floor[y0:y1, x0:x1]]
+        offset = lighting_offset
+        if surrounding.size >= 32:
+            low, high = np.percentile(surrounding, [25, 75])
+            if high-low <= 12:
+                offset = float(np.median(surrounding))
+        delta = difference[y:y+bh, x:x+bw] - offset
+        changed = ((np.abs(delta) > 25) & inside).astype(np.uint8)
+        changed = cv2.morphologyEx(changed, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
         n, _, stats, _ = cv2.connectedComponentsWithStats(changed, 8)
         area = int(stats[1:, cv2.CC_STAT_AREA].max()) if n > 1 else 0
         ratio = area/count
-        occupied = ratio >= 0.04
+        occupied = ratio >= 0.08
         result.update(status="occupied" if occupied else "empty", occupied=int(occupied),
-                      change_ratio=round(ratio, 4))
+                      change_ratio=round(ratio, 4), lighting_offset=round(offset, 2))
     return results, bool(slots), ""
