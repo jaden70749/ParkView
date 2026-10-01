@@ -83,6 +83,46 @@ function loadAppContext() {
   return context;
 }
 
+test("hosted page accepts and connects a direct RTSP camera link", async () => {
+  const context = loadAppContext();
+  context.window.location.hostname = "parkview.example";
+  context.window.setTimeout = () => 0;
+  const cameraOpenButton = Object.assign(new FakeElement("button"), {
+    hidden: true,
+    querySelector: () => ({ textContent: "" })
+  });
+  context.statusElements = {
+    cameraConnectionForm: { hidden: true },
+    cameraSetupToggle: new FakeElement("button"),
+    cameraRtspUrl: Object.assign(new FakeElement("input"), {
+      disabled: false,
+      value: "rtsp://camera.example/stream",
+      focus() {}
+    }),
+    cameraConnectButton: Object.assign(new FakeElement("button"), {
+      disabled: false,
+      querySelector: () => ({ textContent: "" })
+    }),
+    cameraAdminTokenField: { hidden: false },
+    cameraAdminToken: { value: "" },
+    cameraOpenButton,
+    cameraConnectFeedback: new FakeElement("p"),
+    cameraConnectionChip: new FakeElement("span"),
+    cameraStatus: new FakeElement("strong"),
+    cameraIntervalStatus: new FakeElement("strong"),
+    analysisStatus: new FakeElement("strong"),
+    objectStatus: new FakeElement("p")
+  };
+  vm.runInContext("Object.assign(els, statusElements); toggleCameraConnectionForm()", context);
+  context.statusElements.cameraRtspUrl.value = "rtsp://camera.example/stream";
+
+  assert.equal(context.statusElements.cameraRtspUrl.disabled, false);
+  assert.equal(context.statusElements.cameraConnectButton.disabled, false);
+  await vm.runInContext("connectCameraFromAdmin({preventDefault() {}})", context);
+  assert.equal(vm.runInContext("state.directCameraUrl", context), "rtsp://camera.example/stream");
+  assert.match(context.statusElements.cameraConnectFeedback.textContent, /연결했습니다/);
+});
+
 test("adjacent rotated parking rows keep equal sizes without overlapping", () => {
   const context = loadAppContext();
   vm.runInContext("activeFloorPlanXScale = 1", context);

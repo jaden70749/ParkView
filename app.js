@@ -5178,13 +5178,6 @@ function toggleCameraConnectionForm() {
   els.cameraConnectionForm.hidden = !opening;
   els.cameraSetupToggle.setAttribute("aria-expanded", String(opening));
   if (!opening) return;
-  if (!isLocalCameraHost()) {
-    els.cameraRtspUrl.disabled = true;
-    els.cameraConnectButton.disabled = true;
-    if (els.cameraAdminTokenField) els.cameraAdminTokenField.hidden = true;
-    setCameraConnectFeedback("CCTV 연결 컴퓨터에서 로컬 설정 주소를 열어 주세요.");
-    return;
-  }
   const directMode = isDirectCameraMode();
   const nativeMode = window.ParkViewNative?.supportsCctv === true;
   if (els.cameraAdminTokenField) els.cameraAdminTokenField.hidden = nativeMode || directMode;
@@ -5380,10 +5373,6 @@ function setCameraConnectFeedback(message, status = "") {
 
 async function connectCameraFromAdmin(event) {
   event.preventDefault();
-  if (!isLocalCameraHost() && !window.ParkViewNative?.supportsCctv) {
-    setCameraConnectFeedback("CCTV 연결 컴퓨터의 http://127.0.0.1:5180 주소에서 설정해 주세요.", "error");
-    return;
-  }
   let url = String(els.cameraRtspUrl?.value || "").trim();
   const token = String(els.cameraAdminToken?.value || "").trim();
   const endpoint = cameraApiUrl(url ? "/api/camera/configure" : "/api/camera/test");
