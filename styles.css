@@ -3232,23 +3232,6 @@ textarea {
   to { transform: rotate(360deg); }
 }
 
-.demo-key-button {
-  width: 40px;
-  min-width: 40px;
-  height: 40px;
-  padding: 0;
-  flex: 0 0 40px;
-  align-self: flex-start;
-  border-radius: 6px;
-  font-family: monospace;
-  font-size: 20px;
-}
-
-.demo-key-button[aria-pressed="true"] {
-  outline: 2px solid currentColor;
-  outline-offset: 2px;
-}
-
 .full-width-button {
   width: 100%;
   min-height: 48px;
@@ -3341,9 +3324,32 @@ textarea {
   padding: 0 0 calc(30px + env(safe-area-inset-bottom));
 }
 
+body.public-camera-viewer .management-toolbar {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body.public-camera-viewer .management-toolbar > :first-child,
+body.public-camera-viewer .management-toolbar > :last-child,
+body.public-camera-viewer .management-toolbar #managementSettingsButton,
+body.public-camera-viewer .management-summary,
+body.public-camera-viewer .plan-management-section,
+body.public-camera-viewer .camera-setup-toggle,
+body.public-camera-viewer .camera-connection-form,
+body.public-camera-viewer .management-delete-area {
+  display: none !important;
+}
+
+body.public-camera-viewer .management-toolbar strong {
+  font-size: 18px;
+}
+
+body.public-camera-viewer .edge-management-section {
+  border-top: 0;
+}
+
 .management-toolbar {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
+  grid-template-columns: 38px minmax(0, 1fr) 38px auto;
   align-items: center;
   gap: 10px;
   padding: 16px;
@@ -3353,6 +3359,74 @@ textarea {
 
 .management-toolbar .plain-icon-button {
   font-size: 30px;
+}
+
+.management-toolbar #managementSettingsButton {
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+}
+
+.management-toolbar #managementSettingsButton svg {
+  width: 19px;
+  height: 19px;
+}
+
+.management-settings-panel {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid #dedfe3;
+  background: #fbfbfc;
+}
+
+.management-settings-panel[hidden] {
+  display: none;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-grid .form-field {
+  min-width: 0;
+}
+
+.share-link-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid #e1e2e5;
+}
+
+.share-link-row strong,
+.share-link-row small {
+  display: block;
+}
+
+.share-link-row strong {
+  font-size: 12px;
+}
+
+.share-link-row small {
+  margin-top: 4px;
+  color: #777981;
+  font-size: 10px;
+}
+
+.settings-share-url {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #d6d9df;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #666b74;
+  font-size: 10px;
 }
 
 .management-toolbar strong,

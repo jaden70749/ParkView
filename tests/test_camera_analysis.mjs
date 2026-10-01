@@ -3,37 +3,13 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-test("manual demo uses only seven requested slots and ignores typing or other floors", async () => {
-  const code = await readFile(new URL("../demo-mode.js", import.meta.url), "utf8");
-  const handlers = {};
-  const attributes = {};
-  const button = { textContent: "\\", setAttribute(name, value) { attributes[name] = value; }, addEventListener: (name,fn) => { handlers[name]=fn; } };
-  const status = {};
-  const window = { PARKVIEW_ACTIVE_FLOOR_CONTEXT: {lotId:"lot",floorId:"1F"}, dispatchEvent() {} };
-  vm.runInNewContext(code, { window, CustomEvent: class {}, document: {
-    querySelector: id => id === "#demoModeButton" ? button : status,
-    addEventListener: (name,fn) => { handlers[name]=fn; }
-  } });
-  handlers.click();
-  const demo = window.PARKVIEW_DEMO;
-  assert.equal(demo.active,true);
-  assert.equal(button.textContent, "\\");
-  assert.equal(attributes["aria-label"], "수동 시연 종료");
-  assert.equal(attributes["aria-pressed"], "true");
-  assert.equal(demo.occupied(66),false);
-  handlers.keydown({key:"₩",target:{closest:()=>true}});
-  assert.equal(demo.revealed,false);
-  handlers.keydown({key:"₩",preventDefault(){}});
-  assert.deepEqual(Array.from({length:73},(_,i)=>i+1).filter(i=>demo.occupied(i)),[38,47,50,54,59,66,71]);
-  assert.equal(demo.applies("lot","2F"),false);
-  handlers.keydown({key:"₩",repeat:true});
-  assert.equal(demo.revealed,true);
-  handlers.click();
-  assert.equal(demo.active,false);
-  assert.equal(button.textContent, "\\");
-  assert.equal(attributes["aria-label"], "수동 시연 시작");
-  assert.equal(attributes["aria-pressed"], "false");
-  assert.equal(demo.revealed,false);
+test("manual demonstration controls and code are removed", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const camera = await readFile(new URL("../camera-analysis.js", import.meta.url), "utf8");
+  assert.doesNotMatch(html, /demoMode|수동 시연/);
+  assert.doesNotMatch(app, /PARKVIEW_DEMO|demo-mode|demoMode/);
+  assert.doesNotMatch(camera, /PARKVIEW_DEMO|demo-mode|manualDemo/);
 });
 
 test("device confidence is fixed at 75 percent and removed controls are not accessed", async () => {

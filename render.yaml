@@ -24,3 +24,5 @@ services:
         value: 30
       - key: PARKVIEW_AI_RATE_WINDOW
         value: 600
+      - key: PARKVIEW_CAMERA_RELAY_SECRET
+        sync: false

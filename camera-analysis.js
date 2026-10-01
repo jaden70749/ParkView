@@ -59,18 +59,16 @@ inputCanvas.height = MODEL_INPUT_SIZE;
 
 if (els.panel && resultContext) {
   bindEvents();
+  if (getPublicCameraShare()) window.setTimeout(() => {
+    openPanelForCctv();
+    startCctvCamera();
+  }, 250);
 }
 
 window.addEventListener("pagehide", stopSource);
 window.addEventListener("parkview:stop-device-camera", closeDeviceCameraPanel);
 window.addEventListener("parkview:cctv-frame", handleCctvFrame);
 window.addEventListener("parkview:cctv-state", handleCctvState);
-window.addEventListener("parkview:demo-mode", () => {
-  state.slotResults = [];
-  state.detections = [];
-  state.matchedDetections = [];
-  if (state.source) { drawPreview(); analyzeCurrentFrame(); }
-});
 
 function bindEvents() {
   els.toggle.addEventListener("click", toggleDeviceCameraPanel);
@@ -230,22 +228,37 @@ function getCameraPreviewUrl() {
   const configuredBase = String(window.PARKVIEW_CONFIG?.cameraApiBaseUrl || "").trim().replace(/\/+$/, "");
   const isLocalApp = !window.location.hostname.endsWith(".github.io");
   if (!configuredBase && !isLocalApp) return "";
+  const share = getPublicCameraShare();
+  if (share) return `${configuredBase}/api/camera/frame?camera_id=${encodeURIComponent(share.cameraId)}`;
   return `${configuredBase}/api/camera/preview`;
+}
+
+function getPublicCameraShare() {
+  const match = String(window.location.hash || "").match(/^#cctv=([^:]+):(.+)$/);
+  if (!match) return null;
+  try {
+    const cameraId = decodeURIComponent(match[1]);
+    const token = decodeURIComponent(match[2]);
+    return cameraId && token ? { cameraId, token } : null;
+  } catch (_error) {
+    return null;
+  }
 }
 
 function getCameraAdminToken() {
   const enteredToken = String(document.querySelector("#cameraAdminToken")?.value || "").trim();
   if (enteredToken) return enteredToken;
   try {
-    return sessionStorage.getItem("parkview.cameraAdminToken.session") || "";
-  } catch (_error) {
-    return "";
-  }
+    const saved = localStorage.getItem("parkview.cameraAdminToken");
+    if (saved) return saved;
+  } catch (_error) {}
+  try { return sessionStorage.getItem("parkview.cameraAdminToken") || ""; } catch (_error) { return ""; }
 }
 
 async function startCctvCamera() {
   const previewUrl = getCameraPreviewUrl();
   const token = getCameraAdminToken();
+  const publicShare = getPublicCameraShare();
   prepareForNewSource();
   state.sourceType = "cctv";
   state.running = true;
@@ -254,11 +267,15 @@ async function startCctvCamera() {
   els.startCameraButton.disabled = true;
   els.stopButton.disabled = false;
   try {
-    await loadCameraRegions(previewUrl, token);
+    await loadCameraRegions(previewUrl, token, publicShare);
     await loadCctvFrame(previewUrl, token);
-    showSource("고정 CCTV");
-    await loadModel();
-    await analyzeCurrentFrame();
+    showSource(publicShare ? "공개 CCTV" : "고정 CCTV");
+    if (!publicShare) {
+      await loadModel();
+      await analyzeCurrentFrame();
+    } else {
+      setStatus("공개 CCTV 화면을 수신 중입니다.");
+    }
     scheduleCctvFrame(previewUrl, token, ++state.runId);
   } catch (error) {
     state.running = false;
@@ -269,13 +286,13 @@ async function startCctvCamera() {
   }
 }
 
-async function loadCameraRegions(previewUrl, token) {
+async function loadCameraRegions(previewUrl, token, publicShare = null) {
   state.regions = null;
   state.slotResults = [];
   state.slotHistory.clear();
   try {
     const context = activeFloorContext();
-    if (!context) return;
+    if (!context || publicShare) return;
     const regionsUrl = previewUrl.replace(/\/api\/camera\/preview$/, "/api/regions")
       + `?lot_id=${encodeURIComponent(context.lotId)}&floor_id=${encodeURIComponent(context.floorId.trim().toUpperCase())}`;
     const response = await fetch(regionsUrl, {
@@ -301,14 +318,18 @@ function activeFloorContext() {
 
 async function loadCctvFrame(previewUrl, token) {
   const headers = cameraRequestHeaders(previewUrl);
-  if (token) headers.Authorization = `Bearer ${token}`;
+  const publicShare = getPublicCameraShare();
+  if (publicShare) headers.Authorization = `Viewer ${publicShare.token}`;
+  else if (token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(`${previewUrl}?t=${Date.now()}`, {
     cache: "no-store",
     headers
   });
   if (!response.ok) {
     if (response.status === 401) {
-      throw new Error("고정 CCTV 설정에서 관리자 토큰을 입력한 뒤 카메라 연결을 다시 눌러 주세요.");
+      throw new Error(getPublicCameraShare()
+        ? "공개 CCTV 링크가 만료되었거나 올바르지 않습니다. 관리자에게 새 링크를 요청해 주세요."
+        : "고정 CCTV 설정에서 관리자 토큰을 입력한 뒤 카메라 연결을 다시 눌러 주세요.");
     }
     const detail = await response.json().catch(() => ({}));
     throw new Error(detail.error || `CCTV 서버 HTTP ${response.status}`);
@@ -340,7 +361,7 @@ function scheduleCctvFrame(previewUrl, token, runId) {
     if (!state.running || state.runId !== runId || state.sourceType !== "cctv") return;
     try {
       await loadCctvFrame(previewUrl, token);
-      await analyzeCurrentFrame();
+      if (!getPublicCameraShare()) await analyzeCurrentFrame();
     } catch (error) {
       state.running = false;
       setStatus(`CCTV 수신 오류: ${error.message}`, true);
@@ -406,12 +427,6 @@ async function runContinuousAnalysis(runId) {
 
 async function analyzeCurrentFrame() {
   if (!state.source) return;
-  if (manualDemoActive()) {
-    setModelState("ready", "수동 시연");
-    setStatus("수동 시연 · 사전 설정 데이터");
-    drawPreview();
-    return;
-  }
   try {
     if (state.sourceType === "cctv" && state.regions?.occupancy_strategy === "empty_reference_difference") {
       const url = getCameraPreviewUrl().replace(/\/api\/camera\/preview$/, "/api/result");
@@ -493,11 +508,7 @@ function drawPreview() {
     els.resultCanvas.height = canvasHeight;
   }
   resultContext.drawImage(state.source, 0, 0, canvasWidth, canvasHeight);
-  const demo = window.PARKVIEW_DEMO;
-  const previewSlots = manualDemoActive() ? (state.regions?.slots || []).map(slot => ({
-    ...slot, status: demo.occupied(slot.slot_index+1) ? "occupied" : "empty"
-  })) : state.slotResults;
-  for (const slot of previewSlots) {
+  for (const slot of state.slotResults) {
     resultContext.beginPath();
     slot.polygon.forEach(([x, y], index) => {
       if (index === 0) resultContext.moveTo(x * canvasWidth, y * canvasHeight);
@@ -534,7 +545,6 @@ function drawPreview() {
 }
 
 function updateResult(elapsed, serverSlots = null, analyzedAt = null) {
-  if (manualDemoActive()) return;
   const { width, height } = sourceDimensions(state.source);
   state.slotResults = serverSlots || (state.sourceType === "cctv"
     ? stabilizeCameraSlots(matchCameraSlots(state.detections, state.regions, width, height), state.slotHistory)
@@ -583,10 +593,6 @@ function updateResult(elapsed, serverSlots = null, analyzedAt = null) {
   } catch {
     // The live result remains available even when browser storage is restricted.
   }
-}
-
-function manualDemoActive() {
-  return state.sourceType === "cctv" && window.PARKVIEW_DEMO?.applies(state.regions?.lot_id, state.regions?.floor_id);
 }
 
 function prepareForNewSource() {

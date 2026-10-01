@@ -11,3 +11,4 @@ dist/
 datasets/
 runs/
 .occupancy-references/
+.parkview-camera-settings.json

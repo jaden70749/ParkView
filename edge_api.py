@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import json
 import os
 import random
@@ -57,10 +59,15 @@ MAX_REQUEST_BYTES = max(
 )
 RATE_LIMIT_REQUESTS = max(2, int(os.environ.get("PARKVIEW_AI_RATE_LIMIT", "30")))
 RATE_LIMIT_WINDOW = max(60, int(os.environ.get("PARKVIEW_AI_RATE_WINDOW", "600")))
+CAMERA_RELAY_SECRET = os.environ.get("PARKVIEW_CAMERA_RELAY_SECRET", "").strip()
+CAMERA_MAX_FRAME_BYTES = max(256 * 1024, int(os.environ.get("PARKVIEW_CAMERA_MAX_FRAME_BYTES", str(4 * 1024 * 1024))))
+CAMERA_FRAME_MAX_AGE_SECONDS = max(10, int(os.environ.get("PARKVIEW_CAMERA_FRAME_MAX_AGE", "90")))
 
 _rate_lock = threading.Lock()
 _rate_entries: dict[str, deque[float]] = defaultdict(deque)
 _gemini_slots = threading.BoundedSemaphore(2)
+_camera_lock = threading.RLock()
+_camera_frames: dict[str, dict[str, Any]] = {}
 
 
 def validate_payload(payload: Any) -> dict[str, Any]:
@@ -167,6 +174,32 @@ def rate_limit_allows(client: str) -> tuple[bool, int]:
         return True, 0
 
 
+def camera_identifier(value: str) -> str:
+    identifier = "".join(char for char in str(value or "") if char.isalnum() or char in "-_ .")
+    identifier = identifier.replace(" ", "-").strip("-._")
+    if not identifier or len(identifier) > 80:
+        raise ValueError("카메라 식별자가 올바르지 않습니다")
+    return identifier
+
+
+def camera_viewer_token(headers: Any) -> str:
+    authorization = str(headers.get("Authorization", ""))
+    if not authorization.startswith("Viewer "):
+        return ""
+    return authorization.removeprefix("Viewer ").strip()
+
+
+def camera_viewer_allowed(identifier: str, token: str) -> bool:
+    if not token:
+        return False
+    with _camera_lock:
+        frame = _camera_frames.get(identifier)
+        expected = frame.get("viewer_token_hash", "") if frame else ""
+    return bool(expected) and hmac.compare_digest(
+        expected, hashlib.sha256(token.encode("utf-8")).hexdigest()
+    )
+
+
 class EdgeApiHandler(BaseHTTPRequestHandler):
     server_version = "ParkViewEdge/1.0"
 
@@ -197,13 +230,20 @@ class EdgeApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_bytes(self, status: HTTPStatus, body: bytes, content_type: str) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_OPTIONS(self) -> None:
         if not self.origin_allowed():
             self.send_json(HTTPStatus.FORBIDDEN, {"error": "허용되지 않은 웹 주소입니다"})
             return
         self.send_response(HTTPStatus.NO_CONTENT)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-ParkView-Relay-Secret, X-ParkView-Viewer-Token, X-ParkView-Camera-Name, X-ParkView-Floor-Id")
         self.send_header("Access-Control-Max-Age", "600")
         self.end_headers()
 
@@ -219,6 +259,7 @@ class EdgeApiHandler(BaseHTTPRequestHandler):
                     "geminiModel": ACTIVE_GEMINI_MODEL,
                     "geminiModels": GEMINI_MODELS,
                     "build": BUILD_COMMIT,
+                    "cameraRelayConfigured": bool(CAMERA_RELAY_SECRET),
                 },
             )
             return
@@ -231,13 +272,83 @@ class EdgeApiHandler(BaseHTTPRequestHandler):
                     "geminiModel": ACTIVE_GEMINI_MODEL,
                     "geminiModels": GEMINI_MODELS,
                     "build": BUILD_COMMIT,
+                    "cameraRelayConfigured": bool(CAMERA_RELAY_SECRET),
                 },
             )
+            return
+        if path == "/api/camera/status":
+            try:
+                identifier = camera_identifier(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("camera_id", [""])[0])
+            except ValueError as error:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            if not camera_viewer_allowed(identifier, camera_viewer_token(self.headers)):
+                self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "CCTV 공유 링크가 올바르지 않습니다"})
+                return
+            with _camera_lock:
+                frame = dict(_camera_frames[identifier])
+            age = max(0, time.time() - frame["updated_at_epoch"])
+            self.send_json(HTTPStatus.OK, {
+                "camera": frame["camera"], "floor_id": frame["floor_id"],
+                "updated_at": frame["updated_at"], "online": age <= CAMERA_FRAME_MAX_AGE_SECONDS,
+                "age_seconds": round(age, 1),
+            })
+            return
+        if path == "/api/camera/frame":
+            try:
+                identifier = camera_identifier(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("camera_id", [""])[0])
+            except ValueError as error:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            if not camera_viewer_allowed(identifier, camera_viewer_token(self.headers)):
+                self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "CCTV 공유 링크가 올바르지 않습니다"})
+                return
+            with _camera_lock:
+                frame = dict(_camera_frames[identifier])
+            if time.time() - frame["updated_at_epoch"] > CAMERA_FRAME_MAX_AGE_SECONDS:
+                self.send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "현재 CCTV 프레임을 받을 수 없습니다"})
+                return
+            self.send_bytes(HTTPStatus.OK, frame["image"], "image/jpeg")
             return
         self.send_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
 
     def do_POST(self) -> None:
-        if self.path.split("?", 1)[0] != "/api/gemini/generate":
+        path = self.path.split("?", 1)[0]
+        if path == "/api/camera/ingest":
+            if not CAMERA_RELAY_SECRET or not hmac.compare_digest(
+                self.headers.get("X-ParkView-Relay-Secret", ""), CAMERA_RELAY_SECRET
+            ):
+                self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "CCTV 중계 인증이 올바르지 않습니다"})
+                return
+            try:
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                identifier = camera_identifier(query.get("camera_id", [""])[0])
+                viewer_token = self.headers.get("X-ParkView-Viewer-Token", "").strip()
+                length = int(self.headers.get("Content-Length", "0"))
+                if not viewer_token or length <= 0 or length > CAMERA_MAX_FRAME_BYTES:
+                    raise ValueError("CCTV 프레임 또는 공유 키가 없습니다")
+                image = self.rfile.read(length)
+                if not image.startswith(b"\xff\xd8"):
+                    raise ValueError("JPEG CCTV 프레임만 중계할 수 있습니다")
+                now = time.time()
+                with _camera_lock:
+                    previous = _camera_frames.get(identifier)
+                    token_hash = hashlib.sha256(viewer_token.encode("utf-8")).hexdigest()
+                    if previous and not hmac.compare_digest(previous["viewer_token_hash"], token_hash):
+                        raise PermissionError("카메라 공유 키가 변경되었습니다")
+                    _camera_frames[identifier] = {
+                        "image": image, "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+                        "updated_at_epoch": now, "viewer_token_hash": token_hash,
+                        "camera": self.headers.get("X-ParkView-Camera-Name", "주차장 CCTV")[:80],
+                        "floor_id": self.headers.get("X-ParkView-Floor-Id", "B1")[:24],
+                    }
+                self.send_json(HTTPStatus.OK, {"ok": True, "camera_id": identifier})
+            except PermissionError as error:
+                self.send_json(HTTPStatus.FORBIDDEN, {"error": str(error)})
+            except (ValueError, TypeError) as error:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+        if path != "/api/gemini/generate":
             self.send_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
             return
         if not self.origin_allowed():

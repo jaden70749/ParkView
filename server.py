@@ -10,6 +10,7 @@ import ipaddress
 import json
 import math
 import os
+import secrets
 import socket
 import threading
 import time
@@ -65,15 +66,40 @@ REGIONS_PATH = Path(
     os.environ.get("PARKVIEW_REGIONS_PATH", ROOT / "parking_regions.json")
 ).expanduser()
 DEBUG_DIR = ROOT / "debug"
+CAMERA_SETTINGS_PATH = Path(
+    os.environ.get("PARKVIEW_CAMERA_SETTINGS_PATH", ROOT / ".parkview-camera-settings.json")
+).expanduser()
+CAMERA_RELAY_URL = os.environ.get(
+    "PARKVIEW_CAMERA_RELAY_URL", "https://parkview-plan-api.onrender.com"
+).strip().rstrip("/")
+CAMERA_RELAY_SECRET = os.environ.get("PARKVIEW_CAMERA_RELAY_SECRET", "").strip()
+PUBLIC_APP_URL = os.environ.get(
+    "PARKVIEW_PUBLIC_APP_URL", "https://jaden70749.github.io/ParkView/"
+).strip()
+
+
+def load_camera_settings() -> dict[str, str]:
+    try:
+        value = json.loads(CAMERA_SETTINGS_PATH.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+_persisted_camera_settings = load_camera_settings()
 CAMERA_URL = os.environ.get(
     "PARKVIEW_CAMERA_URL", os.environ.get("PARKVIEW_RTSP_URL", "")
 ).strip()
+CAMERA_URL = _persisted_camera_settings.get("url", CAMERA_URL).strip()
 CAMERA_NAME = os.environ.get("PARKVIEW_CAMERA_NAME", "주차장 CCTV").strip()
+CAMERA_NAME = _persisted_camera_settings.get("name", CAMERA_NAME).strip() or "주차장 CCTV"
 SITE_ID = os.environ.get("PARKVIEW_SITE_ID", "site-1").strip()
 CAMERA_SOCKET_TIMEOUT = max(
     1.0, float(os.environ.get("PARKVIEW_CAMERA_SOCKET_TIMEOUT", "3"))
 )
-FLOOR_ID = os.environ.get("PARKVIEW_FLOOR_ID", "B1").strip()
+FLOOR_ID = _persisted_camera_settings.get("floor_id", os.environ.get("PARKVIEW_FLOOR_ID", "B1")).strip() or "B1"
+CAMERA_ID = _persisted_camera_settings.get("camera_id", SITE_ID).strip() or SITE_ID
+CAMERA_VIEWER_TOKEN = _persisted_camera_settings.get("viewer_token", "").strip() or secrets.token_urlsafe(32)
 CAPTURE_INTERVAL = max(5, int(os.environ.get("PARKVIEW_ANALYSIS_INTERVAL", "30")))
 INFERENCE_SIZE = int(os.environ.get("PARKVIEW_IMAGE_SIZE", "640"))
 MIN_SCORE = float(os.environ.get("PARKVIEW_CONFIDENCE", "0.25"))
@@ -120,6 +146,24 @@ PUBLIC_RELAY_MODE = os.environ.get("PARKVIEW_PUBLIC_RELAY", "false").lower() in 
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_JSON_BYTES = 1024 * 1024
 MAX_GEMINI_JSON_BYTES = 48 * 1024 * 1024
+
+
+def save_camera_settings(values: dict[str, str]) -> None:
+    encoded = json.dumps(values, ensure_ascii=False, indent=2)
+    try:
+        CAMERA_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temporary = CAMERA_SETTINGS_PATH.with_suffix(".tmp")
+        temporary.write_text(encoded, encoding="utf-8")
+        temporary.replace(CAMERA_SETTINGS_PATH)
+    except OSError:
+        # Read-only containers can still keep the setting for the current process.
+        fallback = Path("/tmp/parkview-camera-settings.json")
+        fallback.write_text(encoded, encoding="utf-8")
+
+
+def camera_share_url() -> str:
+    base = PUBLIC_APP_URL.rstrip("/") + "/"
+    return f"{base}#cctv={urllib.parse.quote(CAMERA_ID, safe='-_ .')}:{urllib.parse.quote(CAMERA_VIEWER_TOKEN, safe='')}"
 
 _model: YOLO | None = None
 _model_lock = threading.RLock()
@@ -946,6 +990,32 @@ def capture_camera_frame(camera_url: str) -> bytes:
         capture.release()
 
 
+def publish_camera_frame(image_bytes: bytes, camera_name: str, floor_id: str) -> None:
+    if not CAMERA_RELAY_URL or not CAMERA_RELAY_SECRET:
+        return
+    url = f"{CAMERA_RELAY_URL}/api/camera/ingest?camera_id={urllib.parse.quote(CAMERA_ID, safe='-_ .')}"
+    request = urllib.request.Request(
+        url,
+        data=image_bytes,
+        headers={
+            "Content-Type": "image/jpeg",
+            "Content-Length": str(len(image_bytes)),
+            "X-ParkView-Relay-Secret": CAMERA_RELAY_SECRET,
+            "X-ParkView-Viewer-Token": CAMERA_VIEWER_TOKEN,
+            "X-ParkView-Camera-Name": camera_name,
+            "X-ParkView-Floor-Id": floor_id,
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            if response.status >= 300:
+                raise RuntimeError(f"relay HTTP {response.status}")
+        print("CAMERA_RELAY_UPLOAD ok=true", flush=True)
+    except Exception as error:
+        print(f"CAMERA_RELAY_UPLOAD ok=false type={type(error).__name__}", flush=True)
+
+
 def publish_firebase(
     slot_results: list[dict[str, Any]]
 ) -> dict[str, Any]:
@@ -1017,12 +1087,17 @@ class AnalysisWorker:
         self._last_camera_attempt_at: str | None = None
         self._last_camera_success_at: str | None = None
         self._last_frame: dict[str, Any] | None = None
+        self._preview_bytes: bytes | None = None
+        self._preview_at = 0.0
         self._consecutive_camera_failures = 0
         self._stable_status: dict[str, str] = {}
         self._empty_streak: dict[str, int] = {}
+        self._occupied_streak: dict[str, int] = {}
         self._camera_url = CAMERA_URL
         self._camera_name = CAMERA_NAME
         self._floor_id = FLOOR_ID
+        self._relay_lock = threading.Lock()
+        self._relay_thread: threading.Thread | None = None
 
     def start(self) -> None:
         with self._lock:
@@ -1076,7 +1151,12 @@ class AnalysisWorker:
                 self._last_camera_error = None
                 self._last_camera_success_at = succeeded_at
                 self._last_frame = frame
+                self._preview_bytes = image_bytes
+                self._preview_at = time.monotonic()
                 self._consecutive_camera_failures = 0
+                camera_name = self._camera_name
+                floor_id = self._floor_id
+            self._publish_frame_async(image_bytes, camera_name, floor_id)
             return image_bytes, frame
         except Exception as error:
             with self._lock:
@@ -1088,8 +1168,8 @@ class AnalysisWorker:
     def test_camera(self) -> dict[str, Any]:
         if not self._camera_url:
             raise RuntimeError("RTSP 카메라 주소가 설정되지 않았습니다")
-        if not self._analysis_lock.acquire(blocking=False):
-            raise RuntimeError("이미 카메라 분석 중입니다")
+        if not self._analysis_lock.acquire(timeout=20):
+            raise RuntimeError("카메라 응답 대기 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요")
         started = time.perf_counter()
         try:
             _image_bytes, frame = self._capture(always_save=True)
@@ -1107,6 +1187,8 @@ class AnalysisWorker:
                 "image": frame,
                 "elapsed_ms": elapsed_ms,
                 "debug_file": "debug/latest_capture.jpg",
+                "share_url": camera_share_url() if CAMERA_RELAY_SECRET else None,
+                "relay_url": CAMERA_RELAY_URL,
             }
         except Exception as error:
             print(
@@ -1125,8 +1207,8 @@ class AnalysisWorker:
         if parsed.scheme.lower() not in {"rtsp", "rtsps"}:
             raise ValueError("rtsp:// 또는 rtsps:// 주소를 입력해 주세요")
         camera_network_endpoint(camera_url)
-        if not self._analysis_lock.acquire(blocking=False):
-            raise RuntimeError("이미 카메라 분석 중입니다")
+        if not self._analysis_lock.acquire(timeout=20):
+            raise RuntimeError("카메라 응답 대기 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요")
         started = time.perf_counter()
         try:
             image_bytes = capture_camera_frame(camera_url)
@@ -1142,7 +1224,18 @@ class AnalysisWorker:
                 self._last_camera_attempt_at = connected_at
                 self._last_camera_success_at = connected_at
                 self._last_frame = frame
+                self._preview_bytes = image_bytes
+                self._preview_at = time.monotonic()
                 self._consecutive_camera_failures = 0
+                settings = {
+                    "url": self._camera_url,
+                    "name": self._camera_name,
+                    "floor_id": self._floor_id,
+                    "camera_id": CAMERA_ID,
+                    "viewer_token": CAMERA_VIEWER_TOKEN,
+                }
+            save_camera_settings(settings)
+            self._publish_frame_async(image_bytes, self._camera_name, self._floor_id)
             result = {
                 "connected": True,
                 "camera": self._camera_name,
@@ -1150,16 +1243,45 @@ class AnalysisWorker:
                 "captured_at": connected_at,
                 "image": frame,
                 "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
+                "share_url": camera_share_url(),
+                "relay_url": CAMERA_RELAY_URL,
             }
         finally:
             self._analysis_lock.release()
         self.start()
         return result
 
+    def _publish_frame_async(self, image_bytes: bytes, camera_name: str, floor_id: str) -> None:
+        if not CAMERA_RELAY_URL or not CAMERA_RELAY_SECRET:
+            return
+        with self._relay_lock:
+            if self._relay_thread and self._relay_thread.is_alive():
+                return
+            self._relay_thread = threading.Thread(
+                target=publish_camera_frame,
+                args=(image_bytes, camera_name, floor_id),
+                name="parkview-camera-relay",
+                daemon=True,
+            )
+            self._relay_thread.start()
+
     def preview_frame(self) -> bytes:
-        if not self._analysis_lock.acquire(blocking=False):
-            raise RuntimeError("이미 카메라 분석 중입니다")
+        def recent_frame():
+            with self._lock:
+                if self._camera_connected and time.monotonic() - self._preview_at <= 10:
+                    return self._preview_bytes
+            return None
+
+        cached = recent_frame()
+        if cached is not None:
+            return cached
+        if not self._analysis_lock.acquire(timeout=20):
+            raise RuntimeError("카메라 응답 대기 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요")
         try:
+            # The analysis that held the lock may have supplied a fresh frame.
+            cached = recent_frame()
+            if cached is not None:
+                return cached
             image_bytes, _frame = self._capture(always_save=True)
             return image_bytes
         finally:
@@ -1182,6 +1304,7 @@ class AnalysisWorker:
             if getattr(self, "_stabilization_context", None) != context:
                 self._stable_status.clear()
                 self._empty_streak.clear()
+                self._occupied_streak.clear()
                 self._stabilization_context = context
             payload["slot_results"] = self._stabilize(
                 payload["slot_results"]
@@ -1225,12 +1348,17 @@ class AnalysisWorker:
             if candidate == "unknown":
                 self._stable_status.pop(slot_id, None)
                 self._empty_streak.pop(slot_id, None)
+                self._occupied_streak.pop(slot_id, None)
                 stabilized.append({**result, "occupied": None})
                 continue
             if candidate == "occupied":
-                self._stable_status[slot_id] = "occupied"
+                self._occupied_streak[slot_id] = self._occupied_streak.get(slot_id, 0) + 1
+                confirmations = 2 if result.get("strategy") == "empty_reference_difference" else 1
+                if self._occupied_streak[slot_id] >= confirmations:
+                    self._stable_status[slot_id] = "occupied"
                 self._empty_streak[slot_id] = 0
             else:
+                self._occupied_streak[slot_id] = 0
                 self._empty_streak[slot_id] = (
                     self._empty_streak.get(slot_id, 0) + 1
                 )
@@ -1269,6 +1397,7 @@ class AnalysisWorker:
                     "last_error": self._last_camera_error,
                     "consecutive_failures": self._consecutive_camera_failures,
                     "frame": self._last_frame,
+                    "remote_share_enabled": bool(CAMERA_RELAY_URL and CAMERA_RELAY_SECRET),
                 },
                 "analysis_error": self._last_analysis_error,
                 "site_id": SITE_ID,
@@ -1393,6 +1522,20 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
             query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
             self.send_json(
                 HTTPStatus.OK, load_region_config(query.get("lot_id", [None])[0], query.get("floor_id", [None])[0])
+            )
+            return
+        if path == "/api/camera/settings":
+            if not self.require_admin():
+                return
+            self.send_json(
+                HTTPStatus.OK,
+                {
+                    "configured": bool(worker._camera_url),
+                    "camera": worker._camera_name,
+                    "floor_id": worker._floor_id,
+                    "relay_url": CAMERA_RELAY_URL,
+                    "share_url": camera_share_url() if CAMERA_RELAY_SECRET else None,
+                },
             )
             return
         if path == "/api/calibration-frame":

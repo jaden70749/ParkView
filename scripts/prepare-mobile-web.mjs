@@ -17,7 +17,6 @@ const files = [
   "index.html",
   "styles.css",
   "camera-analysis.js",
-  "demo-mode.js",
   "camera-analysis-core.js",
   "calibrate.html",
   "calibrate.js",
