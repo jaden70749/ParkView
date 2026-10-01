@@ -226,11 +226,10 @@ async function startDeviceCamera({ keepFacingMode = false } = {}) {
 
 function getCameraPreviewUrl() {
   const configuredBase = String(window.PARKVIEW_CONFIG?.cameraApiBaseUrl || "").trim().replace(/\/+$/, "");
-  const isLocalApp = !window.location.hostname.endsWith(".github.io");
-  if (!configuredBase && !isLocalApp) return "";
   const share = getPublicCameraShare();
-  if (share) return `${configuredBase}/api/camera/frame?camera_id=${encodeURIComponent(share.cameraId)}`;
-  return `${configuredBase}/api/camera/preview`;
+  if (share && configuredBase) return `${configuredBase}/api/camera/frame?camera_id=${encodeURIComponent(share.cameraId)}`;
+  return ["localhost", "127.0.0.1"].includes(window.location.hostname)
+    ? "/api/camera/preview" : "";
 }
 
 function getPublicCameraShare() {
@@ -274,13 +273,18 @@ async function startCctvCamera() {
       await loadModel();
       await analyzeCurrentFrame();
     } else {
+      setModelState("ready", "수신 중");
+      updateManagementConnection("수신 중");
       setStatus("공개 CCTV 화면을 수신 중입니다.");
     }
     scheduleCctvFrame(previewUrl, token, ++state.runId);
   } catch (error) {
-    state.running = false;
     setStatus(`CCTV 연결 실패: ${error.message}`, true);
-    els.stopButton.disabled = true;
+    if (publicShare) scheduleCctvFrame(previewUrl, token, ++state.runId);
+    else {
+      state.running = false;
+      els.stopButton.disabled = true;
+    }
   } finally {
     els.startCameraButton.disabled = false;
   }
@@ -321,7 +325,8 @@ async function loadCctvFrame(previewUrl, token) {
   const publicShare = getPublicCameraShare();
   if (publicShare) headers.Authorization = `Viewer ${publicShare.token}`;
   else if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(`${previewUrl}?t=${Date.now()}`, {
+  const separator = previewUrl.includes("?") ? "&" : "?";
+  const response = await fetch(`${previewUrl}${separator}t=${Date.now()}`, {
     cache: "no-store",
     headers
   });
@@ -343,6 +348,11 @@ async function loadCctvFrame(previewUrl, token) {
   }
   state.source = els.sourceImage;
   drawPreview();
+  if (publicShare) {
+    setModelState("ready", "수신 중");
+    updateManagementConnection("수신 중");
+    setStatus("공개 CCTV 화면을 수신 중입니다.");
+  }
 }
 
 function cameraRequestHeaders(url, extra = {}) {
@@ -363,8 +373,12 @@ function scheduleCctvFrame(previewUrl, token, runId) {
       await loadCctvFrame(previewUrl, token);
       if (!getPublicCameraShare()) await analyzeCurrentFrame();
     } catch (error) {
-      state.running = false;
       setStatus(`CCTV 수신 오류: ${error.message}`, true);
+      if (getPublicCameraShare()) {
+        scheduleCctvFrame(previewUrl, token, runId);
+        return;
+      }
+      state.running = false;
       els.stopButton.disabled = true;
       return;
     }
@@ -687,12 +701,12 @@ function updateManagementConnection(label, sourceType = state.sourceType) {
   const intervalStatus = document.querySelector("#cameraIntervalStatus");
   const isCctv = sourceType === "cctv";
   if (chip) {
-    chip.textContent = isCctv ? "CCTV 직접 연결" : "기기 내 AI";
+    chip.textContent = getPublicCameraShare() ? "공개 CCTV" : isCctv ? "CCTV 직접 연결" : "기기 내 AI";
     chip.classList.remove("is-linked", "is-error", "is-manual");
     chip.classList.add("is-live");
   }
   if (cameraStatus) cameraStatus.textContent = label;
-  if (intervalStatus) intervalStatus.textContent = isCctv ? "2초" : "연속";
+  if (intervalStatus) intervalStatus.textContent = getPublicCameraShare() ? "서버 갱신" : isCctv ? "2초" : "연속";
 }
 
 function updateManagementResult(count) {

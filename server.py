@@ -149,16 +149,11 @@ MAX_GEMINI_JSON_BYTES = 48 * 1024 * 1024
 
 
 def save_camera_settings(values: dict[str, str]) -> None:
-    encoded = json.dumps(values, ensure_ascii=False, indent=2)
-    try:
-        CAMERA_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        temporary = CAMERA_SETTINGS_PATH.with_suffix(".tmp")
-        temporary.write_text(encoded, encoding="utf-8")
-        temporary.replace(CAMERA_SETTINGS_PATH)
-    except OSError:
-        # Read-only containers can still keep the setting for the current process.
-        fallback = Path("/tmp/parkview-camera-settings.json")
-        fallback.write_text(encoded, encoding="utf-8")
+    CAMERA_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary = CAMERA_SETTINGS_PATH.with_suffix(".tmp")
+    temporary.write_text(json.dumps(values, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.chmod(0o600)
+    temporary.replace(CAMERA_SETTINGS_PATH)
 
 
 def camera_share_url() -> str:
@@ -990,9 +985,9 @@ def capture_camera_frame(camera_url: str) -> bytes:
         capture.release()
 
 
-def publish_camera_frame(image_bytes: bytes, camera_name: str, floor_id: str) -> None:
+def publish_camera_frame(image_bytes: bytes, camera_name: str, floor_id: str) -> bool:
     if not CAMERA_RELAY_URL or not CAMERA_RELAY_SECRET:
-        return
+        return False
     url = f"{CAMERA_RELAY_URL}/api/camera/ingest?camera_id={urllib.parse.quote(CAMERA_ID, safe='-_ .')}"
     request = urllib.request.Request(
         url,
@@ -1012,8 +1007,10 @@ def publish_camera_frame(image_bytes: bytes, camera_name: str, floor_id: str) ->
             if response.status >= 300:
                 raise RuntimeError(f"relay HTTP {response.status}")
         print("CAMERA_RELAY_UPLOAD ok=true", flush=True)
+        return True
     except Exception as error:
         print(f"CAMERA_RELAY_UPLOAD ok=false type={type(error).__name__}", flush=True)
+        return False
 
 
 def publish_firebase(
@@ -1098,6 +1095,7 @@ class AnalysisWorker:
         self._floor_id = FLOOR_ID
         self._relay_lock = threading.Lock()
         self._relay_thread: threading.Thread | None = None
+        self._relay_connected = False
 
     def start(self) -> None:
         with self._lock:
@@ -1187,7 +1185,7 @@ class AnalysisWorker:
                 "image": frame,
                 "elapsed_ms": elapsed_ms,
                 "debug_file": "debug/latest_capture.jpg",
-                "share_url": camera_share_url() if CAMERA_RELAY_SECRET else None,
+                "share_url": camera_share_url() if self._relay_connected else None,
                 "relay_url": CAMERA_RELAY_URL,
             }
         except Exception as error:
@@ -1235,7 +1233,7 @@ class AnalysisWorker:
                     "viewer_token": CAMERA_VIEWER_TOKEN,
                 }
             save_camera_settings(settings)
-            self._publish_frame_async(image_bytes, self._camera_name, self._floor_id)
+            relay_connected = self._publish_frame(image_bytes, self._camera_name, self._floor_id)
             result = {
                 "connected": True,
                 "camera": self._camera_name,
@@ -1243,7 +1241,8 @@ class AnalysisWorker:
                 "captured_at": connected_at,
                 "image": frame,
                 "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
-                "share_url": camera_share_url(),
+                "share_url": camera_share_url() if relay_connected else None,
+                "relay_connected": relay_connected,
                 "relay_url": CAMERA_RELAY_URL,
             }
         finally:
@@ -1258,12 +1257,18 @@ class AnalysisWorker:
             if self._relay_thread and self._relay_thread.is_alive():
                 return
             self._relay_thread = threading.Thread(
-                target=publish_camera_frame,
+                target=self._publish_frame,
                 args=(image_bytes, camera_name, floor_id),
                 name="parkview-camera-relay",
                 daemon=True,
             )
             self._relay_thread.start()
+
+    def _publish_frame(self, image_bytes: bytes, camera_name: str, floor_id: str) -> bool:
+        connected = publish_camera_frame(image_bytes, camera_name, floor_id)
+        with self._lock:
+            self._relay_connected = connected
+        return connected
 
     def preview_frame(self) -> bytes:
         def recent_frame():
@@ -1398,6 +1403,7 @@ class AnalysisWorker:
                     "consecutive_failures": self._consecutive_camera_failures,
                     "frame": self._last_frame,
                     "remote_share_enabled": bool(CAMERA_RELAY_URL and CAMERA_RELAY_SECRET),
+                    "remote_share_connected": self._relay_connected,
                 },
                 "analysis_error": self._last_analysis_error,
                 "site_id": SITE_ID,
@@ -1492,9 +1498,20 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def send_head(self):
-        # A public relay serves API routes only. Never publish the project
-        # directory (including .env, debug captures, and repository files).
         if PUBLIC_RELAY_MODE:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return None
+        path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
+        allowed = {
+            "/", "/index.html", "/styles.css", "/app.js", "/config.js",
+            "/camera-analysis.js", "/camera-analysis-core.js",
+            "/calibrate.html", "/calibrate.js", "/calibrate.css",
+            "/native-bridge-source.js", "/manifest.webmanifest", "/sw.js",
+            "/data/parking-lots.json", "/models/yolov5su.onnx",
+            "/vendor/onnxruntime/ort.wasm.bundle.js",
+            "/vendor/onnxruntime/ort-wasm-simd-threaded.wasm",
+        }
+        if path not in allowed:
             self.send_error(HTTPStatus.NOT_FOUND)
             return None
         return super().send_head()
@@ -1534,7 +1551,9 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
                     "camera": worker._camera_name,
                     "floor_id": worker._floor_id,
                     "relay_url": CAMERA_RELAY_URL,
-                    "share_url": camera_share_url() if CAMERA_RELAY_SECRET else None,
+                    "relay_configured": bool(CAMERA_RELAY_SECRET),
+                    "relay_connected": worker._relay_connected,
+                    "share_url": camera_share_url() if worker._relay_connected else None,
                 },
             )
             return

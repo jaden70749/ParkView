@@ -4,7 +4,7 @@ set -u
 cd "$(dirname "$0")" || exit 1
 
 export YOLO_CONFIG_DIR=/tmp/parkview-ultralytics
-export PARKVIEW_PUBLIC_RELAY=true
+export PARKVIEW_PUBLIC_RELAY=false
 export PARKVIEW_DEBUG=false
 
 SERVER_PID=""
@@ -41,18 +41,10 @@ for _ in {1..30}; do
 done
 
 if [[ "$READY" != 1 ]]; then
-  echo "ParkView server did not become ready. Public tunnel was not started."
+  echo "ParkView server did not become ready."
   exit 1
 fi
 
-echo "Keep this window open. The tunnel reconnects automatically if it drops."
-
-while kill -0 "$SERVER_PID" 2>/dev/null; do
-  node scripts/run-public-tunnel.mjs
-  echo "Tunnel client stopped. Retrying in 5 seconds..."
-  sleep 5
-done
-
-if kill -0 "$SERVER_PID" 2>/dev/null; then
-  wait "$SERVER_PID"
-fi
+echo "Camera settings: http://127.0.0.1:5180/"
+echo "Keep this window open while the CCTV should be available online."
+wait "$SERVER_PID"

@@ -154,7 +154,7 @@ test("iPhone CCTV bridge converts RTSP input to snapshot analysis", async () => 
   assert.match(plugin, /URLSessionConfiguration\.ephemeral/);
 });
 
-async function cameraButtonHarness({ relay = true, enteredToken = "", savedToken = "saved-test-token", status = 200 } = {}) {
+async function cameraButtonHarness({ hostname = "localhost", publicShare = false, enteredToken = "", savedToken = "saved-test-token", status = 200 } = {}) {
   const source = await readFile(new URL("../camera-analysis.js", import.meta.url), "utf8");
   const elements = new Map();
   const requests = [];
@@ -183,8 +183,8 @@ async function cameraButtonHarness({ relay = true, enteredToken = "", savedToken
     document, DEFAULT_CONFIDENCE: 0.25, MODEL_INPUT_SIZE: 640,
     matchCameraSlots, matchedCameraDetections, stabilizeCameraSlots,
     window: {
-      location: { hostname: "jaden70749.github.io", href: "https://jaden70749.github.io/ParkView/" },
-      PARKVIEW_CONFIG: { cameraApiBaseUrl: relay ? "https://odd-areas-move.loca.lt" : "" },
+      location: { hostname, hash: publicShare ? "#cctv=site-1:viewer-token" : "", href: "https://jaden70749.github.io/ParkView/" },
+      PARKVIEW_CONFIG: { cameraApiBaseUrl: "https://parkview-plan-api.onrender.com" },
       addEventListener() {}, clearTimeout() {}, setTimeout(callback) { timers.push(callback); return timers.length; }
     },
     sessionStorage: { getItem: () => savedToken },
@@ -206,18 +206,17 @@ async function cameraButtonHarness({ relay = true, enteredToken = "", savedToken
     click: () => elements.get("#deviceStartCameraButton").handlers.click() };
 }
 
-test("camera button on GitHub Pages receives a relay frame and schedules the next frame", async () => {
-  const h = await cameraButtonHarness();
+test("public CCTV link reads Render frames with viewer key and keeps polling", async () => {
+  const h = await cameraButtonHarness({ hostname: "jaden70749.github.io", publicShare: true });
   await h.click();
   assert.equal(h.requests.length, 1);
-  assert.match(h.requests[0].url, /^https:\/\/odd-areas-move\.loca\.lt\/api\/camera\/preview\?t=/);
-  assert.equal(h.requests[0].options.headers.Authorization, "Bearer saved-test-token");
-  assert.equal(h.requests[0].options.headers["bypass-tunnel-reminder"], "true");
+  assert.match(h.requests[0].url, /^https:\/\/parkview-plan-api\.onrender\.com\/api\/camera\/frame\?camera_id=site-1&t=/);
+  assert.equal(h.requests[0].options.headers.Authorization, "Viewer viewer-token");
   assert.equal(h.elements.get("#deviceViewportPlaceholder").hidden, true);
-  assert.equal(h.elements.get("#deviceSourceBadge").textContent, "고정 CCTV");
+  assert.equal(h.elements.get("#deviceSourceBadge").textContent, "공개 CCTV");
   assert.equal(h.permissionRequests(), 0);
-  assert.equal(h.timers.length, 1);
-  await h.timers[0]();
+  assert.equal(h.timers.length, 2);
+  await h.timers[1]();
   assert.equal(h.requests.length, 2);
 });
 
@@ -239,12 +238,12 @@ test("loading a floor reads only its coordinates and never automatically overwri
   };
 
   await vm.runInContext(
-    'loadCameraRegions("https://odd-areas-move.loca.lt/api/camera/preview", "saved-test-token")',
+    'loadCameraRegions("/api/camera/preview", "saved-test-token")',
     h.context
   );
 
   assert.equal(h.requests.length, 1);
-  assert.equal(h.requests[0].url, "https://odd-areas-move.loca.lt/api/regions?lot_id=lot-1&floor_id=1F");
+  assert.equal(h.requests[0].url, "/api/regions?lot_id=lot-1&floor_id=1F");
   assert.equal(h.requests[0].options.method, undefined);
   assert.equal(h.requests[0].options.headers.Authorization, "Bearer saved-test-token");
 });
@@ -258,8 +257,8 @@ test("unauthorized CCTV displays the token setup instruction without starting po
   assert.equal(h.elements.get("#deviceStartCameraButton").disabled, false);
 });
 
-test("GitHub Pages without a CCTV relay can request the device camera", async () => {
-  const h = await cameraButtonHarness({ relay: false });
+test("GitHub Pages without a share link uses the device camera", async () => {
+  const h = await cameraButtonHarness({ hostname: "jaden70749.github.io" });
   await h.click();
   assert.equal(h.permissionRequests(), 1);
   assert.equal(h.requests.length, 0);
