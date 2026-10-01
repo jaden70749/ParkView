@@ -56,6 +56,15 @@ class CameraRelayTests(unittest.TestCase):
                 "Authorization": "Viewer wrong-token",
             })[0], 401)
 
+    def test_school_pages_origin_is_allowed(self):
+        status, headers, _body = self.request("OPTIONS", "/api/camera/frame", headers={
+            "Origin": "https://waymakerschool.github.io",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "Authorization",
+        })
+        self.assertEqual(status, 204)
+        self.assertEqual(headers.get("Access-Control-Allow-Origin"), "https://waymakerschool.github.io")
+
 
 if __name__ == "__main__":
     unittest.main()

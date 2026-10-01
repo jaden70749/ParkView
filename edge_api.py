@@ -52,7 +52,7 @@ ALLOWED_ORIGINS = {
         "https://jaden70749.github.io,http://localhost:5181,http://127.0.0.1:5181",
     ).split(",")
     if origin.strip()
-}
+} | {"https://jaden70749.github.io", "https://waymakerschool.github.io"}
 MAX_REQUEST_BYTES = max(
     1024 * 1024,
     int(os.environ.get("PARKVIEW_MAX_AI_REQUEST_BYTES", str(24 * 1024 * 1024))),

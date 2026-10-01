@@ -19,7 +19,7 @@ services:
       - key: GEMINI_RETRY_ATTEMPTS
         value: 2
       - key: PARKVIEW_ALLOWED_ORIGINS
-        value: https://jaden70749.github.io
+        value: https://jaden70749.github.io,https://waymakerschool.github.io
       - key: PARKVIEW_AI_RATE_LIMIT
         value: 30
       - key: PARKVIEW_AI_RATE_WINDOW

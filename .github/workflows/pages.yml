@@ -32,7 +32,9 @@ jobs:
           KAKAO_JAVASCRIPT_KEY: ${{ secrets.KAKAO_JAVASCRIPT_KEY }}
           PARKVIEW_EDGE_API_BASE_URL: https://parkview-plan-api.onrender.com
         run: |
-          test -n "$KAKAO_JAVASCRIPT_KEY"
+          if [ -z "$KAKAO_JAVASCRIPT_KEY" ]; then
+            echo "::warning::KAKAO_JAVASCRIPT_KEY is not set; the map will use its fallback view."
+          fi
           npm ci
           npm run build:web
           mkdir -p _site
