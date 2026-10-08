@@ -149,7 +149,7 @@ def complete_row_gaps(row, projected=None, x_bounds=None):
         completed.append(polygon)
         gap = float(gaps[index])
         ratio = gap / pitch
-        if ratio < 1.75 or ratio > 5.25:
+        if ratio < 2.05 or ratio > 5.25:
             continue
         rounding = 0.5 if x_bounds is not None else 0.1
         missing = min(4, max(0, int(np.floor(ratio + rounding)) - 1))
@@ -274,9 +274,9 @@ def analyze(raw, config):
     shift, response = cv2.phaseCorrelate(base.astype(np.float32), gray.astype(np.float32))
     if response > 0.15 and np.hypot(*shift) > 3:
         return results, False, "카메라 위치가 바뀌었습니다. 좌표와 기준 사진을 다시 확인해 주세요"
-    warp = np.float32([[1, 0, shift[0]], [0, 1, shift[1]]]) if response > 0.3 else None
+    warp = np.float32([[1, 0, shift[0]], [0, 1, shift[1]]]) if response > 0.15 else None
     # Register fixed tape and nearby floor, excluding cars and the rest of the room.
-    if polygons:
+    if polygons and response <= 0.15:
         registration_mask = np.zeros((h, w), np.uint8)
         cv2.fillConvexPoly(registration_mask, cv2.convexHull(np.concatenate(polygons)), 255)
         registration_mask = cv2.dilate(registration_mask, np.ones((21, 21), np.uint8))

@@ -203,6 +203,21 @@ class VisionTests(unittest.TestCase):
         self.assertEqual(len(polygons), 2)
         self.assertEqual(len(guides), 2)
 
+    def test_short_aisle_gap_is_not_invented_as_a_bay(self):
+        def slot(center):
+            return np.array([
+                [center-.02,.4], [center+.02,.4],
+                [center+.02,.6], [center-.02,.6],
+            ], np.float32)
+
+        centers = [.20,.24,.28,.32,.36,.40,.44,.48,.555,.595,.635]
+        completed, inferred = vision.complete_row_gaps(
+            [slot(center) for center in centers],
+            [slot(center) for center in centers],
+            (0.16, .68),
+        )
+        self.assertEqual((len(completed), inferred), (11, 0))
+
     def test_unknown_does_not_become_empty_after_stabilization(self):
         worker = server.AnalysisWorker()
         for _ in range(5):
