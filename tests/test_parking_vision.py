@@ -119,6 +119,25 @@ class VisionTests(unittest.TestCase):
         roi = [[.1,.1],[.35,.1],[.35,.65],[.1,.65]]
         self.assertEqual(len(vision.detect(encode(frame), "lot", "1F", roi)["slots"]), 8)
 
+    def test_nested_slot_borders_are_not_counted_twice(self):
+        frame = np.full((600, 800, 3), 180, np.uint8)
+        for x in [100, 220, 340]:
+            cv2.rectangle(frame, (x, 100), (x+90, 180), (10, 10, 10), 5)
+            cv2.rectangle(frame, (x+10, 110), (x+80, 170), (20, 20, 20), 3)
+        result = vision.detect(encode(frame), "lot", "1F")
+        self.assertEqual(len(result["slots"]), 3)
+
+    def test_outline_around_multiple_spaces_is_not_a_parking_space(self):
+        spaces = [
+            np.array([[.1,.1],[.25,.1],[.25,.3],[.1,.3]], np.float32),
+            np.array([[.3,.1],[.45,.1],[.45,.3],[.3,.3]], np.float32),
+            np.array([[.5,.1],[.65,.1],[.65,.3],[.5,.3]], np.float32),
+        ]
+        group = np.array([[.05,.05],[.7,.05],[.7,.35],[.05,.35]], np.float32)
+        result = vision.remove_group_outlines([group, *spaces])
+        self.assertEqual(len(result), 3)
+        self.assertTrue(all(any(np.array_equal(item, space) for item in result) for space in spaces))
+
     def test_unknown_does_not_become_empty_after_stabilization(self):
         worker = server.AnalysisWorker()
         for _ in range(5):

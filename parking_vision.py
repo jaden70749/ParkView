@@ -18,6 +18,50 @@ def decode(raw):
     return np.array(ImageOps.exif_transpose(image).convert("RGB"))
 
 
+def deduplicate_nested_polygons(polygons):
+    ranked = sorted(
+        polygons,
+        key=lambda polygon: cv2.contourArea(polygon.astype(np.float32)),
+        reverse=True,
+    )
+    kept = []
+    for polygon in ranked:
+        area = cv2.contourArea(polygon.astype(np.float32))
+        duplicate = False
+        for existing in kept:
+            existing_area = cv2.contourArea(existing.astype(np.float32))
+            smaller = min(area, existing_area)
+            larger = max(area, existing_area)
+            if smaller <= 0 or smaller / larger < 0.45:
+                continue
+            intersection, _ = cv2.intersectConvexConvex(
+                polygon.astype(np.float32), existing.astype(np.float32)
+            )
+            if intersection / smaller >= 0.72:
+                duplicate = True
+                break
+        if not duplicate:
+            kept.append(polygon)
+    return kept
+
+
+def remove_group_outlines(polygons):
+    areas = [cv2.contourArea(p.astype(np.float32)) for p in polygons]
+    kept = []
+    for index, polygon in enumerate(polygons):
+        enclosed = 0
+        contour = polygon.astype(np.float32)
+        for other_index, other in enumerate(polygons):
+            if index == other_index or areas[other_index] >= areas[index] * 0.6:
+                continue
+            center = tuple(other.astype(np.float32).mean(axis=0))
+            if cv2.pointPolygonTest(contour, center, False) >= 0:
+                enclosed += 1
+        if enclosed < 2:
+            kept.append(polygon)
+    return kept
+
+
 def detect(raw, lot_id, floor_id, roi=None):
     if not lot_id or not floor_id:
         raise ValueError("주차장과 층이 필요합니다")
@@ -28,11 +72,9 @@ def detect(raw, lot_id, floor_id, roi=None):
     h, w = gray.shape
     binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                    cv2.THRESH_BINARY_INV, 41, 12)
-    contours, hierarchy = cv2.findContours(binary, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     candidates = []
-    for i, contour in enumerate(contours):
-        if hierarchy[0][i][3] < 0:
-            continue
+    for contour in contours:
         area = cv2.contourArea(contour)
         if not h*w*0.00012 < area < h*w*0.025:
             continue
@@ -40,7 +82,7 @@ def detect(raw, lot_id, floor_id, roi=None):
         if len(poly) != 4 or not cv2.isContourConvex(poly):
             continue
         _, sides, _ = cv2.minAreaRect(poly)
-        if min(sides) < 6 or max(sides)/min(sides) > 10:
+        if min(sides) < 6 or max(sides)/min(sides) > 3:
             continue
         if area/(sides[0]*sides[1]) < 0.65:
             continue
@@ -55,6 +97,8 @@ def detect(raw, lot_id, floor_id, roi=None):
             if any(cv2.pointPolygonTest(boundary, tuple(p), False) < 0 for p in normalized):
                 continue
         candidates.append(normalized)
+    candidates = deduplicate_nested_polygons(candidates)
+    candidates = remove_group_outlines(candidates)
     candidates.sort(key=lambda p: float(p[:, 1].mean()))
     rows = []
     for p in candidates:
