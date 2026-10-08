@@ -148,46 +148,39 @@ test("adjacent rotated parking rows keep equal sizes without overlapping", () =>
   });
 });
 
-test("camera plan replaces guessed counts and maps shuffled results only by ID", () => {
+test("camera results preserve the original floor plan and restore a previously replaced plan", () => {
   const context = loadAppContext();
   const backups = new Map();
-  context.localStorage = { setItem: (key, value) => backups.set(key, value) };
-  vm.runInContext(`state.floors = [{name: "1F", slots: Array.from({length:60}, () => ({status:"available"}))}];
+  context.localStorage = {
+    getItem: key => backups.get(key) || null,
+    setItem: (key, value) => backups.set(key, value)
+  };
+  vm.runInContext(`state.floors = [{name: "1F", layoutSource: "camera_polygons", slots: Array.from({length:73}, (_, i) => ({
+      cameraSlotId: "bay-"+i, cameraPolygon: [[.1,.1],[.2,.1],[.2,.2],[.1,.2]],
+      x: i, y: 0, w: 2, h: 1, rotation: 0, status: "available"
+    }))}];
     state.floorIndex = 0; state.selectedLot = {id:"lot"};
     refreshParkingStateViews = () => {};`, context);
+  const original = {
+    name: "1F", layoutSource: null, aspectRatio: 1.4, outline: [], zones: [], elements: [],
+    slots: Array.from({length:60}, (_, i) => ({
+      x: 10+(i%10)*7, y: 10+Math.floor(i/10)*12, w: 5, h: 10,
+      rotation: 90, kind: "normal", status: "available"
+    }))
+  };
+  backups.set("parkview-plan-backup:lot:1F", JSON.stringify(original));
   const results = Array.from({length:73}, (_, i) => ({
-    id: `bay-${i}`, slot_index: 999, status: i === 40 ? "occupied" : "empty", kind: "normal",
+    id: `bay-${i}`, slot_index: i, status: i === 40 ? "occupied" : "empty", kind: "normal",
     polygon: [[.1,.1],[.2,.1],[.2,.2],[.1,.2]]
   }));
   context.applyServerSlotResults(results);
-  let floor = vm.runInContext("state.floors[0]", context);
-  assert.equal(floor.slots.length,73);
-  assert.equal(floor.layoutSource,"camera_polygons");
-  assert.equal(backups.size,1);
-  assert.equal(JSON.parse([...backups.values()][0]).slots.length,60);
-  const shuffled = results.map(r => ({...r, status:r.id === "bay-3" ? "occupied" : "empty"})).reverse();
-  context.applyServerSlotResults(shuffled);
-  assert.equal(floor.slots.find(s => s.cameraSlotId === "bay-3").status,"occupied");
-  assert.equal(floor.slots.find(s => s.cameraSlotId === "bay-40").status,"available");
-  assert.equal(floor.slots[0].cameraSlotId,"bay-0");
-  const restored = context.normalizeStoredFloor(JSON.parse(JSON.stringify(floor)));
-  assert.equal(restored.layoutSource,"camera_polygons");
-  assert.equal(restored.slots[3].cameraSlotId,"bay-3");
-  const container = new FakeElement("div");
-  context.renderFloorPlan(container, restored, false);
-  const groups = container.children[0].children;
-  assert.equal(groups.length,73);
-  assert.equal(groups[3].attributes.get("data-camera-slot-id"),"bay-3");
-  assert.ok(groups[3].attributes.get("class").includes("occupied"));
-  groups.forEach(group => {
-    const rect = group.children.find(child => child.tagName === "rect");
-    assert.ok(Number(rect.attributes.get("width")) > 0);
-    assert.ok(Number(rect.attributes.get("height")) > 0);
-    assert.equal(rect.attributes.has("w"), false);
-    assert.equal(rect.attributes.has("h"), false);
-  });
-  assert.equal(context.cameraFloorSlots([results[0],results[0]]),null);
-  assert.equal(context.cameraFloorSlots([{...results[0],polygon:[[NaN,0],[1,0],[1,1]]}]),null);
+  const restored = vm.runInContext("state.floors[0]", context);
+  assert.equal(restored.slots.length,60);
+  assert.equal(restored.layoutSource,null);
+  assert.equal(restored.slots[0].x,10);
+  assert.equal(restored.slots[0].rotation,90);
+  assert.equal(restored.slots[40].status,"occupied");
+  assert.equal(restored.slots[41].status,"available");
 });
 
 test("perspective strips render as four straight top-down columns without losing IDs", () => {

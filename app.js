@@ -1860,7 +1860,7 @@ async function copyCameraShareUrl() {
 
 function renderManagementFloor() {
   const calibrationLink = document.querySelector("#cameraCalibrationLink");
-  const floor = state.floors[state.floorIndex];
+  const floor = restoreCameraReplacedFloor(state.floors[state.floorIndex]);
   window.PARKVIEW_ACTIVE_FLOOR_CONTEXT = floor ? {
     lotId: String(state.selectedLot?.id || ""),
     floorId: floor.name || "B1",
@@ -5078,33 +5078,9 @@ function logParkingOccupancy(slotResults, lotId, floorId, analyzedAt = "") {
 }
 
 function applyServerSlotResults(slotResults, analyzedAt = "") {
-  const floor = state.floors[state.floorIndex];
+  const floor = restoreCameraReplacedFloor(state.floors[state.floorIndex]);
   if (!floor) return { available: 0, occupied: 0, mapped: 0, unreliable: true };
   logParkingOccupancy(slotResults, state.selectedLot?.id, floor.name, analyzedAt);
-
-  const cameraSlots = cameraFloorSlots(slotResults);
-  if (cameraSlots) {
-    if (floor.layoutSource !== "camera_polygons") {
-      try {
-        localStorage.setItem(`parkview-plan-backup:${state.selectedLot?.id}:${floor.name}`, JSON.stringify(floor));
-      } catch (_) {
-        return { ...countFloorStatus(floor), mapped: 0, unreliable: true };
-      }
-    }
-    const byId = new Map(cameraSlots.map(s => [s.cameraSlotId, s]));
-    const existingIds = floor.slots.map(s => s.cameraSlotId);
-    // Preserve display order when possible; identity comes only from the server ID.
-    const order = [...existingIds.filter(id => byId.has(id))];
-    cameraSlots.forEach(s => { if (!order.includes(s.cameraSlotId)) order.push(s.cameraSlotId); });
-    floor.slots = [...new Set(order)].map(id => byId.get(id));
-    floor.layoutSource = "camera_polygons";
-    floor.elements = []; floor.zones = []; floor.outline = [];
-    refreshParkingStateViews();
-    return { ...countFloorStatus(floor), mapped: cameraSlots.length, ignored: 0 };
-  }
-  if (floor.layoutSource === "camera_polygons") {
-    return { ...countFloorStatus(floor), mapped: 0, unreliable: true };
-  }
 
   const resultsByIndex = new Map(
     slotResults.filter((result) => ["occupied", "empty"].includes(result.status)
@@ -5123,6 +5099,25 @@ function applyServerSlotResults(slotResults, analyzedAt = "") {
   });
   refreshParkingStateViews();
   return { ...countFloorStatus(floor), mapped: resultsByIndex.size, ignored: 0 };
+}
+
+function restoreCameraReplacedFloor(floor) {
+  if (!floor || floor.layoutSource !== "camera_polygons") return floor;
+  try {
+    const key = `parkview-plan-backup:${state.selectedLot?.id}:${floor.name}`;
+    const backup = normalizeStoredFloor(JSON.parse(localStorage.getItem(key)), state.floorIndex);
+    if (backup.layoutSource === "camera_polygons" || !backup.slots.length) return floor;
+    state.floors[state.floorIndex] = backup;
+    if (state.selectedLot) state.selectedLot.floors = state.floors;
+    if (state.selectedLot?.isRegistered) {
+      const index = state.registeredLots.findIndex((lot) => lot.id === state.selectedLot.id);
+      if (index >= 0) state.registeredLots[index] = state.selectedLot;
+      saveRegisteredLots();
+    }
+    return backup;
+  } catch (_) {
+    return floor;
+  }
 }
 
 function handleCameraSlotResults(event) {
