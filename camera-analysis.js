@@ -180,57 +180,22 @@ async function loadModel() {
 }
 
 async function startDeviceCamera({ keepFacingMode = false } = {}) {
-  if (getCameraPreviewUrl()) {
-    await startCctvCamera();
+  if (!getCameraPreviewUrl()) {
+    setStatus("CCTV 분석 서버 주소가 설정되지 않았습니다.", true);
     return;
   }
-  if (!navigator.mediaDevices?.getUserMedia) {
-    setStatus("이 환경에서는 기기 카메라를 사용할 수 없습니다.", true);
-    return;
-  }
-  const facingMode = keepFacingMode ? state.facingMode : "environment";
-  state.facingMode = facingMode;
-  prepareForNewSource();
-  setStatus("카메라 권한을 요청하고 있습니다.");
-  els.startCameraButton.disabled = true;
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: {
-        facingMode: { ideal: facingMode },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      }
-    });
-    state.stream = stream;
-    await loadModel();
-    els.sourceVideo.srcObject = stream;
-    await waitForVideo(els.sourceVideo);
-    await els.sourceVideo.play();
-    state.source = els.sourceVideo;
-    state.sourceType = "camera";
-    state.running = true;
-    showSource(facingMode === "environment" ? "후면 카메라" : "전면 카메라");
-    updateManagementConnection("분석 중");
-    els.switchCameraButton.disabled = false;
-    els.stopButton.disabled = false;
-    startPreviewLoop();
-    runContinuousAnalysis(++state.runId);
-  } catch (error) {
-    releaseMediaStream();
-    setStatus(cameraErrorMessage(error), true);
-  } finally {
-    els.startCameraButton.disabled = false;
-  }
+  await startCctvCamera();
 }
 
 function getCameraPreviewUrl() {
   const configuredBase = String(window.PARKVIEW_CONFIG?.cameraApiBaseUrl || "").trim().replace(/\/+$/, "");
   const share = getPublicCameraShare();
   const sameOriginBase = window.location.hostname.endsWith(".vercel.app") ? window.location.origin : "";
-  if (share && (configuredBase || sameOriginBase)) {
-    return `${configuredBase || sameOriginBase}/api/camera/frame?camera_id=${encodeURIComponent(share.cameraId)}`;
+  const apiBase = configuredBase || sameOriginBase;
+  if (share && apiBase) {
+    return `${apiBase}/api/camera/frame?camera_id=${encodeURIComponent(share.cameraId)}`;
   }
+  if (apiBase) return `${apiBase}/api/camera/preview`;
   return ["localhost", "127.0.0.1"].includes(window.location.hostname)
     ? "/api/camera/preview" : "";
 }

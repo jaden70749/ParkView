@@ -257,10 +257,11 @@ test("unauthorized CCTV displays the token setup instruction without starting po
   assert.equal(h.elements.get("#deviceStartCameraButton").disabled, false);
 });
 
-test("GitHub Pages without a share link uses the device camera", async () => {
+test("GitHub Pages without a share link uses the configured CCTV server", async () => {
   const h = await cameraButtonHarness({ hostname: "jaden70749.github.io" });
   await h.click();
-  assert.equal(h.permissionRequests(), 1);
-  assert.equal(h.requests.length, 0);
-  assert.equal(vm.runInContext("state.sourceType", h.context), "camera");
+  assert.equal(h.permissionRequests(), 0);
+  assert.equal(h.requests.length, 1);
+  assert.match(h.requests[0].url, /^https:\/\/parkview-plan-api\.onrender\.com\/api\/camera\/preview\?t=/);
+  assert.equal(vm.runInContext("state.sourceType", h.context), "cctv");
 });
