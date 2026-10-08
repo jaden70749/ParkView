@@ -100,6 +100,19 @@ test("hosted calibration uses the configured camera API without a local redirect
   assert.doesNotMatch(source, /window\.location\.replace/);
 });
 
+test("CCTV connection lives in calibration and reuses the saved administrator token", async () => {
+  const calibrationHtml = await readFile(new URL("../calibrate.html", import.meta.url), "utf8");
+  const appHtml = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(calibrationHtml, /id="cameraConnectionForm"/);
+  assert.match(calibrationHtml, /id="cameraRtspUrl"/);
+  assert.match(calibrationHtml, /id="adminToken"/);
+  assert.doesNotMatch(appHtml, /id="cameraConnectionForm"/);
+  assert.doesNotMatch(appHtml, /id="cameraRtspUrl"/);
+  assert.match(source, /parkview\.cameraAdminToken/);
+  assert.match(source, /els\.adminToken\.value = loadAdminToken\(\)/);
+  assert.match(source, /\/api\/camera\/configure/);
+});
+
 test("management calibration link remains on the current deployment", async () => {
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
   assert.match(app, /new URL\("\.\/calibrate\.html", window\.location\.href\)/);

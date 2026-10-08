@@ -483,34 +483,8 @@
               바로 분석하기를 눌러 시작하세요.
             </p>
             <p id="deviceOccupancyStatus" class="device-analysis-status" role="status">바로 분석하기를 누르면 주차면 좌표를 자동 지정합니다.</p>
-            <a id="cameraCalibrationLink" class="secondary-button full-width-button" href="./calibrate.html" target="_blank" rel="noopener">CCTV 좌표 확인·보정</a>
+            <a id="cameraCalibrationLink" class="secondary-button full-width-button" href="./calibrate.html" target="_blank" rel="noopener">CCTV 연결 및 주차면 설정</a>
           </section>
-          <button id="cameraSetupToggle" class="camera-setup-toggle" type="button" aria-expanded="false" aria-controls="cameraConnectionForm">
-            <i data-lucide="cctv" aria-hidden="true"></i>
-            <span>고정 CCTV 설정</span>
-            <i data-lucide="chevron-down" aria-hidden="true"></i>
-          </button>
-          <form id="cameraConnectionForm" class="camera-connection-form" hidden>
-            <label class="form-field">
-              <span>RTSP 카메라 링크</span>
-              <input id="cameraRtspUrl" type="password" placeholder="rtsp://사용자:비밀번호@카메라-IP:554/..." autocomplete="off" spellcheck="false">
-            </label>
-            <label id="cameraAdminTokenField" class="form-field" hidden>
-              관리자 토큰
-              <input id="cameraAdminToken" type="password" placeholder="PARKVIEW_ADMIN_TOKEN" autocomplete="off" spellcheck="false">
-            </label>
-            <div class="camera-connection-actions">
-              <button id="cameraConnectButton" class="primary-button full-width-button" type="submit">
-                <i data-lucide="link" aria-hidden="true"></i>
-                <span>링크 연결</span>
-              </button>
-              <button id="cameraOpenButton" class="secondary-button full-width-button" type="button" hidden>
-                <i data-lucide="external-link" aria-hidden="true"></i>
-                <span>VLC로 열기</span>
-              </button>
-            </div>
-            <p id="cameraConnectFeedback" class="camera-inline-status" role="status" aria-live="polite"></p>
-          </form>
           <p id="objectStatus" class="edge-system-message">분석 서비스를 확인하고 있습니다.</p>
         </section>
 
@@ -529,7 +503,7 @@
       document.write('<script src="./native-bridge-source.js?v=100"><\/script>');
     }
   </script>
-  <script src="./app.js?v=150"></script>
+  <script src="./app.js?v=151"></script>
   <script src="./vendor/onnxruntime/ort.wasm.bundle.js?v=1"></script>
   <script type="module" src="./camera-analysis.js?v=15"></script>
 </body>

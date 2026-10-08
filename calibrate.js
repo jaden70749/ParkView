@@ -12,6 +12,7 @@ const state = {
   roi: null,
   cameraFrame: false
 };
+const CAMERA_ADMIN_TOKEN_STORAGE = "parkview.cameraAdminToken";
 const setupParams = new URLSearchParams(window.location.search);
 const setupLotId = (setupParams.get("lot_id") || "").trim();
 const cameraBase = String(
@@ -20,6 +21,11 @@ const cameraBase = String(
 
 const els = {
   adminToken: document.querySelector("#adminToken"),
+  adminAuthDetails: document.querySelector("#adminAuthDetails"),
+  cameraConnectionForm: document.querySelector("#cameraConnectionForm"),
+  cameraRtspUrl: document.querySelector("#cameraRtspUrl"),
+  cameraConnectButton: document.querySelector("#cameraConnectButton"),
+  cameraConnectFeedback: document.querySelector("#cameraConnectFeedback"),
   frameFile: document.querySelector("#frameFile"),
   cameraFrameButton: document.querySelector("#cameraFrameButton"),
   sourceStatus: document.querySelector("#sourceStatus"),
@@ -50,16 +56,23 @@ function currentFloorId() {
 document.addEventListener("DOMContentLoaded", () => {
   els.floorId.value = setupParams.get("floor_id") || "B1";
   els.floorId.readOnly = true;
+  els.adminToken.value = loadAdminToken();
+  els.adminAuthDetails.open = !els.adminToken.value;
   document.querySelector("#trainingGroup").value = defaultTrainingGroup();
   bindEvents();
   render();
+  if (setupLotId && els.adminToken.value) loadRegions();
 });
 
 function bindEvents() {
   document.querySelector("#referenceButton").addEventListener("click", saveEmptyReference);
   document.querySelector("#trainingSampleButton").addEventListener("click", saveTrainingSample);
   document.querySelector("#reloadRegionsButton").addEventListener("click", loadRegions);
-  els.adminToken.addEventListener("change", loadRegions);
+  els.adminToken.addEventListener("change", () => {
+    saveAdminToken(els.adminToken.value.trim());
+    loadRegions();
+  });
+  els.cameraConnectionForm.addEventListener("submit", connectCamera);
   els.frameFile.addEventListener("change", async () => {
     const file = els.frameFile.files?.[0];
     if (file) await loadImageBlob(file, file.name, false);
@@ -107,6 +120,79 @@ function bindEvents() {
 
 function regionsUrl(path = "/api/regions") {
   return `${cameraBase}${path}?${new URLSearchParams({ lot_id: setupLotId, floor_id: currentFloorId(), method: "lines", roi: JSON.stringify(state.roi) })}`;
+}
+
+function loadAdminToken() {
+  try {
+    return localStorage.getItem(CAMERA_ADMIN_TOKEN_STORAGE)
+      || sessionStorage.getItem(CAMERA_ADMIN_TOKEN_STORAGE)
+      || "";
+  } catch (_) {
+    return "";
+  }
+}
+
+function saveAdminToken(token) {
+  if (!token) return;
+  try {
+    localStorage.setItem(CAMERA_ADMIN_TOKEN_STORAGE, token);
+  } catch (_) {
+    try { sessionStorage.setItem(CAMERA_ADMIN_TOKEN_STORAGE, token); } catch (_) {}
+  }
+}
+
+async function connectCamera(event) {
+  event.preventDefault();
+  const token = els.adminToken.value.trim();
+  let url = els.cameraRtspUrl.value.trim();
+  if (token.length < 20) {
+    els.adminAuthDetails.open = true;
+    els.cameraConnectFeedback.textContent = "관리자 인증이 필요합니다.";
+    els.adminToken.focus();
+    return;
+  }
+  if (url) {
+    try {
+      const parsed = new URL(url);
+      if (!["rtsp:", "rtsps:"].includes(parsed.protocol) || !parsed.hostname) throw new Error();
+      url = parsed.href;
+    } catch (_) {
+      els.cameraConnectFeedback.textContent = "올바른 RTSP 카메라 링크를 입력하세요.";
+      els.cameraRtspUrl.focus();
+      return;
+    }
+  }
+  const endpoint = `${cameraBase}${url ? "/api/camera/configure" : "/api/camera/test"}`;
+  const previousLabel = els.cameraConnectButton.textContent;
+  els.cameraConnectButton.disabled = true;
+  els.cameraConnectButton.textContent = "연결 확인 중";
+  els.cameraConnectFeedback.textContent = "CCTV 프레임을 확인하고 있습니다.";
+  try {
+    const request = {
+      method: "POST",
+      headers: authHeaders({ Accept: "application/json" }),
+      signal: AbortSignal.timeout(30000)
+    };
+    if (url) {
+      request.headers["Content-Type"] = "application/json";
+      request.body = JSON.stringify({ url, name: "주차장 CCTV", floor_id: currentFloorId() });
+    }
+    const response = await fetch(endpoint, request);
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    saveAdminToken(token);
+    els.adminAuthDetails.open = false;
+    els.cameraRtspUrl.value = "";
+    const resolution = result.image?.width && result.image?.height
+      ? `${result.image.width}×${result.image.height}` : "프레임 수신";
+    els.cameraConnectFeedback.textContent = `CCTV 연결 완료 · ${resolution}`;
+    await loadCameraFrame();
+  } catch (error) {
+    els.cameraConnectFeedback.textContent = `연결 실패: ${error.message}`;
+  } finally {
+    els.cameraConnectButton.disabled = false;
+    els.cameraConnectButton.textContent = previousLabel;
+  }
 }
 
 async function saveEmptyReference() {

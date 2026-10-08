@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f8c400">
   <title>ParkView CCTV 주차면 설정</title>
-  <link rel="stylesheet" href="./calibrate.css?v=3">
+  <link rel="stylesheet" href="./calibrate.css?v=4">
 </head>
 <body>
   <main class="calibration-shell">
@@ -18,17 +18,24 @@
     <section class="source-section">
       <div class="section-heading">
         <span class="step-number">1</span>
-        <div><h2>영상 불러오기</h2><p>CCTV의 현재 화면을 기준으로 설정합니다.</p></div>
+        <div><h2>고정 CCTV 연결</h2><p>카메라를 연결한 뒤 현재 화면을 불러옵니다.</p></div>
       </div>
+      <form id="cameraConnectionForm" class="camera-connection-panel">
+        <label class="camera-url-field">RTSP 카메라 링크
+          <input id="cameraRtspUrl" type="password" placeholder="rtsp://사용자:비밀번호@카메라-IP:554/..." autocomplete="off" spellcheck="false">
+        </label>
+        <button id="cameraConnectButton" class="camera-button" type="submit">연결 및 테스트</button>
+      </form>
+      <p id="cameraConnectFeedback" class="connection-feedback" role="status" aria-live="polite"></p>
       <div class="source-actions">
-        <button id="cameraFrameButton" class="camera-button" type="button">CCTV 프레임 불러오기</button>
+        <button id="cameraFrameButton" class="camera-button" type="button">현재 프레임 불러오기</button>
         <label class="file-button" for="frameFile">사진 선택</label>
         <input id="frameFile" type="file" accept="image/*">
         <button id="reloadRegionsButton" class="file-button" type="button">저장 좌표 불러오기</button>
       </div>
       <p id="sourceStatus" role="status" aria-live="polite">프레임을 불러오면 등록을 시작합니다.</p>
-      <details class="compact-details connection-details">
-        <summary>연결 설정</summary>
+      <details id="adminAuthDetails" class="compact-details connection-details">
+        <summary>관리자 인증</summary>
         <label class="token-field">관리자 토큰<input id="adminToken" type="password" autocomplete="off"></label>
       </details>
     </section>
@@ -112,6 +119,6 @@
     </section>
   </main>
   <script src="./config.js?v=4"></script>
-  <script src="./calibrate.js?v=12"></script>
+  <script src="./calibrate.js?v=13"></script>
 </body>
 </html>

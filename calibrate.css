@@ -131,6 +131,43 @@ button:disabled { cursor: wait; opacity: 0.48; }
   margin-top: 18px;
 }
 
+.camera-connection-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px;
+  align-items: end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.camera-url-field {
+  display: grid;
+  gap: 6px;
+  color: #565b63;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.camera-url-field input {
+  width: 100%;
+  height: 44px;
+  min-width: 0;
+  padding: 0 12px;
+  border: 1px solid #cfd3d8;
+  border-radius: 7px;
+  outline: 0;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.camera-url-field input:focus {
+  border-color: #c99f00;
+  box-shadow: 0 0 0 3px rgba(248, 196, 0, 0.18);
+}
+
+.connection-feedback:empty { display: none; }
+
 #frameFile {
   position: absolute;
   width: 1px;
@@ -447,6 +484,7 @@ button:disabled { cursor: wait; opacity: 0.48; }
   .registered-section { padding: 18px 16px; }
   .source-actions { grid-template-columns: 1fr 1fr; }
   .source-actions .camera-button { grid-column: 1 / -1; }
+  .camera-connection-panel { grid-template-columns: minmax(0, 1fr); }
   .editor-layout { grid-template-columns: 1fr; gap: 14px; }
   .editor-toolbar { grid-template-columns: minmax(0, 1fr); }
   .mode-control {
