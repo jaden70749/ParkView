@@ -457,7 +457,8 @@ async function detectRegions() {
     if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
     if (!result.slots?.length) throw new Error("감지된 주차면이 없습니다. 기존 좌표는 유지됩니다.");
     state.candidates = result.slots;
-    detectionStatus(`${result.slots.length}면 감지됨. 아래 감지 결과 적용을 누른 뒤 좌표를 저장해 주세요.`);
+    const restored = Number(result.inferred_count) || 0;
+    detectionStatus(`${result.slots.length}면 감지됨${restored ? ` · 끊긴 구획 ${restored}면 복원` : ""}. 아래 감지 결과 적용을 누른 뒤 좌표를 저장해 주세요.`);
     render();
   } catch (error) {
     detectionStatus(`자동 감지 실패: ${error.message}`);

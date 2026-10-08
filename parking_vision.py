@@ -62,6 +62,38 @@ def remove_group_outlines(polygons):
     return kept
 
 
+def complete_row_gaps(row):
+    """Recover bays hidden by glare or damaged paint using a stable row pitch."""
+    ordered = sorted(row, key=lambda polygon: float(polygon[:, 0].mean()))
+    if len(ordered) < 6:
+        return ordered, 0
+    centers = np.array([polygon.mean(axis=0) for polygon in ordered])
+    gaps = np.diff(centers[:, 0])
+    positive = gaps[gaps > 1e-5]
+    if len(positive) < 4:
+        return ordered, 0
+    regular = positive[positive <= np.percentile(positive, 60)]
+    pitch = float(np.median(regular)) if len(regular) >= 3 else float(np.median(positive))
+    if pitch <= 1e-5:
+        return ordered, 0
+    completed = []
+    inferred = 0
+    for index, polygon in enumerate(ordered[:-1]):
+        completed.append(polygon)
+        gap = float(gaps[index])
+        ratio = gap / pitch
+        if ratio < 1.75 or ratio > 5.25:
+            continue
+        missing = min(4, max(0, int(np.floor(ratio + 0.1)) - 1))
+        following = ordered[index + 1]
+        for step in range(1, missing + 1):
+            weight = step / (missing + 1)
+            completed.append(polygon * (1 - weight) + following * weight)
+            inferred += 1
+    completed.append(ordered[-1])
+    return completed, inferred
+
+
 def detect(raw, lot_id, floor_id, roi=None):
     if not lot_id or not floor_id:
         raise ValueError("주차장과 층이 필요합니다")
@@ -105,10 +137,17 @@ def detect(raw, lot_id, floor_id, roi=None):
         if not rows or abs(p[:, 1].mean()-rows[-1][0][:, 1].mean()) > min(np.ptp(p[:, 1]), np.ptp(rows[-1][0][:, 1]))*0.5:
             rows.append([])
         rows[-1].append(p)
-    candidates = [p for row in rows for p in sorted(row, key=lambda p: float(p[:, 0].mean()))]
+    completed_rows = []
+    inferred_count = 0
+    for row in rows:
+        completed, inferred = complete_row_gaps(row)
+        completed_rows.append(completed)
+        inferred_count += inferred
+    candidates = [p for row in completed_rows for p in row]
     slots = [dict(id=f"{floor_id}-{i+1:03d}", slot_index=i, kind="normal",
                   polygon=np.round(p, 6).tolist()) for i, p in enumerate(candidates)]
     return dict(lot_id=lot_id, floor_id=floor_id, slots=slots, source="opencv_closed_lines",
+                inferred_count=inferred_count,
                 review_required=True, coordinate_system="normalized_camera_image")
 
 

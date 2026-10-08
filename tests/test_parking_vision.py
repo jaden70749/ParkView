@@ -138,6 +138,26 @@ class VisionTests(unittest.TestCase):
         self.assertEqual(len(result), 3)
         self.assertTrue(all(any(np.array_equal(item, space) for item in result) for space in spaces))
 
+    def test_glare_gaps_are_completed_from_the_row_pitch(self):
+        def slot(center, y=.5, width=.032, height=.08):
+            return np.array([
+                [center-width/2, y-height/2], [center+width/2, y-height/2],
+                [center+width/2, y+height/2], [center-width/2, y+height/2],
+            ], np.float32)
+
+        top = [slot(center) for center in [.275, .313, .352, .392, .433, .474, .658, .695]]
+        completed, inferred = vision.complete_row_gaps(top)
+        self.assertEqual((len(completed), inferred), (11, 3))
+        centers = [round(float(item[:, 0].mean()), 3) for item in completed]
+        self.assertEqual(centers[6:9], [.52, .566, .612])
+
+        bottom = [slot(center, y=.8) for center in [.246, .288, .332, .427, .475, .524, .728]]
+        completed, inferred = vision.complete_row_gaps(bottom)
+        self.assertEqual((len(completed), inferred), (11, 4))
+
+        sparse, inferred = vision.complete_row_gaps([slot(center) for center in [.2, .3, .7]])
+        self.assertEqual((len(sparse), inferred), (3, 0))
+
     def test_unknown_does_not_become_empty_after_stabilization(self):
         worker = server.AnalysisWorker()
         for _ in range(5):
