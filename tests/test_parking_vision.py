@@ -43,6 +43,8 @@ class VisionTests(unittest.TestCase):
         cv2.rectangle(occupied, (140, 140), (180, 175), (220, 220, 220), -1)
         self.assertEqual(vision.analyze(encode(occupied), self.config)[0][0]["occupied"], 1)
         cv2.rectangle(occupied, (104, 104), (216, 216), (220, 220, 220), -1)
+        cv2.line(occupied, (120, 130), (200, 195), (80, 80, 80), 5)
+        cv2.line(occupied, (120, 195), (200, 130), (80, 80, 80), 5)
         self.assertEqual(vision.analyze(encode(occupied), self.config)[0][0]["occupied"], 1)
         bright = np.clip(self.frame.astype(int)+20, 0, 255).astype(np.uint8)
         self.assertEqual(vision.analyze(encode(bright), self.config)[0][0]["occupied"], 0)
@@ -60,6 +62,17 @@ class VisionTests(unittest.TestCase):
         self.assertAlmostEqual(result["lighting_offset"], -35, delta=1)
         cv2.rectangle(shadow, (140, 140), (180, 175), (210, 210, 210), -1)
         self.assertEqual(vision.analyze(encode(shadow), self.config)[0][0]["occupied"], 1)
+
+    def test_smooth_sunlight_patch_is_not_a_parked_object(self):
+        self.config["reference_id"] = vision.save_reference(encode(self.frame))
+        yy, xx = np.mgrid[:self.frame.shape[0], :self.frame.shape[1]]
+        illumination = 65 * np.exp(-(((xx-190)/70)**2 + ((yy-160)/90)**2) / 2)
+        sunlight = np.clip(
+            self.frame.astype(float) + illumination[:, :, None], 0, 255
+        ).astype(np.uint8)
+        result = vision.analyze(encode(sunlight), self.config)[0][0]
+        self.assertGreater(result["change_ratio"], 0.08)
+        self.assertEqual(result["occupied"], 0)
 
     def test_thin_video_artifact_is_removed_but_dark_object_is_kept(self):
         self.config["reference_id"] = vision.save_reference(encode(self.frame))
@@ -179,6 +192,16 @@ class VisionTests(unittest.TestCase):
         sloped_bottom = [slot(x, .91-.2*x) for x in bottom_centers]
         rows = vision.group_polygon_rows(sloped_top + sloped_bottom, top + bottom)
         self.assertEqual([len(row) for row in rows], [8, 8])
+
+    def test_rectified_duplicate_bay_is_removed(self):
+        polygon = np.array([[.1,.1],[.2,.1],[.2,.3],[.1,.3]], np.float32)
+        duplicate = polygon + [.002, -.001]
+        neighbor = polygon + [.12, 0]
+        polygons, guides = vision.deduplicate_close_polygons(
+            [polygon, duplicate, neighbor], [polygon, duplicate, neighbor]
+        )
+        self.assertEqual(len(polygons), 2)
+        self.assertEqual(len(guides), 2)
 
     def test_unknown_does_not_become_empty_after_stabilization(self):
         worker = server.AnalysisWorker()

@@ -83,6 +83,30 @@ def rectify_polygons(polygons, roi):
             for p in polygons]
 
 
+def deduplicate_close_polygons(polygons, projected):
+    """Remove duplicate contours that describe the same bay after rectification."""
+    ranked = sorted(
+        zip(polygons, projected),
+        key=lambda pair: cv2.contourArea(pair[1].astype(np.float32)),
+        reverse=True,
+    )
+    kept = []
+    for polygon, guide in ranked:
+        center = guide.mean(axis=0)
+        width = float(np.ptp(guide[:, 0]))
+        height = float(np.ptp(guide[:, 1]))
+        duplicate = False
+        for _, existing in kept:
+            existing_center = existing.mean(axis=0)
+            if (abs(float(center[0] - existing_center[0])) < min(width, float(np.ptp(existing[:, 0]))) * 0.35
+                    and abs(float(center[1] - existing_center[1])) < min(height, float(np.ptp(existing[:, 1]))) * 0.35):
+                duplicate = True
+                break
+        if not duplicate:
+            kept.append((polygon, guide))
+    return [item[0] for item in kept], [item[1] for item in kept]
+
+
 def group_polygon_rows(polygons, projected=None):
     projected = projected or polygons
     pairs = sorted(zip(polygons, projected), key=lambda pair: float(pair[1][:, 1].mean()))
@@ -197,6 +221,7 @@ def detect(raw, lot_id, floor_id, roi=None):
     candidates = deduplicate_nested_polygons(candidates)
     candidates = remove_group_outlines(candidates)
     projected = rectify_polygons(candidates, boundary) if boundary is not None else candidates
+    candidates, projected = deduplicate_close_polygons(candidates, projected)
     rows = group_polygon_rows(candidates, projected)
     completed_rows = []
     inferred_count = 0
@@ -276,6 +301,8 @@ def analyze(raw, config):
     if warp is not None:
         base = cv2.warpAffine(base, warp,
                              (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+    current_edges = cv2.Canny(gray, 60, 140)
+    reference_edges = cv2.Canny(base, 60, 140)
     # Estimate illumination only from surrounding floor, never from parked objects.
     excluded = np.zeros((h, w), np.uint8)
     for polygon in polygons:
@@ -310,7 +337,11 @@ def analyze(raw, config):
         n, _, stats, _ = cv2.connectedComponentsWithStats(changed, 8)
         area = int(stats[1:, cv2.CC_STAT_AREA].max()) if n > 1 else 0
         ratio = area/count
-        occupied = ratio >= 0.08
+        new_edges = (current_edges[y:y+bh, x:x+bw] > 0) & (reference_edges[y:y+bh, x:x+bw] == 0)
+        edge_ratio = float((new_edges & inside).sum()) / count
+        occupied = ((0.08 <= ratio < 0.18 and edge_ratio >= 0.0105)
+                    or (ratio >= 0.18 and edge_ratio >= 0.02))
         result.update(status="occupied" if occupied else "empty", occupied=int(occupied),
-                      change_ratio=round(ratio, 4), lighting_offset=round(offset, 2))
+                      change_ratio=round(ratio, 4), edge_ratio=round(edge_ratio, 4),
+                      lighting_offset=round(offset, 2))
     return results, bool(slots), ""
