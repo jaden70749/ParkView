@@ -4,88 +4,114 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f8c400">
-  <title>ParkView CCTV 주차면 등록</title>
-  <link rel="stylesheet" href="./calibrate.css?v=2">
+  <title>ParkView CCTV 주차면 설정</title>
+  <link rel="stylesheet" href="./calibrate.css?v=3">
 </head>
 <body>
   <main class="calibration-shell">
-    <header>
+    <header class="setup-header">
       <span class="brand-mark" aria-hidden="true">P</span>
-      <div><p>ParkView Setup</p><h1>CCTV 주차면 등록</h1></div>
+      <div><p>ParkView 관리자</p><h1>CCTV 주차면 설정</h1></div>
       <span class="setup-badge">설치 전용</span>
     </header>
 
     <section class="source-section">
-      <label class="token-field">관리자 토큰<input id="adminToken" type="password" autocomplete="off"></label>
+      <div class="section-heading">
+        <span class="step-number">1</span>
+        <div><h2>영상 불러오기</h2><p>CCTV의 현재 화면을 기준으로 설정합니다.</p></div>
+      </div>
       <div class="source-actions">
+        <button id="cameraFrameButton" class="camera-button" type="button">CCTV 프레임 불러오기</button>
         <label class="file-button" for="frameFile">사진 선택</label>
         <input id="frameFile" type="file" accept="image/*">
-        <button id="cameraFrameButton" class="camera-button" type="button">CCTV 프레임 불러오기</button>
-        <button id="detectButton" class="camera-button" type="button">구획선으로 주차면 찾기</button>
-        <button id="reloadRegionsButton" class="file-button" type="button">저장된 좌표 불러오기</button>
+        <button id="reloadRegionsButton" class="file-button" type="button">저장 좌표 불러오기</button>
       </div>
       <p id="sourceStatus" role="status" aria-live="polite">프레임을 불러오면 등록을 시작합니다.</p>
+      <details class="compact-details connection-details">
+        <summary>연결 설정</summary>
+        <label class="token-field">관리자 토큰<input id="adminToken" type="password" autocomplete="off"></label>
+      </details>
     </section>
 
-    <section class="canvas-section">
-      <div class="kind-control" aria-label="좌표 편집 모드">
-        <button data-mode="region" aria-pressed="true" type="button">감지 구역 선택</button>
-        <button data-mode="add" aria-pressed="false" type="button">주차칸 추가</button>
-        <button data-mode="edit" aria-pressed="false" type="button">꼭짓점 수정</button>
-        <button data-mode="match" aria-pressed="false" type="button">도면 연결</button>
+    <section class="editor-section">
+      <div class="section-heading editor-heading">
+        <span class="step-number">2</span>
+        <div><h2>주차면 편집</h2><p>자동 감지 후 필요한 부분만 수정하세요.</p></div>
+        <strong id="slotCount" class="count-badge">0면</strong>
       </div>
-      <div class="source-actions">
-        <button id="applyDetectionButton" class="camera-button" type="button" hidden>감지 결과 적용</button>
-        <button id="discardDetectionButton" class="file-button" type="button" hidden>감지 결과 취소</button>
-      </div>
-      <div class="canvas-wrap">
-        <canvas id="calibrationCanvas" width="1280" height="720"></canvas>
-        <p id="canvasPlaceholder">CCTV 사진을 선택하세요</p>
-      </div>
-      <div class="point-status">
-        <strong id="slotProgress">B1-001</strong>
-        <span id="pointProgress">모서리 0 / 4</span>
-      </div>
-      <section id="matchingPanel" hidden>
-        <h2>도면 연결</h2>
-        <p id="matchingStatus" role="status" aria-live="polite"></p>
-        <svg id="matchingPlan" style="width:100%;max-height:480px;display:block" aria-label="연결할 도면 주차면"></svg>
-      </section>
-    </section>
 
-    <section class="slot-settings">
-      <div class="field-row">
-        <label>층<input id="floorId" value="B1" maxlength="8"></label>
-        <label>주차면 번호<input id="slotNumber" type="number" min="1" value="1"></label>
+      <div class="editor-layout">
+        <div class="canvas-column">
+          <div class="editor-toolbar">
+            <div class="kind-control mode-control" aria-label="좌표 편집 모드">
+              <button data-mode="region" aria-pressed="true" type="button">감지 영역</button>
+              <button data-mode="add" aria-pressed="false" type="button">직접 추가</button>
+              <button data-mode="edit" aria-pressed="false" type="button">모서리 수정</button>
+              <button data-mode="match" aria-pressed="false" type="button">도면 연결</button>
+            </div>
+            <button id="detectButton" class="detect-button" type="button">주차면 자동 감지</button>
+          </div>
+          <div class="detection-actions">
+            <button id="applyDetectionButton" class="camera-button" type="button" hidden>감지 결과 적용</button>
+            <button id="discardDetectionButton" class="file-button" type="button" hidden>취소</button>
+          </div>
+          <div class="canvas-wrap">
+            <canvas id="calibrationCanvas" width="1280" height="720"></canvas>
+            <p id="canvasPlaceholder">먼저 CCTV 프레임을 불러오세요</p>
+          </div>
+          <div class="point-status">
+            <strong id="slotProgress">B1-001</strong>
+            <span id="pointProgress">모서리 0 / 4</span>
+          </div>
+          <section id="matchingPanel" class="matching-panel" hidden>
+            <h3>도면 연결</h3>
+            <p id="matchingStatus" role="status" aria-live="polite"></p>
+            <svg id="matchingPlan" aria-label="연결할 도면 주차면"></svg>
+          </section>
+        </div>
+
+        <aside class="slot-settings">
+          <div class="panel-heading"><span class="step-number">3</span><h2>저장 설정</h2></div>
+          <div class="field-row">
+            <label>층<input id="floorId" value="B1" maxlength="8"></label>
+            <label>주차면 번호<input id="slotNumber" type="number" min="1" value="1"></label>
+          </div>
+          <span class="control-label">주차면 종류</span>
+          <div class="kind-control" aria-label="주차면 종류">
+            <button class="active" data-kind="normal" type="button">일반</button>
+            <button data-kind="disabled" type="button">장애인</button>
+            <button data-kind="pregnant" type="button">임산부</button>
+          </div>
+          <div class="edit-actions">
+            <button id="undoButton" class="undo-button" type="button">되돌리기</button>
+            <button id="saveButton" class="save-button" type="button">주차면 저장</button>
+          </div>
+          <p id="saveStatus">도면 번호에 맞춰 주차면을 확인한 뒤 저장하세요.</p>
+          <details class="compact-details reference-details">
+            <summary>점유 분석 기준</summary>
+            <button id="referenceButton" class="secondary-command" type="button">현재 사진을 빈 주차장 기준으로 저장</button>
+          </details>
+        </aside>
       </div>
-      <div class="kind-control" aria-label="주차면 종류">
-        <button class="active" data-kind="normal" type="button">일반</button>
-        <button data-kind="disabled" type="button">장애인</button>
-        <button data-kind="pregnant" type="button">임산부</button>
-      </div>
-      <div class="edit-actions">
-        <button id="undoButton" type="button">되돌리기</button>
-        <button id="saveButton" class="save-button" type="button">주차면 저장</button>
-      </div>
-      <button id="referenceButton" class="camera-button" type="button">현재 사진을 빈 주차장 기준으로 저장</button>
-      <p id="saveStatus">도면의 주차면 번호와 맞춰 각 면의 모서리를 시계 방향으로 4번 누르세요. CCTV 위치를 고정한 상태에서 등록하세요.</p>
     </section>
 
     <section class="registered-section">
-      <div class="section-title"><h2>등록된 주차면</h2><strong id="slotCount">0면</strong></div>
-      <div id="slotList" class="slot-list"></div>
-      <details>
+      <details class="registered-details">
+        <summary><span>등록된 주차면</span><span>목록 보기</span></summary>
+        <div id="slotList" class="slot-list"></div>
+      </details>
+      <details class="compact-details training-details">
         <summary>모델 학습 자료</summary>
         <div class="field-row">
           <label>촬영 그룹<input id="trainingGroup" placeholder="camera-1-day-1" maxlength="80"></label>
           <label>자료 구분<select id="trainingSplit"><option value="train">학습</option><option value="val">검증</option></select></label>
         </div>
-        <button id="trainingSampleButton" class="camera-button" type="button">현재 사진·좌표를 학습 자료로 저장</button>
+        <button id="trainingSampleButton" class="secondary-command" type="button">현재 사진·좌표를 학습 자료로 저장</button>
         <p id="trainingStatus" role="status" aria-live="polite"></p>
       </details>
     </section>
   </main>
   <script src="./config.js?v=4"></script>
-  <script src="./calibrate.js?v=11"></script>
+  <script src="./calibrate.js?v=12"></script>
 </body>
 </html>
