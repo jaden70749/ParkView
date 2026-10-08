@@ -1621,8 +1621,13 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 detector = parking_vision.detect if query.get("method", [""])[0] == "lines" else parking_segmentation.detect
                 kwargs = {"roi": json.loads(query.get("roi", ["null"])[0])} if detector is parking_vision.detect else {}
+                image_bytes = (
+                    worker.preview_frame()
+                    if query.get("source", [""])[0] == "camera"
+                    else self.read_body(MAX_IMAGE_BYTES)
+                )
                 result = detector(
-                    self.read_body(MAX_IMAGE_BYTES),
+                    image_bytes,
                     query.get("lot_id", [""])[0],
                     query.get("floor_id", [""])[0],
                     **kwargs,

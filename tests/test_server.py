@@ -84,6 +84,25 @@ class PublicRelayTests(unittest.TestCase):
         self.assertEqual((status, body), (200, b"test-frame"))
         self.assertEqual(self.request("GET", "/api/health")[0], 200)
 
+    def test_camera_region_detection_reuses_server_preview(self):
+        detected = {"slots": [], "source": "opencv_closed_lines"}
+        with mock.patch.object(server, "ADMIN_TOKEN_CONFIGURED", True), mock.patch.object(
+            server, "ADMIN_TOKEN", "test-token"
+        ), mock.patch.object(
+            server.worker, "preview_frame", return_value=b"camera-jpeg"
+        ) as preview, mock.patch.object(
+            server.parking_vision, "detect", return_value=detected
+        ) as detect:
+            status, _, body = self.request(
+                "POST",
+                "/api/regions/detect?lot_id=test&floor_id=1F&method=lines&source=camera",
+                {"Authorization": "Bearer test-token"},
+            )
+        self.assertEqual(status, 200)
+        self.assertIn(b"opencv_closed_lines", body)
+        preview.assert_called_once_with()
+        detect.assert_called_once_with(b"camera-jpeg", "test", "1F", roi=None)
+
 
 class RegionMatchingTests(unittest.TestCase):
     def test_all_yolo_classes_are_enabled_by_default(self):

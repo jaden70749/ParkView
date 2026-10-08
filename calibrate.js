@@ -9,7 +9,8 @@ const state = {
   dragging: null,
   mode: "region",
   candidates: null,
-  roi: null
+  roi: null,
+  cameraFrame: false
 };
 const setupParams = new URLSearchParams(window.location.search);
 const setupLotId = (setupParams.get("lot_id") || "").trim();
@@ -61,7 +62,7 @@ function bindEvents() {
   els.adminToken.addEventListener("change", loadRegions);
   els.frameFile.addEventListener("change", async () => {
     const file = els.frameFile.files?.[0];
-    if (file) await loadImageBlob(file, file.name);
+    if (file) await loadImageBlob(file, file.name, false);
   });
   els.cameraFrameButton.addEventListener("click", loadCameraFrame);
   els.canvas.addEventListener("pointerdown", addCanvasPoint);
@@ -237,13 +238,13 @@ async function loadCameraFrame() {
       const payload = await response.json().catch(() => ({}));
       throw new Error(payload.error || `HTTP ${response.status}`);
     }
-    await loadImageBlob(await response.blob(), "CCTV 현재 프레임");
+    await loadImageBlob(await response.blob(), "CCTV 현재 프레임", true);
   } catch (error) {
     els.sourceStatus.textContent = `프레임을 불러오지 못했습니다: ${error.message}`;
   }
 }
 
-async function loadImageBlob(blob, label) {
+async function loadImageBlob(blob, label, cameraFrame = false) {
   const image = new Image();
   const url = URL.createObjectURL(blob);
   try {
@@ -253,6 +254,7 @@ async function loadImageBlob(blob, label) {
       image.src = url;
     });
     state.image = image;
+    state.cameraFrame = cameraFrame;
     state.candidates = null;
     state.dragging = null;
     state.points = [];
@@ -345,16 +347,25 @@ async function detectRegions() {
   const sourceImage = state.image;
   detectionStatus("주차면 감지 중...");
   try {
-    const imageCanvas = document.createElement("canvas");
-    imageCanvas.width = state.image.naturalWidth;
-    imageCanvas.height = state.image.naturalHeight;
-    imageCanvas.getContext("2d").drawImage(state.image, 0, 0);
-    const blob = await new Promise(resolve => imageCanvas.toBlob(resolve, "image/jpeg", 0.94));
-    if (!blob) throw new Error("사진을 변환하지 못했습니다. 프레임을 다시 불러와 주세요.");
-    const response = await fetch(regionsUrl("/api/regions/detect"), {
-      method: "POST", headers: authHeaders({ "Content-Type": "image/jpeg" }), body: blob,
+    const detectUrl = new URL(regionsUrl("/api/regions/detect"), window.location.href);
+    const request = {
+      method: "POST",
+      headers: authHeaders(),
       signal: AbortSignal.timeout(30000)
-    });
+    };
+    if (state.cameraFrame) {
+      detectUrl.searchParams.set("source", "camera");
+    } else {
+      const imageCanvas = document.createElement("canvas");
+      imageCanvas.width = state.image.naturalWidth;
+      imageCanvas.height = state.image.naturalHeight;
+      imageCanvas.getContext("2d").drawImage(state.image, 0, 0);
+      const blob = await new Promise(resolve => imageCanvas.toBlob(resolve, "image/jpeg", 0.94));
+      if (!blob) throw new Error("사진을 변환하지 못했습니다. 프레임을 다시 불러와 주세요.");
+      request.headers["Content-Type"] = "image/jpeg";
+      request.body = blob;
+    }
+    const response = await fetch(detectUrl.href, request);
     const result = await response.json();
     if (state.image !== sourceImage) throw new Error("이미지가 변경되었습니다. 새 이미지에서 다시 감지해 주세요.");
     if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);

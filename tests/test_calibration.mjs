@@ -32,20 +32,21 @@ test("declined mapping swap preserves both existing links", () => {
   assert.deepEqual(state.slots.map(s => s.slot_index), [0,1]);
 });
 const detection = source.slice(source.indexOf("async function detectRegions()"), source.indexOf("function addCompletedSlot()"));
-function harness({ slots = [], confirm = true, fail = false } = {}) {
+function harness({ slots = [], confirm = true, fail = false, cameraFrame = false } = {}) {
   let requests = 0;
-  const state = { slots, roi: null, image: { naturalWidth: 100, naturalHeight: 100 }, points: [] };
+  let lastRequest = null;
+  const state = { slots, roi: null, image: { naturalWidth: 100, naturalHeight: 100 }, points: [], cameraFrame };
   const els = { detectButton: { disabled: false }, adminToken: { value: "test-token" },
     saveStatus: {}, sourceStatus: {} };
-  const context = vm.createContext({ state, els, setupLotId: "test-lot", AbortSignal,
-    window: { confirm: () => confirm }, render() {}, regionsUrl: () => "/api/regions/detect",
-    authHeaders: headers => headers,
+  const context = vm.createContext({ state, els, setupLotId: "test-lot", AbortSignal, URL,
+    window: { confirm: () => confirm, location: { href: "https://parkview.example/calibrate.html" } }, render() {}, regionsUrl: () => "/api/regions/detect",
+    authHeaders: (headers = {}) => headers,
     document: { createElement: () => ({ getContext: () => ({ drawImage() {} }), toBlob: fn => fn({}) }) },
-    fetch: async () => { requests++; if (fail) throw new Error("offline");
+    fetch: async (url, options) => { requests++; lastRequest = { url, options }; if (fail) throw new Error("offline");
       return { ok: true, json: async () => ({ slots: [{ id: "detected" }] }) }; }
   });
   vm.runInContext(detection, context);
-  return { state, els, run: () => context.detectRegions(), requests: () => requests };
+  return { state, els, run: () => context.detectRegions(), requests: () => requests, lastRequest: () => lastRequest };
 }
 
 test("missing detection region is explained next to the detection button", async () => {
@@ -79,6 +80,14 @@ test("network failure is visible and the button is enabled again", async () => {
   await h.run();
   assert.match(h.els.sourceStatus.textContent, /offline/);
   assert.equal(h.els.detectButton.disabled, false);
+});
+
+test("CCTV region detection reuses the server frame instead of uploading the image", async () => {
+  const h = harness({ cameraFrame: true });
+  h.state.roi = [[0,0],[1,0],[1,1],[0,1]];
+  await h.run();
+  assert.match(h.lastRequest().url, /source=camera/);
+  assert.equal(h.lastRequest().options.body, undefined);
 });
 
 test("new calibration opens in region selection mode", () => {
