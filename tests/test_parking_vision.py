@@ -158,6 +158,28 @@ class VisionTests(unittest.TestCase):
         sparse, inferred = vision.complete_row_gaps([slot(center) for center in [.2, .3, .7]])
         self.assertEqual((len(sparse), inferred), (3, 0))
 
+    def test_perspective_rows_are_sorted_after_rectification_and_extended_to_roi_edge(self):
+        def slot(center, y, width=.07, height=.22):
+            return np.array([
+                [center-width/2, y-height/2], [center+width/2, y-height/2],
+                [center+width/2, y+height/2], [center-width/2, y+height/2],
+            ], np.float32)
+
+        top_centers = [.057, .135, .215, .299, .384, .472, .560, .648]
+        top = [slot(x, .16) for x in top_centers]
+        completed, inferred = vision.complete_row_gaps(top, top, (0, 1))
+        self.assertEqual((len(completed), inferred), (11, 3))
+
+        bottom_centers = [.049, .127, .208, .381, .471, .562, .653, .877]
+        bottom = [slot(x, .86) for x in bottom_centers]
+        completed, inferred = vision.complete_row_gaps(bottom, bottom, (0, 1))
+        self.assertEqual((len(completed), inferred), (11, 3))
+
+        sloped_top = [slot(x, .28-.2*x) for x in top_centers]
+        sloped_bottom = [slot(x, .91-.2*x) for x in bottom_centers]
+        rows = vision.group_polygon_rows(sloped_top + sloped_bottom, top + bottom)
+        self.assertEqual([len(row) for row in rows], [8, 8])
+
     def test_unknown_does_not_become_empty_after_stabilization(self):
         worker = server.AnalysisWorker()
         for _ in range(5):

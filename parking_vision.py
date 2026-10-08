@@ -62,17 +62,60 @@ def remove_group_outlines(polygons):
     return kept
 
 
-def complete_row_gaps(row):
+def order_quad(points):
+    points = np.asarray(points, dtype=np.float32)
+    sums = points.sum(axis=1)
+    differences = np.diff(points, axis=1).reshape(-1)
+    return np.float32([
+        points[np.argmin(sums)],
+        points[np.argmin(differences)],
+        points[np.argmax(sums)],
+        points[np.argmax(differences)],
+    ])
+
+
+def rectify_polygons(polygons, roi):
+    matrix = cv2.getPerspectiveTransform(
+        order_quad(roi),
+        np.float32([[0, 0], [1, 0], [1, 1], [0, 1]]),
+    )
+    return [cv2.perspectiveTransform(p.astype(np.float32)[None], matrix)[0]
+            for p in polygons]
+
+
+def group_polygon_rows(polygons, projected=None):
+    projected = projected or polygons
+    pairs = sorted(zip(polygons, projected), key=lambda pair: float(pair[1][:, 1].mean()))
+    rows = []
+    for polygon, guide in pairs:
+        center_y = float(guide[:, 1].mean())
+        height = float(np.ptp(guide[:, 1]))
+        if not rows:
+            rows.append([])
+        else:
+            row_y = float(np.mean([item[1][:, 1].mean() for item in rows[-1]]))
+            row_height = float(np.median([np.ptp(item[1][:, 1]) for item in rows[-1]]))
+            if abs(center_y - row_y) > min(height, row_height) * 0.5:
+                rows.append([])
+        rows[-1].append((polygon, guide))
+    return rows
+
+
+def complete_row_gaps(row, projected=None, x_bounds=None):
     """Recover bays hidden by glare or damaged paint using a stable row pitch."""
-    ordered = sorted(row, key=lambda polygon: float(polygon[:, 0].mean()))
+    projected = projected or row
+    pairs = sorted(zip(row, projected), key=lambda pair: float(pair[1][:, 0].mean()))
+    ordered = [pair[0] for pair in pairs]
+    guides = [pair[1] for pair in pairs]
     if len(ordered) < 6:
         return ordered, 0
-    centers = np.array([polygon.mean(axis=0) for polygon in ordered])
+    centers = np.array([polygon.mean(axis=0) for polygon in guides])
     gaps = np.diff(centers[:, 0])
     positive = gaps[gaps > 1e-5]
     if len(positive) < 4:
         return ordered, 0
-    regular = positive[positive <= np.percentile(positive, 60)]
+    percentile = 45 if x_bounds is not None else 60
+    regular = positive[positive <= np.percentile(positive, percentile)]
     pitch = float(np.median(regular)) if len(regular) >= 3 else float(np.median(positive))
     if pitch <= 1e-5:
         return ordered, 0
@@ -84,13 +127,31 @@ def complete_row_gaps(row):
         ratio = gap / pitch
         if ratio < 1.75 or ratio > 5.25:
             continue
-        missing = min(4, max(0, int(np.floor(ratio + 0.1)) - 1))
+        rounding = 0.5 if x_bounds is not None else 0.1
+        missing = min(4, max(0, int(np.floor(ratio + rounding)) - 1))
         following = ordered[index + 1]
         for step in range(1, missing + 1):
             weight = step / (missing + 1)
             completed.append(polygon * (1 - weight) + following * weight)
             inferred += 1
     completed.append(ordered[-1])
+
+    if x_bounds is not None:
+        widths = [float(np.ptp(polygon[:, 0])) for polygon in guides]
+        margin = max(float(np.median(widths)) * 0.65, pitch * 0.35)
+        left, right = x_bounds
+        while float(guides[0][:, 0].mean()) - pitch >= left + margin:
+            step = ordered[0] - ordered[1]
+            ordered.insert(0, ordered[0] + step)
+            guides.insert(0, guides[0] + (guides[0] - guides[1]))
+            completed.insert(0, ordered[0])
+            inferred += 1
+        while float(guides[-1][:, 0].mean()) + pitch <= right - margin:
+            step = ordered[-1] - ordered[-2]
+            ordered.append(ordered[-1] + step)
+            guides.append(guides[-1] + (guides[-1] - guides[-2]))
+            completed.append(ordered[-1])
+            inferred += 1
     return completed, inferred
 
 
@@ -105,6 +166,13 @@ def detect(raw, lot_id, floor_id, roi=None):
     binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                    cv2.THRESH_BINARY_INV, 41, 12)
     contours, _ = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    boundary = None
+    if roi is not None:
+        boundary = np.array(roi, dtype=np.float32)
+        if boundary.shape != (4, 2) or not np.isfinite(boundary).all():
+            raise ValueError("감지 구역의 모서리 4개를 선택해 주세요")
+        if not cv2.isContourConvex(order_quad(boundary)):
+            raise ValueError("감지 구역의 모서리를 주차장 둘레를 따라 선택해 주세요")
     candidates = []
     for contour in contours:
         area = cv2.contourArea(contour)
@@ -122,25 +190,22 @@ def detect(raw, lot_id, floor_id, roi=None):
         center = points.mean(axis=0)
         points = points[np.argsort(np.arctan2(points[:, 1]-center[1], points[:, 0]-center[0]))]
         normalized = points / [w, h]
-        if roi is not None:
-            boundary = np.array(roi, dtype=np.float32)
-            if boundary.shape != (4, 2) or not np.isfinite(boundary).all():
-                raise ValueError("감지 구역의 모서리 4개를 선택해 주세요")
+        if boundary is not None:
             if any(cv2.pointPolygonTest(boundary, tuple(p), False) < 0 for p in normalized):
                 continue
         candidates.append(normalized)
     candidates = deduplicate_nested_polygons(candidates)
     candidates = remove_group_outlines(candidates)
-    candidates.sort(key=lambda p: float(p[:, 1].mean()))
-    rows = []
-    for p in candidates:
-        if not rows or abs(p[:, 1].mean()-rows[-1][0][:, 1].mean()) > min(np.ptp(p[:, 1]), np.ptp(rows[-1][0][:, 1]))*0.5:
-            rows.append([])
-        rows[-1].append(p)
+    projected = rectify_polygons(candidates, boundary) if boundary is not None else candidates
+    rows = group_polygon_rows(candidates, projected)
     completed_rows = []
     inferred_count = 0
     for row in rows:
-        completed, inferred = complete_row_gaps(row)
+        polygons = [item[0] for item in row]
+        guides = [item[1] for item in row]
+        completed, inferred = complete_row_gaps(
+            polygons, guides, (0.0, 1.0) if boundary is not None else None
+        )
         completed_rows.append(completed)
         inferred_count += inferred
     candidates = [p for row in completed_rows for p in row]
