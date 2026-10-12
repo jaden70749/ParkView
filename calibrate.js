@@ -46,6 +46,7 @@ els.detectButton = document.querySelector("#detectButton");
 els.applyDetectionButton = document.querySelector("#applyDetectionButton");
 els.discardDetectionButton = document.querySelector("#discardDetectionButton");
 els.modeButtons = document.querySelectorAll("[data-mode]");
+els.editingTools = document.querySelector(".editing-tools");
 
 const ctx = els.canvas.getContext("2d");
 
@@ -464,7 +465,7 @@ async function detectRegions() {
     detectionStatus(`자동 감지 실패: ${error.message}`);
   } finally {
     els.detectButton.disabled = false;
-    els.detectButton.textContent = "구획선으로 주차면 찾기";
+    els.detectButton.textContent = "주차면 자동 감지";
   }
 }
 
@@ -727,6 +728,7 @@ function renderSlotList() {
       els.slotNumber.value = String(slot.slot_index+1);
       state.mode = "edit";
       state.points = [];
+      els.editingTools.open = true;
       els.modeButtons.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === "edit")));
       drawCanvas();
     };
