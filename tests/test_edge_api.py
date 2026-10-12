@@ -34,6 +34,8 @@ class CameraRelayTests(unittest.TestCase):
             self.assertEqual(self.request("POST", "/api/camera/ingest?camera_id=site-1", b"\xff\xd8frame", {
                 "X-ParkView-Relay-Secret": self.secret,
                 "X-ParkView-Viewer-Token": "viewer-token",
+                "X-ParkView-Camera-Name": "%EC%A3%BC%EC%B0%A8%EC%9E%A5%20CCTV",
+                "X-ParkView-Floor-Id": "1F",
                 "Content-Length": "7",
                 "Origin": "https://jaden70749.github.io",
             })[0], 200)
@@ -44,6 +46,9 @@ class CameraRelayTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body, b"\xff\xd8frame")
         self.assertEqual(headers.get("Access-Control-Allow-Origin"), "https://jaden70749.github.io")
+        with edge_api._camera_lock:
+            self.assertEqual(edge_api._camera_frames["site-1"]["camera"], "주차장 CCTV")
+            self.assertEqual(edge_api._camera_frames["site-1"]["floor_id"], "1F")
 
     def test_wrong_viewer_token_is_rejected(self):
         with mock.patch.object(edge_api, "CAMERA_RELAY_SECRET", self.secret):

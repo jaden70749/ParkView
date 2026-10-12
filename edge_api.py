@@ -348,8 +348,12 @@ class EdgeApiHandler(BaseHTTPRequestHandler):
                     _camera_frames[identifier] = {
                         "image": image, "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
                         "updated_at_epoch": now, "viewer_token_hash": token_hash,
-                        "camera": self.headers.get("X-ParkView-Camera-Name", "주차장 CCTV")[:80],
-                        "floor_id": self.headers.get("X-ParkView-Floor-Id", "B1")[:24],
+                        "camera": urllib.parse.unquote(
+                            self.headers.get("X-ParkView-Camera-Name", "")
+                        )[:80] or "주차장 CCTV",
+                        "floor_id": urllib.parse.unquote(
+                            self.headers.get("X-ParkView-Floor-Id", "")
+                        )[:24] or "B1",
                     }
                 self.send_json(HTTPStatus.OK, {"ok": True, "camera_id": identifier})
             except PermissionError as error:
