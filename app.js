@@ -3097,9 +3097,9 @@ function renderLotDetail(lot) {
   const operatingHours = `${lot.weekdayStart} ~ ${lot.weekdayEnd}`;
   const floor = lot.floors[state.floorIndex];
   const floorPlanMarkup = floor ? `
-    <section class="detail-floor-section" aria-label="층별 위치 안내">
+    <section class="detail-floor-section" aria-label="층별 주차 현황">
       <div class="detail-floor-heading">
-        <h3 class="detail-section-label">층별 위치 안내</h3>
+        <h3 class="detail-section-label">층별 주차 현황</h3>
         <div class="floor-head">
           <button class="floor-nav" id="detailPrev" type="button" aria-label="이전 층" ${state.floorIndex === 0 ? "disabled" : ""}><i data-lucide="chevron-left" aria-hidden="true"></i></button>
           <strong>${escapeHtml(floor.name)}</strong>
@@ -3108,9 +3108,9 @@ function renderLotDetail(lot) {
       </div>
       <div id="detailFloorPlan" class="floor-plan blueprint-plan"></div>
       ${Array.isArray(floor.slots) && floor.slots.length ? `<div class="floor-legend" aria-label="주차면 상태 범례">
-        <span><i class="floor-legend-swatch is-available"></i>주차 가능</span>
+        <span><i class="floor-legend-swatch is-available"></i>가능</span>
         <span><i class="floor-legend-swatch is-occupied"></i>주차 중</span>
-        <span><i class="floor-legend-swatch is-unknown"></i>확인 불가</span>
+        <span><i class="floor-legend-swatch is-unknown"></i>미확인</span>
       </div>` : ""}
     </section>
   ` : "";
@@ -3147,7 +3147,7 @@ function renderLotDetail(lot) {
     <section id="detailVacancySection" class="detail-content-section">
       <div class="detail-section-heading">
         <h3 class="detail-section-label">${hasRealtime ? "실시간 주차 현황" : "주차면 정보"}</h3>
-        ${hasRealtime ? '<span class="detail-live-badge"><i></i>LIVE</span>' : ""}
+        ${hasRealtime ? '<span class="detail-live-badge"><i></i>실시간</span>' : ""}
       </div>
       <div class="vacancy-card${!hasTotalSpaces && !hasRealtime ? " is-unavailable" : ""}">
         <span class="vacancy-caption">${hasRealtime
@@ -5817,6 +5817,6 @@ function escapeHtml(value) {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js?v=153", { updateViaCache: "none" }).catch(() => {});
+    navigator.serviceWorker.register("./sw.js?v=154", { updateViaCache: "none" }).catch(() => {});
   }
 }

@@ -1830,8 +1830,8 @@ textarea {
 }
 
 .detail-content-section {
-  padding: 20px 20px 22px;
-  border-bottom: 8px solid #f2f4f5;
+  padding: 18px 20px;
+  border-bottom: 6px solid #f2f4f5;
   scroll-margin-top: 8px;
 }
 
@@ -1847,8 +1847,8 @@ textarea {
   min-width: 0;
   margin: 0;
   color: #20272b;
-  font-size: 15px;
-  font-weight: 800;
+  font-size: 16px;
+  font-weight: 850;
   line-height: 1.35;
 }
 
@@ -1856,11 +1856,11 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 7px;
+  padding: 5px 8px;
   border-radius: 4px;
-  background: var(--brand);
-  color: #24220f;
-  font-size: 10px;
+  background: #fff5cd;
+  color: #785b00;
+  font-size: 9px;
   font-weight: 850;
 }
 
@@ -1868,30 +1868,34 @@ textarea {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #24220f;
+  background: #bd9000;
 }
 
 .vacancy-card {
-  margin-top: 12px;
-  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 5px 14px;
+  margin-top: 10px;
+  padding: 14px 15px;
   border: 1px solid #dfe3e6;
-  border-left: 3px solid var(--brand);
   border-radius: 6px;
-  background: #f8f9fa;
+  background: #fafbfc;
 }
 
 .vacancy-caption {
   display: block;
-  margin-bottom: 6px;
+  margin: 0;
+  align-self: center;
   color: #59636b;
-  font-size: 12px;
-  font-weight: 650;
+  font-size: 13px;
+  font-weight: 750;
 }
 
 .vacancy-card strong {
   display: block;
   color: #a57500;
-  font-size: 30px;
+  font-size: 28px;
   line-height: 1.1;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
@@ -1899,11 +1903,12 @@ textarea {
 
 .vacancy-card strong small {
   color: #737b82;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .vacancy-card.is-unavailable strong {
+  grid-column: 1 / -1;
   color: #667077;
   font-size: 15px;
   line-height: 1.5;
@@ -1911,8 +1916,9 @@ textarea {
 }
 
 .vacancy-gauge {
+  grid-column: 1 / -1;
   height: 5px;
-  margin-top: 14px;
+  margin-top: 7px;
   overflow: hidden;
   border-radius: 5px;
   background: #e2e5e8;
@@ -1926,7 +1932,8 @@ textarea {
 }
 
 .detail-floor-section {
-  padding: 18px 20px 24px;
+  padding: 18px 20px 20px;
+  background: #ffffff;
 }
 
 .floor-head {
@@ -1956,8 +1963,12 @@ textarea {
 .detail-floor-section .floor-head {
   flex: 0 0 auto;
   grid-template-columns: 32px minmax(40px, 1fr) 32px;
-  min-width: 112px;
+  min-width: 126px;
   margin: 0;
+  padding: 2px;
+  border: 1px solid #e0e3e6;
+  border-radius: 6px;
+  background: #f7f8f9;
   color: #20272b;
   font-weight: 800;
 }
@@ -1970,7 +1981,7 @@ textarea {
 .detail-floor-section .floor-nav {
   display: grid;
   place-items: center;
-  border-radius: 6px;
+  border-radius: 4px;
   color: #333d43;
   cursor: pointer;
 }
@@ -1982,7 +1993,7 @@ textarea {
 
 .detail-floor-section .floor-nav:not(:disabled):hover,
 .detail-floor-section .floor-nav:focus-visible {
-  background: #edf1f0;
+  background: #ffffff;
 }
 
 .detail-floor-section .floor-nav:disabled {
@@ -1993,8 +2004,11 @@ textarea {
 .floor-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 16px;
-  margin-top: 12px;
+  justify-content: flex-start;
+  gap: 8px 18px;
+  margin-top: 10px;
+  padding: 10px 2px 0;
+  border-top: 1px solid #e5e7e9;
   color: #566167;
   font-size: 11px;
   font-weight: 650;
@@ -2007,8 +2021,8 @@ textarea {
 }
 
 .floor-legend-swatch {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   display: inline-block;
   border-radius: 2px;
 }
@@ -2016,7 +2030,6 @@ textarea {
 .floor-legend-swatch.is-available { background: #00c875; }
 .floor-legend-swatch.is-occupied { background: #e53935; }
 .floor-legend-swatch.is-unknown { background: #aeb7bd; }
-}
 
 .floor-plan {
   position: relative;
@@ -3991,7 +4004,7 @@ textarea {
 
 #lotDetail .floor-plan.blueprint-plan {
   width: 100%;
-  margin: 12px 0 0;
+  margin: 14px 0 0;
   border: 1px solid #d4d9dd;
   border-radius: 6px;
   background: #e9ecef;
