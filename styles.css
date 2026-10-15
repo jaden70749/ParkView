@@ -622,6 +622,123 @@ textarea {
   display: none;
 }
 
+.search-panel.is-exploring {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 100px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: #ffffff;
+}
+
+.top-controls.is-exploring { z-index: 26; }
+.top-controls.is-exploring .map-zoom-notice { display: none; }
+
+.search-panel.is-exploring .search-primary-row {
+  position: sticky;
+  top: -7px;
+  z-index: 2;
+  flex: 0 0 44px;
+  background: #ffffff;
+}
+
+.search-panel.is-exploring .quick-filter-row { display: none; }
+.search-panel.is-exploring .search-suggestions { order: 2; max-height: none; overflow: visible; }
+.search-discovery { border-top: 1px solid #eceef0; margin-top: 6px; }
+.search-discovery[hidden] { display: none; }
+.discovery-header,
+.discovery-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.discovery-header { min-height: 48px; padding: 4px 8px; }
+.discovery-header > strong { font-size: 15px; font-weight: 800; }
+.discovery-section { padding: 14px 8px; border-top: 1px solid #eceef0; }
+.discovery-section h2 { margin: 0; font-size: 13px; font-weight: 800; }
+.discovery-section-heading { margin-bottom: 6px; min-height: 28px; }
+.discovery-categories { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; margin-top: 14px; }
+.discovery-categories button {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #606772;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.discovery-categories button > span {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid #e8eaed;
+  border-radius: 50%;
+  background: #f8f9fa;
+  color: #41464e;
+}
+.discovery-categories button:first-child > span { background: #fff5cf; border-color: #f4df8a; color: #8a6900; }
+.discovery-categories svg { width: 18px; height: 18px; stroke-width: 1.8; }
+.discovery-categories button:hover > span { background: #fff5cf; border-color: #e6bd29; }
+.discovery-icon-button {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #8a9099;
+  cursor: pointer;
+}
+.discovery-icon-button svg { width: 16px; height: 16px; }
+.discovery-icon-button:hover { background: #f0f2f4; color: #353b43; }
+.discovery-icon-button:disabled { opacity: 0.3; cursor: default; }
+.discovery-text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: #8a9099;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.discovery-text-button svg { width: 13px; height: 13px; }
+.discovery-row { display: flex; align-items: center; min-width: 0; gap: 1px; }
+.discovery-place {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 10px;
+  min-height: 54px;
+  padding: 7px 0;
+  border: 0;
+  background: transparent;
+  color: #303741;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.discovery-place-icon { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px; border-radius: 50%; background: #f1f3f5; color: #7f8793; }
+.discovery-place-icon svg { width: 16px; height: 16px; }
+.discovery-place > span:last-child { display: grid; min-width: 0; gap: 4px; }
+.discovery-place strong { font-size: 12px; font-weight: 700; }
+.discovery-place small { font-size: 10px; color: #8a9099; }
+.discovery-place strong,
+.discovery-place small { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.discovery-place:hover strong { color: #9b7600; }
+.discovery-empty { margin: 12px 0 4px; color: #949aa3; font-size: 11px; line-height: 1.5; }
+.discovery-status { margin: 0; padding: 8px; color: #806300; background: #fff9e5; font-size: 11px; line-height: 1.5; }
+.discovery-status[hidden],
+.discovery-text-button[hidden],
+#discoveryHome[hidden] { display: none; }
+.search-discovery button:focus-visible { outline: 2px solid #b68a00; outline-offset: 2px; }
+
 .search-suggestion {
   width: 100%;
   min-height: 54px;

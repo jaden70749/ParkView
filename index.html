@@ -10,7 +10,7 @@
   <title>ParkView</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=117">
+  <link rel="stylesheet" href="./styles.css?v=118">
 </head>
 <body>
   <main id="app" class="app-shell">
@@ -48,6 +48,38 @@
             </button>
           </div>
           <div id="searchSuggestions" class="search-suggestions" role="listbox" aria-label="장소 검색 결과" hidden></div>
+          <section id="searchDiscovery" class="search-discovery" aria-label="장소 탐색" hidden>
+            <header class="discovery-header">
+              <strong id="discoveryTitle">어디로 갈까요?</strong>
+              <button id="discoveryClose" class="discovery-icon-button" type="button" aria-label="탐색 닫기" title="탐색 닫기"><i data-lucide="x"></i></button>
+            </header>
+            <p id="discoveryStatus" class="discovery-status" role="status" hidden></p>
+            <div id="discoveryHome">
+              <section class="discovery-section">
+                <h2>주변 탐색</h2>
+                <div class="discovery-categories">
+                  <button type="button" data-nearby-category="PK6"><span><i data-lucide="square-parking"></i></span>주차장</button>
+                  <button type="button" data-nearby-category="FD6"><span><i data-lucide="utensils"></i></span>음식점</button>
+                  <button type="button" data-nearby-category="CE7"><span><i data-lucide="coffee"></i></span>카페</button>
+                  <button type="button" data-nearby-category="CS2"><span><i data-lucide="store"></i></span>편의점</button>
+                  <button type="button" data-nearby-category="SW8"><span><i data-lucide="train-front"></i></span>지하철</button>
+                  <button type="button" data-nearby-category="OL7"><span><i data-lucide="fuel"></i></span>주유소</button>
+                </div>
+              </section>
+              <section class="discovery-section">
+                <div class="discovery-section-heading"><h2>내 장소</h2><button id="addSavedPlace" class="discovery-icon-button" type="button" aria-label="자주 가는 장소 추가" title="장소 추가"><i data-lucide="plus"></i></button></div>
+                <div id="discoveryPlaces"></div>
+              </section>
+              <section class="discovery-section">
+                <div class="discovery-section-heading"><h2>즐겨찾기</h2><button id="discoveryAllFavorites" class="discovery-text-button" type="button">전체 보기 <i data-lucide="chevron-right"></i></button></div>
+                <div id="discoveryFavorites"></div>
+              </section>
+              <section class="discovery-section">
+                <div class="discovery-section-heading"><h2>최근 검색</h2><button id="clearRecentSearches" class="discovery-text-button" type="button">전체 삭제</button></div>
+                <div id="discoveryRecent"></div>
+              </section>
+            </div>
+          </section>
           <div class="quick-filter-row" aria-label="빠른 검색 조건">
             <button id="filterButton" class="filter-tool-button" type="button" aria-label="상세 필터 열기" aria-expanded="false">
               <i data-lucide="sliders-horizontal" aria-hidden="true"></i>
@@ -503,7 +535,8 @@
       document.write('<script src="./native-bridge-source.js?v=100"><\/script>');
     }
   </script>
-  <script src="./app.js?v=153"></script>
+  <script src="./search-discovery.js?v=1"></script>
+  <script src="./app.js?v=154"></script>
   <script src="./vendor/onnxruntime/ort.wasm.bundle.js?v=1"></script>
   <script type="module" src="./camera-analysis.js?v=16"></script>
 </body>

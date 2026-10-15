@@ -17,6 +17,7 @@ const files = [
   "index.html",
   "favicon.svg",
   "styles.css",
+  "search-discovery.js",
   "camera-analysis.js",
   "camera-analysis-core.js",
   "calibrate.html",

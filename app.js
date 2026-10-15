@@ -231,6 +231,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindElements();
   enableCameraConnectionControls();
   bindEvents();
+  window.initializeParkViewSearch?.({ state, els, escapeHtml, refreshIcons, hideSearchSuggestions,
+    resetMapSearch, selectSearchSuggestion, selectLot, loadKakaoMapSdk, renderSearchSuggestions,
+    showFavoriteLotsFromMenu });
   refreshIcons();
   state.favoriteLotIds = loadFavoriteLotIds();
   state.directCameraUrl = loadDirectCameraLink();
@@ -474,6 +477,7 @@ function bindEvents() {
 
   els.searchInput.addEventListener("input", handleSearchInput);
   els.searchInput.addEventListener("focus", () => {
+    window.ParkViewSearch?.open();
     if (state.searchSuggestions.length && els.searchInput.value.trim()) renderSearchSuggestions();
   });
   els.searchInput.addEventListener("keydown", onSearchInputKeyDown);
@@ -2611,6 +2615,7 @@ function mergeSearchSuggestions(primary, secondary) {
 
 function handleSearchInput() {
   const query = els.searchInput.value.trim();
+  window.ParkViewSearch?.inputChanged(query);
   window.clearTimeout(state.searchSuggestionTimer);
   state.searchSuggestionToken += 1;
   state.searchSuggestionIndex = -1;
@@ -2695,6 +2700,7 @@ function onSearchInputKeyDown(event) {
   }
   if (event.key === "Escape") {
     hideSearchSuggestions();
+    window.ParkViewSearch?.close();
     return;
   }
   if (event.key !== "Enter") return;
@@ -2731,6 +2737,8 @@ function clearSearchLocationMarker() {
 }
 
 function selectSearchSuggestion(suggestion) {
+  if (window.ParkViewSearch?.acceptPlace(suggestion)) return;
+  window.ParkViewSearch?.selected(suggestion);
   window.clearTimeout(state.searchSuggestionTimer);
   state.searchSuggestionToken += 1;
   els.searchInput.value = suggestion.name;
@@ -5817,6 +5825,6 @@ function escapeHtml(value) {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js?v=154", { updateViaCache: "none" }).catch(() => {});
+    navigator.serviceWorker.register("./sw.js?v=155", { updateViaCache: "none" }).catch(() => {});
   }
 }
