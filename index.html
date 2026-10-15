@@ -443,25 +443,26 @@
           <button id="deviceCameraToggle" class="device-camera-toggle" type="button" aria-expanded="false" aria-controls="deviceCameraPanel">
             <i data-lucide="scan-line" aria-hidden="true"></i>
             <span>
-              <strong>실시간 주차면 분석</strong>
-              <small>등록된 주차칸의 물체 점유 상태</small>
+              <strong>CCTV 분석</strong>
+              <small>주차면 점유 상태 확인</small>
             </span>
             <i data-lucide="chevron-down" aria-hidden="true"></i>
           </button>
           <section id="deviceCameraPanel" class="device-analysis-panel" aria-label="CCTV 주차면 객체 분석" hidden>
             <div class="device-analysis-heading">
-              <div>
-                <strong>실시간 객체 감지</strong>
-                <small>주차칸별 점유 현황</small>
-              </div>
+              <strong>분석 화면</strong>
               <span id="deviceModelBadge" class="device-model-badge">연결 대기</span>
             </div>
 
             <div class="device-analysis-toolbar" aria-label="실시간 객체 분석 시작">
               <button id="deviceStartCameraButton" class="device-primary-command" type="button">
                 <i data-lucide="scan-line" aria-hidden="true"></i>
-                <span>바로 분석하기</span>
+                <span>분석 시작</span>
               </button>
+              <a id="cameraCalibrationLink" class="device-setup-command" href="./calibrate.html" target="_blank" rel="noopener">
+                <i data-lucide="settings-2" aria-hidden="true"></i>
+                <span>CCTV 설정</span>
+              </a>
             </div>
             <button id="deviceSwitchCameraButton" type="button" hidden disabled></button>
             <input id="deviceSourceFile" type="file" accept="image/*,video/*" hidden>
@@ -473,17 +474,16 @@
               <canvas id="deviceResultCanvas" width="1280" height="720"></canvas>
               <div id="deviceViewportPlaceholder" class="device-viewport-placeholder">
                 <i data-lucide="camera" aria-hidden="true"></i>
-                <strong>분석 대기 중입니다.</strong>
-                <span>바로 분석하기를 누르면 CCTV 화면을 가져옵니다.</span>
+                <strong>CCTV 화면을 불러오세요</strong>
+                <span>분석 시작을 누르면 현재 화면을 가져옵니다.</span>
               </div>
               <span id="deviceSourceBadge" class="device-source-badge" hidden>기기 카메라</span>
             </div>
 
             <p id="deviceAnalysisStatus" class="device-analysis-status" role="status" aria-live="polite">
-              바로 분석하기를 눌러 시작하세요.
+              분석 시작을 눌러 주세요.
             </p>
-            <p id="deviceOccupancyStatus" class="device-analysis-status" role="status">바로 분석하기를 누르면 주차면 좌표를 자동 지정합니다.</p>
-            <a id="cameraCalibrationLink" class="secondary-button full-width-button" href="./calibrate.html" target="_blank" rel="noopener">CCTV 연결 및 주차면 설정</a>
+            <p id="deviceOccupancyStatus" class="device-analysis-status" role="status">등록된 주차면을 기준으로 분석합니다.</p>
           </section>
           <p id="objectStatus" class="edge-system-message">분석 서비스를 확인하고 있습니다.</p>
         </section>
@@ -503,8 +503,8 @@
       document.write('<script src="./native-bridge-source.js?v=100"><\/script>');
     }
   </script>
-  <script src="./app.js?v=151"></script>
+  <script src="./app.js?v=152"></script>
   <script src="./vendor/onnxruntime/ort.wasm.bundle.js?v=1"></script>
-  <script type="module" src="./camera-analysis.js?v=15"></script>
+  <script type="module" src="./camera-analysis.js?v=16"></script>
 </body>
 </html>

@@ -3324,6 +3324,18 @@ textarea {
   padding: 0 0 calc(30px + env(safe-area-inset-bottom));
 }
 
+.admin-screen[data-view="management"] .admin-header {
+  padding-block: calc(9px + env(safe-area-inset-top)) 9px;
+}
+
+.admin-screen[data-view="management"] .admin-header h2 { font-size: 19px; }
+.admin-screen[data-view="management"] .admin-header p { font-size: 9px; }
+.admin-screen[data-view="management"] .admin-back {
+  width: 40px;
+  height: 40px;
+  box-shadow: none;
+}
+
 .management-toolbar {
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr) 38px auto;
@@ -3524,21 +3536,48 @@ textarea {
   white-space: pre-line;
 }
 
+.edge-management-section .section-title-row { margin-bottom: 10px; }
+
+.edge-management-section .edge-status-grid {
+  overflow: hidden;
+  border: 1px solid #e0e1e5;
+  border-radius: 6px;
+  background: #f7f8f9;
+}
+
+.edge-management-section .edge-status-grid > div { padding: 10px 7px; }
+.edge-management-section .edge-status-grid span { font-size: 8px; }
+.edge-management-section .edge-status-grid strong {
+  margin-top: 3px;
+  font-size: 12px;
+}
+
+.edge-management-section .edge-system-message {
+  min-height: 0;
+  margin: 8px 2px 0;
+}
+
 .device-camera-toggle {
   width: 100%;
-  min-height: 58px;
+  min-height: 52px;
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) 18px;
   align-items: center;
   gap: 10px;
-  margin-top: 14px;
-  padding: 9px 13px;
-  border: 1px solid #d7aa00;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px solid #d9dadd;
   border-radius: 6px;
-  background: #f8c400;
-  color: #1d1a0b;
+  background: #f7f8f9;
+  color: #202126;
   text-align: left;
   font: inherit;
+}
+
+.device-camera-toggle:hover,
+.device-camera-toggle.is-open {
+  border-color: #d7aa00;
+  background: #fff9df;
 }
 
 .device-camera-toggle > span {
@@ -3557,7 +3596,7 @@ textarea {
 
 .device-camera-toggle small {
   margin-top: 2px;
-  color: #655500;
+  color: #72757d;
   font-size: 9px;
   font-weight: 750;
 }
@@ -3582,7 +3621,7 @@ textarea {
   margin-top: 8px;
   border: 1px solid #d9dadd;
   border-radius: 6px;
-  background: #ffffff;
+  background: #f7f8f9;
 }
 
 .device-analysis-panel[hidden] {
@@ -3590,12 +3629,12 @@ textarea {
 }
 
 .device-analysis-heading {
-  min-height: 54px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-bottom: 1px solid #e2e3e7;
 }
 
@@ -3606,7 +3645,7 @@ textarea {
 
 .device-analysis-heading strong {
   color: #202126;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 950;
 }
 
@@ -3643,16 +3682,17 @@ textarea {
 
 .device-analysis-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 6px;
-  padding: 10px;
+  grid-template-columns: minmax(0, 1.7fr) minmax(118px, 0.7fr);
+  gap: 8px;
+  padding: 9px 10px;
   border-bottom: 1px solid #e2e3e7;
 }
 
 .device-analysis-toolbar button,
-.device-file-command {
+.device-file-command,
+.device-setup-command {
   min-width: 0;
-  min-height: 42px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3666,16 +3706,18 @@ textarea {
   font-size: 9px;
   font-weight: 850;
   text-align: center;
+  text-decoration: none;
 }
 
-.device-analysis-toolbar svg {
+.device-analysis-toolbar svg,
+.device-setup-command svg {
   width: 15px;
   height: 15px;
   flex: 0 0 auto;
 }
 
 .device-analysis-toolbar .device-primary-command {
-  min-height: 52px;
+  min-height: 46px;
   border-color: #d7aa00;
   background: #f8c400;
   color: #1d1a0b;
@@ -3702,7 +3744,7 @@ textarea {
 .device-analysis-viewport {
   position: relative;
   width: 100%;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 16 / 9;
   overflow: hidden;
   background: #151619;
 }
@@ -3758,11 +3800,11 @@ textarea {
 }
 
 .device-analysis-status {
-  min-height: 38px;
+  min-height: 32px;
   display: flex;
   align-items: center;
   margin: 0;
-  padding: 8px 11px;
+  padding: 7px 10px;
   border-bottom: 1px solid #e2e3e7;
   color: #55575e;
   font-size: 9px;
@@ -3773,13 +3815,7 @@ textarea {
   color: #b62f2b;
 }
 
-#cameraCalibrationLink {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 10px 11px;
-  text-decoration: none;
-}
+.device-analysis-status + .device-analysis-status { border-bottom: 0; }
 
 .device-analysis-metrics {
   display: grid;
@@ -3941,6 +3977,7 @@ textarea {
 .floor-plan.blueprint-plan,
 .management-view .floor-plan,
 .registration-view .floor-plan {
+  position: relative;
   width: 100%;
   max-width: none;
   height: auto;

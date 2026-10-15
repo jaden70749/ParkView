@@ -126,7 +126,7 @@ test("device camera analysis is integrated into parking management", async () =>
   assert.match(html, /id="deviceCameraToggle"/);
   assert.match(html, /id="deviceCameraPanel"/);
   assert.match(html, /id="deviceStartCameraButton"/);
-  assert.match(html, /id="deviceStartCameraButton"[\s\S]*?바로 분석하기/);
+  assert.match(html, /id="deviceStartCameraButton"[\s\S]*?분석 시작/);
   assert.doesNotMatch(html, />\s*전환\s*</);
   assert.doesNotMatch(html, />\s*사진·영상\s*</);
   assert.doesNotMatch(html, />\s*중지\s*</);
