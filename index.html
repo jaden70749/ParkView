@@ -10,7 +10,7 @@
   <title>ParkView</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=118">
+  <link rel="stylesheet" href="./styles.css?v=119">
 </head>
 <body>
   <main id="app" class="app-shell">
@@ -56,7 +56,7 @@
             <p id="discoveryStatus" class="discovery-status" role="status" hidden></p>
             <div id="discoveryHome">
               <section class="discovery-section">
-                <h2>주변 탐색</h2>
+                <div class="discovery-section-heading"><h2>주변 탐색</h2><button id="clearNearbyCategory" class="discovery-icon-button" type="button" aria-label="주변 탐색 해제" title="주변 탐색 해제" hidden><i data-lucide="x"></i></button></div>
                 <div class="discovery-categories">
                   <button type="button" data-nearby-category="PK6"><span><i data-lucide="square-parking"></i></span>주차장</button>
                   <button type="button" data-nearby-category="FD6"><span><i data-lucide="utensils"></i></span>음식점</button>
@@ -64,6 +64,10 @@
                   <button type="button" data-nearby-category="CS2"><span><i data-lucide="store"></i></span>편의점</button>
                   <button type="button" data-nearby-category="SW8"><span><i data-lucide="train-front"></i></span>지하철</button>
                   <button type="button" data-nearby-category="OL7"><span><i data-lucide="fuel"></i></span>주유소</button>
+                </div>
+                <div id="nearbyMapStatus" class="nearby-map-status" hidden>
+                  <span id="nearbyMapCount" role="status"></span>
+                  <button id="refreshNearbyCategory" class="discovery-text-button" type="button"><i data-lucide="refresh-cw"></i>이 지도에서 재검색</button>
                 </div>
               </section>
               <section class="discovery-section">
@@ -535,8 +539,8 @@
       document.write('<script src="./native-bridge-source.js?v=100"><\/script>');
     }
   </script>
-  <script src="./search-discovery.js?v=1"></script>
-  <script src="./app.js?v=154"></script>
+  <script src="./search-discovery.js?v=2"></script>
+  <script src="./app.js?v=155"></script>
   <script src="./vendor/onnxruntime/ort.wasm.bundle.js?v=1"></script>
   <script type="module" src="./camera-analysis.js?v=16"></script>
 </body>

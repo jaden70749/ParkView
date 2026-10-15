@@ -1,6 +1,6 @@
 window.initializeParkViewSearch = ({ state, els, escapeHtml, refreshIcons, hideSearchSuggestions,
   resetMapSearch, selectSearchSuggestion, selectLot, loadKakaoMapSdk, renderSearchSuggestions,
-  showFavoriteLotsFromMenu }) => {
+  showFavoriteLotsFromMenu, renderMapMarkers }) => {
   const PLACES_KEY = "parkview.savedPlaces.v1";
   const RECENT_KEY = "parkview.recentSearches.v1";
   let panel;
@@ -9,6 +9,9 @@ window.initializeParkViewSearch = ({ state, els, escapeHtml, refreshIcons, hideS
   let status;
   let editing = null;
   let requestId = 0;
+  let activeCategory = null;
+  let categoryOverlays = [];
+  const categoryIcons = { PK6: "square-parking", FD6: "utensils", CE7: "coffee", CS2: "store", SW8: "train-front", OL7: "fuel" };
 
   function read(key) {
     try {
@@ -52,7 +55,7 @@ window.initializeParkViewSearch = ({ state, els, escapeHtml, refreshIcons, hideS
     if (!panel) return;
     panel.hidden = true;
     editing = null;
-    requestId += 1;
+    if (!activeCategory) requestId += 1;
     window.clearTimeout(state.searchSuggestionTimer);
     state.searchSuggestionToken += 1;
     els.searchPanel.classList.remove("is-exploring");
@@ -92,6 +95,7 @@ window.initializeParkViewSearch = ({ state, els, escapeHtml, refreshIcons, hideS
   }
 
   function startSaving(key, label) {
+    clearCategory();
     editing = { key, label };
     requestId += 1;
     resetMapSearch();
@@ -124,7 +128,7 @@ window.initializeParkViewSearch = ({ state, els, escapeHtml, refreshIcons, hideS
     const lots = state.lots.filter(lot => state.favoriteLotIds.has(String(lot.id)));
     if (!lots.length) empty(favorites, "저장한 주차장이 없습니다.");
     lots.slice(0, 4).forEach(lot => row(favorites, "star", lot.name, lot.address || "",
-      () => { close(); els.searchInput.blur(); selectLot(lot, true); }));
+      () => { clearCategory(); close(); els.searchInput.blur(); selectLot(lot, true); }));
     document.querySelector("#discoveryAllFavorites").hidden = !lots.length;
 
     const recent = document.querySelector("#discoveryRecent");
@@ -139,20 +143,68 @@ window.initializeParkViewSearch = ({ state, els, escapeHtml, refreshIcons, hideS
     refreshIcons();
   }
 
-  async function nearby(button) {
+  function removeCategoryPins() {
+    categoryOverlays.forEach(overlay => overlay.setMap(null));
+    categoryOverlays = [];
+  }
+
+  function clearCategory() {
+    const hadCategory = Boolean(activeCategory);
+    activeCategory = null;
+    requestId += 1;
+    removeCategoryPins();
+    els.searchPanel.classList.remove("is-browsing-category");
+    document.querySelectorAll("[data-nearby-category]").forEach(button => button.setAttribute("aria-pressed", "false"));
+    document.querySelector("#clearNearbyCategory").hidden = true;
+    document.querySelector("#nearbyMapStatus").hidden = true;
+    message();
+    if (hadCategory) renderMapMarkers?.();
+  }
+
+  function renderCategoryPins(matches, code) {
+    removeCategoryPins();
+    matches.forEach(place => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `nearby-place-pin category-${code.toLowerCase()}`;
+      button.setAttribute("aria-label", `${place.name} 주변 주차장 찾기`);
+      button.title = place.address || place.name;
+      button.innerHTML = `<span class="nearby-pin-symbol"><i data-lucide="${categoryIcons[code]}" aria-hidden="true"></i></span><span class="nearby-pin-label">${escapeHtml(place.name)}</span>`;
+      button.addEventListener("click", () => selectSearchSuggestion(place));
+      categoryOverlays.push(new window.kakao.maps.CustomOverlay({
+        map: state.mainMap, position: new window.kakao.maps.LatLng(place.latitude, place.longitude),
+        content: button, xAnchor: 0.5, yAnchor: 1, zIndex: 30
+      }));
+    });
+    refreshIcons();
+  }
+
+  async function nearby(button, refresh = false) {
+    if (activeCategory === button && !refresh) { clearCategory(); return; }
     const id = ++requestId;
     const label = button.textContent.trim();
+    const code = button.dataset.nearbyCategory;
+    activeCategory = button;
     editing = null;
-    els.searchInput.value = label;
+    els.searchInput.value = "";
+    els.searchInput.blur();
     state.searchSuggestionToken += 1;
     window.clearTimeout(state.searchSuggestionTimer);
     state.searchSuggestions = [];
     hideSearchSuggestions();
     update();
-    message(`${label} 검색 중…`);
+    message();
+    els.searchPanel.classList.add("is-browsing-category");
+    document.querySelectorAll("[data-nearby-category]").forEach(item => item.setAttribute("aria-pressed", String(item === button)));
+    document.querySelector("#clearNearbyCategory").hidden = false;
+    document.querySelector("#nearbyMapStatus").hidden = false;
+    const count = document.querySelector("#nearbyMapCount");
+    count.textContent = `${label} 찾는 중…`;
+    removeCategoryPins();
+    renderMapMarkers?.();
     try {
       await loadKakaoMapSdk();
-      if (!window.kakao?.maps?.services?.Places) throw new Error("지도 검색 연결이 필요합니다.");
+      if (!state.mainMap || !window.kakao?.maps?.services?.Places) throw new Error("지도 연결 후 다시 검색해 주세요.");
       const center = state.mainMap?.getCenter();
       const location = center || new window.kakao.maps.LatLng(state.userLocation?.latitude || 37.3919212,
         state.userLocation?.longitude || 127.0583089);
@@ -163,20 +215,29 @@ window.initializeParkViewSearch = ({ state, els, escapeHtml, refreshIcons, hideS
           else if (result === window.kakao.maps.services.Status.ZERO_RESULT) resolve([]);
           else reject(new Error("주변 장소를 불러오지 못했습니다."));
         }, { location, radius: 5000, size: 10, sort: window.kakao.maps.services.SortBy.DISTANCE }));
-      if (id !== requestId || panel.hidden || els.searchInput.value.trim() !== label) return;
-      state.searchSuggestions = matches.map(p => ({ id: `place:${p.id}`, name: p.place_name,
+      if (id !== requestId || activeCategory !== button) return;
+      const locations = matches.map(p => ({ id: `place:${p.id}`, name: p.place_name,
         address: p.road_address_name || p.address_name, category: p.category_group_name || label,
-        latitude: Number(p.y), longitude: Number(p.x), source: "kakao-place" }));
-      renderSearchSuggestions();
-      message(matches.length ? "" : "현재 지도 주변 5km 내 검색 결과가 없습니다.");
-    } catch (error) {
-      if (id === requestId && !panel.hidden) message(error.message || "주변 장소 검색에 연결하지 못했습니다.");
+        latitude: Number(p.y), longitude: Number(p.x), source: "kakao-place" }))
+        .filter(place => Number.isFinite(place.latitude) && Number.isFinite(place.longitude));
+      renderCategoryPins(locations, code);
+      if (locations.length > 1) {
+        const bounds = new window.kakao.maps.LatLngBounds();
+        locations.forEach(place => bounds.extend(new window.kakao.maps.LatLng(place.latitude, place.longitude)));
+        const panelHeight = els.searchPanel.getBoundingClientRect().height;
+        state.mainMap.setBounds(bounds, Math.min(panelHeight + 28, 300), 60, 80, 60);
+      } else if (locations.length === 1) {
+        state.mainMap.panTo(new window.kakao.maps.LatLng(locations[0].latitude, locations[0].longitude));
+      }
+      count.textContent = locations.length ? `주변 ${label} ${locations.length}곳` : `주변 5km 내 ${label} 없음`;
+    } catch (_) {
+      if (id === requestId) count.textContent = "주변 장소를 불러오지 못했어요. 다시 검색해 주세요.";
     }
   }
 
   window.ParkViewSearch = {
-    open, close,
-    inputChanged() { requestId += 1; message(editing ? `${editing.label}로 저장할 장소를 선택하세요.` : ""); open(); },
+    open, close, clearCategory, hasCategory: () => Boolean(activeCategory),
+    inputChanged() { clearCategory(); message(editing ? `${editing.label}로 저장할 장소를 선택하세요.` : ""); open(); },
     acceptPlace(place) {
       if (!editing) return false;
       const target = editing;
@@ -189,6 +250,7 @@ window.initializeParkViewSearch = ({ state, els, escapeHtml, refreshIcons, hideS
       return true;
     },
     selected(place) {
+      clearCategory();
       const history = read(RECENT_KEY).filter(p => !(p.name === place.name
         && Math.abs(p.latitude - place.latitude) < 0.0001 && Math.abs(p.longitude - place.longitude) < 0.0001));
       write(RECENT_KEY, [placeData(place), ...history].slice(0, 8));
@@ -207,6 +269,8 @@ window.initializeParkViewSearch = ({ state, els, escapeHtml, refreshIcons, hideS
       else { close(); els.searchInput.blur(); }
     });
     document.querySelectorAll("[data-nearby-category]").forEach(button => button.addEventListener("click", () => nearby(button)));
+    document.querySelector("#clearNearbyCategory").addEventListener("click", clearCategory);
+    document.querySelector("#refreshNearbyCategory").addEventListener("click", () => { if (activeCategory) nearby(activeCategory, true); });
     document.querySelector("#addSavedPlace").addEventListener("click", () => startSaving(`place:${Date.now()}`, "자주 가는 장소"));
     document.querySelector("#clearRecentSearches").addEventListener("click", () => { if (write(RECENT_KEY, [])) render(); });
     document.querySelector("#discoveryAllFavorites").addEventListener("click", () => { close(); showFavoriteLotsFromMenu(); });

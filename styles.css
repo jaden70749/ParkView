@@ -739,6 +739,60 @@ textarea {
 #discoveryHome[hidden] { display: none; }
 .search-discovery button:focus-visible { outline: 2px solid #b68a00; outline-offset: 2px; }
 
+.discovery-icon-button[hidden], .nearby-map-status[hidden] { display: none; }
+.discovery-categories button[aria-pressed="true"] { color: #bd3871; font-weight: 800; }
+.discovery-categories button[aria-pressed="true"] > span { border-color: #e85091; background: #e85091; color: #ffffff; }
+.discovery-categories button[data-nearby-category="PK6"][aria-pressed="true"] > span { background: var(--brand); border-color: #dbad00; color: #463500; }
+.nearby-map-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 13px; }
+.nearby-map-status > span { color: #6e7480; font-size: 10px; line-height: 1.5; }
+.nearby-map-status .discovery-text-button { flex-shrink: 0; color: #927000; gap: 4px; }
+.search-panel.is-browsing-category #discoveryHome > .discovery-section:not(:first-child) { display: none; }
+.nearby-place-pin {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 180px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #c83673;
+  font: inherit;
+  cursor: pointer;
+  transform: translateY(-5px);
+}
+.nearby-pin-symbol {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  border: 2px solid #ffffff;
+  border-radius: 50% 50% 50% 5px;
+  background: #e85091;
+  color: #ffffff;
+  box-shadow: 0 2px 5px #00000026;
+  transform: rotate(-45deg);
+}
+.nearby-pin-symbol svg { width: 16px; height: 16px; transform: rotate(45deg); }
+.nearby-pin-label {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 5px;
+  border-radius: 3px;
+  background: #ffffffed;
+  font-size: 11px;
+  font-weight: 800;
+  box-shadow: 0 1px 3px #00000012;
+}
+.nearby-place-pin:hover .nearby-pin-label,
+.nearby-place-pin:focus-visible .nearby-pin-label { text-decoration: underline; }
+.nearby-place-pin.category-pk6 { color: #967000; }
+.nearby-place-pin.category-pk6 .nearby-pin-symbol { background: #e0ad00; }
+.nearby-place-pin.category-sw8 { color: #3275ad; }
+.nearby-place-pin.category-sw8 .nearby-pin-symbol { background: #438ac4; }
+
 .search-suggestion {
   width: 100%;
   min-height: 54px;

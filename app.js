@@ -233,7 +233,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
   window.initializeParkViewSearch?.({ state, els, escapeHtml, refreshIcons, hideSearchSuggestions,
     resetMapSearch, selectSearchSuggestion, selectLot, loadKakaoMapSdk, renderSearchSuggestions,
-    showFavoriteLotsFromMenu });
+    showFavoriteLotsFromMenu, renderMapMarkers });
   refreshIcons();
   state.favoriteLotIds = loadFavoriteLotIds();
   state.directCameraUrl = loadDirectCameraLink();
@@ -586,6 +586,7 @@ function updateMenuFavoriteCount() {
 }
 
 function showAllLotsFromMenu() {
+  window.ParkViewSearch?.clearCategory();
   closeMainMenu();
   state.searchDestination = null;
   state.recommendationRanks.clear();
@@ -601,6 +602,7 @@ function showAllLotsFromMenu() {
 }
 
 function showFavoriteLotsFromMenu() {
+  window.ParkViewSearch?.clearCategory();
   closeMainMenu();
   state.searchDestination = null;
   state.recommendationRanks.clear();
@@ -2358,6 +2360,10 @@ function positionLocationInVisibleMap(lat, lng) {
 }
 
 function renderMapMarkers() {
+  if (window.ParkViewSearch?.hasCategory()) {
+    clearMainMarkerOverlays();
+    return;
+  }
   if (state.mapMode === "kakao" && state.mainMap) {
     renderKakaoMarkers();
   } else {
@@ -2796,6 +2802,7 @@ async function searchMapLocation() {
 }
 
 function resetMapSearch() {
+  window.ParkViewSearch?.clearCategory();
   window.clearTimeout(state.searchSuggestionTimer);
   state.searchSuggestionToken += 1;
   state.searchSuggestions = [];
@@ -5825,6 +5832,6 @@ function escapeHtml(value) {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js?v=155", { updateViaCache: "none" }).catch(() => {});
+    navigator.serviceWorker.register("./sw.js?v=156", { updateViaCache: "none" }).catch(() => {});
   }
 }
