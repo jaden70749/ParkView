@@ -448,6 +448,110 @@ test("floor plan prompts count every interval in long parking rows", () => {
   assert.match(appSource, /세로로 긴 배치는 1보다 작은 비율/);
 });
 
+function countedRowsFixture() {
+  const counts = [12, 8, 8, 12, 8];
+  const inventory = { total: 48, rows: counts.map((count, index) => ({
+    id: `row-${index}`, count,
+    boundaryPositions: Array.from({ length: count + 1 }, (_, i) => i * 100 / count),
+    kinds: Array.from({ length: count }, (_, i) => index === 0 && i < 2 ? "disabled" : index === 0 && [4, 5].includes(i) ? "pregnant" : "normal"),
+    statuses: Array(count).fill("available")
+  })) };
+  const rows = inventory.rows.map((row, index) => ({ rowId: row.id, count: row.count,
+    startX: index === 4 ? 20 : 12 + index * 24, startY: index === 4 ? 90 : 8,
+    endX: index === 4 ? 80 : 12 + index * 24, endY: index === 4 ? 90 : index % 3 ? 63 : 78,
+    w: 3.5, h: 7, rotation: index === 4 ? 0 : 90, kinds: [...row.kinds], statuses: [...row.statuses] }));
+  return { inventory, plan: { floors: [{ name: "1F", aspectRatio: 0.75,
+    detectedSlotCount: 48, outline: [{x:2,y:2},{x:98,y:2},{x:98,y:98},{x:2,y:98}], rows }] } };
+}
+
+test("independent boundary inventory preserves unequal row counts and special bay positions", () => {
+  const context = loadAppContext();
+  Object.assign(context, countedRowsFixture());
+  const floor = vm.runInContext("validateGeneratedFloors(plan, 0.75, validatePlanInventory(inventory))[0]", context);
+  assert.equal(floor.slots.length, 48);
+  assert.deepEqual(Array.from({ length: 5 }, (_, index) => floor.slots.filter(s => s.rowIndex === index).length), [12, 8, 8, 12, 8]);
+  assert.deepEqual(Array.from(floor.slots.slice(0, 6), s => s.kind), ["disabled", "disabled", "normal", "normal", "pregnant", "pregnant"]);
+});
+
+test("missing rows, shortened rows and changed special-bay order cannot become a successful plan", () => {
+  for (const mutate of [
+    fixture => fixture.plan.floors[0].rows.pop(),
+    fixture => fixture.plan.floors[0].rows[0].count--,
+    fixture => fixture.plan.floors[0].rows[0].kinds[2] = "pregnant",
+    fixture => fixture.plan.floors[0].detectedSlotCount--
+  ]) {
+    const context = loadAppContext();
+    const fixture = countedRowsFixture();
+    mutate(fixture);
+    Object.assign(context, fixture);
+    assert.throws(() => vm.runInContext("validateGeneratedFloors(plan, 0.75, inventory)", context));
+  }
+});
+
+test("an incomplete boundary inventory and truncated AI responses are rejected", () => {
+  const context = loadAppContext();
+  const { inventory } = countedRowsFixture();
+  inventory.rows[0].boundaryPositions.pop();
+  context.inventory = inventory;
+  assert.throws(() => vm.runInContext("validatePlanInventory(inventory)", context), /구획선/);
+  assert.throws(() => vm.runInContext('parseGeminiPlanResponse({candidates:[{finishReason:"MAX_TOKENS"}]})', context), /중간에 끊겼습니다/);
+});
+
+test("distinct bay IDs are not silently discarded when normalized coordinates coincide", () => {
+  const context = loadAppContext();
+  context.slots = [0, 1].map(rowPosition => ({ x: 10, y: 10, w: 5, h: 10, rowIndex: 0, rowPosition }));
+  assert.throws(() => vm.runInContext("preserveGeneratedLayout(slots)", context), /같은 좌표/);
+});
+
+test("overlapping detail crops cover the entire photo including its outermost corners", () => {
+  const context = loadAppContext();
+  const regions = vm.runInContext("planDetailRegions()", context);
+  assert.equal(regions.length, 4);
+  for (let y = 0; y <= 1; y += 0.05) for (let x = 0; x <= 1; x += 0.05) {
+    assert.ok(regions.some(r => x >= r.x - 0.0001 && x <= r.x + r.w + 0.0001 && y >= r.y - 0.0001 && y <= r.y + r.h + 0.0001));
+  }
+});
+
+test("generation uses a separate census and does not fall back to an undercounted draft", async () => {
+  const context = loadAppContext();
+  const fixture = countedRowsFixture();
+  fixture.plan.floors[0].rows[0].count = 8;
+  context.responses = [fixture.inventory, fixture.plan];
+  vm.runInContext(`
+    state.planImages = [{floor:"B1",width:1800,height:2400,base64:"test",mimeType:"image/jpeg"}];
+    els.planPrompt = {value:""}; els.geminiStatus = {};
+    planDetailImageParts = async () => [];
+    callCount = 0;
+    requestGeminiGeneration = async payload => {
+      callCount++;
+      if (callCount === 1 && !payload.generationConfig.responseSchema.properties.total) throw Error("missing census");
+      if (callCount === 3) throw Error("review service offline");
+      return {candidates:[{content:{parts:[{text:JSON.stringify(responses.shift())}]}}]};
+    };
+  `, context);
+  await assert.rejects(vm.runInContext('generatePlanWithGemini("B1",0,1)', context), /review service offline/);
+  assert.equal(context.callCount, 3);
+});
+
+test("a complete counted plan finishes in two requests with every bay preserved", async () => {
+  const context = loadAppContext();
+  const fixture = countedRowsFixture();
+  context.responses = [fixture.inventory, fixture.plan];
+  vm.runInContext(`
+    state.planImages = [{floor:"B1",width:1800,height:2400,base64:"test",mimeType:"image/jpeg"}];
+    els.planPrompt = {value:""}; els.geminiStatus = {};
+    planDetailImageParts = async () => [];
+    callCount = 0;
+    requestGeminiGeneration = async () => {
+      callCount++;
+      return {candidates:[{content:{parts:[{text:JSON.stringify(responses.shift())}]}}]};
+    };
+  `, context);
+  const floors = await vm.runInContext('generatePlanWithGemini("B1",0,1)', context);
+  assert.equal(context.callCount, 2);
+  assert.equal(floors[0].slots.length, 48);
+});
+
 test("compressed AI coordinates are fitted to the full drawing area", () => {
   const context = loadAppContext();
   context.compressedFloor = {

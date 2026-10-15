@@ -4280,7 +4280,8 @@ function formatFloorName(kind, number) {
 
 async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
   const referenceAspectRatio = floorPlanReferenceAspect(floorName);
-  const imageParts = state.planImages.filter(image => image.floor === floorName).flatMap((image, index) => [
+  const images = state.planImages.filter(image => image.floor === floorName);
+  const imageParts = images.flatMap((image, index) => [
     { text: `참고 사진 ${index + 1}: ${floorName}의 동일한 주차장을 다른 위치에서 촬영한 사진` },
     {
       inline_data: {
@@ -4289,6 +4290,23 @@ async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
       }
     }
   ]);
+  const detailParts = await planDetailImageParts(images);
+  const inventoryPayload = await requestGeminiGeneration({
+    contents: [{ role: "user", parts: [
+      { text: geminiPlanInventoryPrompt(floorName) }, ...imageParts, ...detailParts
+    ] }],
+    generationConfig: { temperature: 0, maxOutputTokens: 16384,
+      responseMimeType: "application/json", responseSchema: floorPlanInventorySchema() }
+  });
+  const inventory = validatePlanInventory(parseGeminiPlanResponse(inventoryPayload));
+  els.geminiStatus.textContent = `${floorName}: ${inventory.rows.length}개 열 · ${inventory.total}면 확인, 도면 작성 중...`;
+  const inventoryInstruction = `
+아래 목록은 원본 사진의 확대 구획선에서 먼저 센 주차열 목록이다.
+각 row의 id를 rowId로 복사하고, count와 첫 칸부터 마지막 칸의 kinds/statuses 순서를 정확히 보존한다.
+주차열을 누락·합치거나 도면 크기에 맞춰 칸 수를 줄이지 않는다. 각 열의 start/end를 사진의 양끝까지 배치한다.
+목록의 bounds는 사진에서 열이 차지하는 영역이며 최종 탑뷰 좌표가 아니다.
+검산 목록: ${JSON.stringify(inventory)}
+`;
 
   const generationConfig = {
     temperature: 0,
@@ -4301,7 +4319,7 @@ async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
       {
         role: "user",
         parts: [
-          { text: geminiPlanPrompt(floorName, floorIndex, floorTotal) },
+          { text: geminiPlanPrompt(floorName, floorIndex, floorTotal) + inventoryInstruction },
           ...imageParts
         ]
       }
@@ -4309,36 +4327,108 @@ async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
     generationConfig
   });
 
-  const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
-  if (!text) throw new Error("응답에 도면 JSON이 없습니다.");
-  const parsed = JSON.parse(stripJsonFence(text));
-  const draftFloors = validateGeneratedFloors(parsed, referenceAspectRatio);
-
+  const parsed = parseGeminiPlanResponse(payload);
   try {
+    return validateGeneratedFloors(parsed, referenceAspectRatio, inventory);
+  } catch (error) {
+    els.geminiStatus.textContent = `${floorName}: 주차면 개수 불일치, 누락된 칸을 다시 확인하고 있습니다...`;
     const reviewedPayload = await requestGeminiGeneration({
       contents: [
         {
           role: "user",
           parts: [
-            { text: geminiPlanReviewPrompt(floorName, parsed) },
-            ...imageParts
+            { text: geminiPlanReviewPrompt(floorName, parsed) + inventoryInstruction + `\n수정할 오류: ${error.message}` },
+            ...imageParts, ...detailParts
           ]
         }
       ],
       generationConfig
     });
-    const reviewedText = reviewedPayload.candidates?.[0]?.content?.parts
-      ?.map((part) => part.text || "")
-      .join("")
-      .trim();
-    if (reviewedText) {
-      const reviewed = JSON.parse(stripJsonFence(reviewedText));
-      return validateGeneratedFloors(reviewed, referenceAspectRatio);
-    }
-  } catch (error) {
-    console.warn("[ParkView] floor plan review skipped", error);
+    return validateGeneratedFloors(parseGeminiPlanResponse(reviewedPayload), referenceAspectRatio, inventory);
   }
-  return draftFloors;
+}
+
+function parseGeminiPlanResponse(payload) {
+  if (payload.candidates?.[0]?.finishReason === "MAX_TOKENS") throw new Error("도면 응답이 중간에 끊겼습니다. 사진을 나눠 다시 시도해 주세요.");
+  const text = payload.candidates?.[0]?.content?.parts?.map(part => part.text || "").join("").trim();
+  if (!text) throw new Error("응답에 도면 JSON이 없습니다.");
+  return JSON.parse(stripJsonFence(text));
+}
+
+function planDetailRegions() {
+  return [0, 0.45].flatMap(y => [0, 0.45].map(x => ({ x, y, w: 0.55, h: 0.55 })));
+}
+
+async function planDetailImageParts(images) {
+  const indexed = images.map((image, index) => ({ image, index }));
+  const primary = indexed.sort((a, b) => b.image.width * b.image.height - a.image.width * a.image.height)[0];
+  if (!primary) return [];
+  const image = await new Promise((resolve, reject) => {
+    const picture = new Image();
+    picture.onload = () => resolve(picture);
+    picture.onerror = () => reject(new Error("확대 검산 사진을 읽지 못했습니다."));
+    picture.src = primary.image.previewUrl;
+  });
+  return planDetailRegions().flatMap((region, index) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(image.naturalWidth * region.w);
+    canvas.height = Math.round(image.naturalHeight * region.h);
+    canvas.getContext("2d").drawImage(image, image.naturalWidth * region.x, image.naturalHeight * region.y,
+      canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+    return [{ text: `사진 ${primary.index + 1}의 확대 ${index + 1}: 원본 x=${region.x * 100}~${(region.x + region.w) * 100}%, y=${region.y * 100}~${(region.y + region.h) * 100}%. 겹치는 부분은 같은 칸이므로 중복 집계하지 않는다.` },
+      { inline_data: { mime_type: "image/jpeg", data: canvas.toDataURL("image/jpeg", 0.9).split(",")[1] } }];
+  });
+}
+
+function geminiPlanInventoryPrompt(floorName) {
+  return `첨부된 ${floorName} 주차장 사진에서 도면을 그리기 전에 주차선 사이의 칸을 빠짐없이 세어 JSON 목록만 반환한다.
+전체 사진과 겹치는 4개 확대 사진은 동일한 장소다. 확대 사진은 작은 구획선을 확인하는 용도이며 중복으로 세지 않는다.
+각 독립된 직선 주차열을 처음부터 끝까지 따라간다. 세로 열은 위에서 아래로, 가로 열은 왼쪽에서 오른쪽으로 센다.
+바닥 판 이음선에서 멈추지 말고 끝까지 센다. 긴 바깥 열과 짧은 안쪽 열의 칸 수를 같게 만들지 않는다.
+L자나 U자로 연결된 모서리의 마지막 칸도 빠뜨리지 않되 같은 칸을 두 열에 넣지 않는다. 방향이 달라지면 별도 열로 나눈다.
+파란 보행 띠, 차로의 화살표, 빈 중앙 통로는 주차면이 아니다. 파란색만 보고 장애인 칸으로 세지 말고 휠체어 표시가 있는 칸만 disabled로 기록한다.
+분홍색 특수 칸은 pregnant로 기록한다. 사진에 차량이 없으면 모든 statuses는 available이다.
+각 열마다 사진상 위치 description, sourceImage(사진 번호, 1부터), bounds(x/y/w/h, 원본 사진 기준 0~100), 고유 id를 기록한다.
+boundaryPositions에는 그 열을 가로지르는 실제 구획선의 위치를 진행 방향 0~100으로 오름차순 나열한다. 양끝 외곽선을 포함한다.
+두 연속 경계선 사이가 한 칸이다. boundaryPositions 길이가 N이면 count는 N-1이다. count를 먼저 정해서 경계선을 임의 생성하지 않는다.
+각 칸을 순서대로 확인해 kinds와 statuses를 각각 count개 기록한다. 첫 칸부터 끝 칸까지 색상 순서를 확인한다.
+한 열이 2개 장애인, 2개 일반, 2개 특수, 여러 일반으로 이어지면 그 순서를 그대로 보존한다. 예시 숫자를 답으로 복사하지 않는다.
+total은 모든 열의 count 합이다. 총면수를 맞추려고 다른 열에 칸을 추가하거나 삭제하지 않는다.`;
+}
+
+function floorPlanInventorySchema() {
+  return { type: "OBJECT", properties: {
+    total: { type: "INTEGER" }, rows: { type: "ARRAY", minItems: 1, items: {
+      type: "OBJECT", properties: {
+        id: { type: "STRING" }, description: { type: "STRING" }, sourceImage: { type: "INTEGER" },
+        bounds: { type: "OBJECT", properties: Object.fromEntries(["x", "y", "w", "h"].map(key => [key, { type: "NUMBER" }])), required: ["x", "y", "w", "h"] },
+        count: { type: "INTEGER" }, boundaryPositions: { type: "ARRAY", items: { type: "NUMBER" } },
+        kinds: { type: "ARRAY", items: { type: "STRING", enum: ["normal", "disabled", "pregnant"] } },
+        statuses: { type: "ARRAY", items: { type: "STRING", enum: ["available", "occupied"] } }
+      }, required: ["id", "description", "sourceImage", "bounds", "count", "boundaryPositions", "kinds", "statuses"]
+    } }
+  }, required: ["total", "rows"] };
+}
+
+function validatePlanInventory(inventory) {
+  if (!Array.isArray(inventory?.rows) || !inventory.rows.length || inventory.rows.length > 60) throw new Error("주차열의 칸 수를 확인하지 못했습니다.");
+  const ids = new Set();
+  let total = 0;
+  inventory.rows.forEach(row => {
+    if (typeof row.id !== "string" || !row.id || ids.has(row.id) || !Number.isInteger(row.count) || row.count < 1 || row.count > 80) throw new Error("주차열 개수 또는 칸 수가 올바르지 않습니다.");
+    ids.add(row.id);
+    if (!Array.isArray(row.boundaryPositions) || row.boundaryPositions.length !== row.count + 1
+      || row.boundaryPositions.some((value, index, values) => !Number.isFinite(value) || value < 0 || value > 100 || (index > 0 && value <= values[index - 1]))) {
+      throw new Error(`${row.id}: 구획선 수와 주차면 수가 일치하지 않습니다.`);
+    }
+    if (!Array.isArray(row.kinds) || row.kinds.length !== row.count || row.kinds.some(kind => !["normal", "disabled", "pregnant"].includes(kind))
+      || !Array.isArray(row.statuses) || row.statuses.length !== row.count || row.statuses.some(status => !["available", "occupied"].includes(status))) {
+      throw new Error(`${row.id}: 주차면별 종류와 상태가 빠졌습니다.`);
+    }
+    total += row.count;
+  });
+  if (total > 240 || inventory.total !== total) throw new Error("전체 면수와 열별 면수 합계가 일치하지 않습니다.");
+  return inventory;
 }
 
 async function requestGeminiGeneration(payload) {
@@ -4534,6 +4624,7 @@ function floorPlanSchema() {
               items: {
                 type: "OBJECT",
                 properties: {
+                  rowId: { type: "STRING" },
                   startX: { type: "NUMBER" },
                   startY: { type: "NUMBER" },
                   endX: { type: "NUMBER" },
@@ -4551,7 +4642,7 @@ function floorPlanSchema() {
                     items: { type: "STRING", enum: ["normal", "disabled", "pregnant"] }
                   }
                 },
-                required: ["startX", "startY", "endX", "endY", "count", "w", "h", "rotation", "statuses", "kinds"]
+                required: ["rowId", "startX", "startY", "endX", "endY", "count", "w", "h", "rotation", "statuses", "kinds"]
               }
             }
           },
@@ -4563,15 +4654,20 @@ function floorPlanSchema() {
   };
 }
 
-function validateGeneratedFloors(plan, referenceAspectRatio = null) {
+function validateGeneratedFloors(plan, referenceAspectRatio = null, inventory = null) {
   const floors = Array.isArray(plan?.floors) ? plan.floors : [];
+  if (inventory && floors.length !== 1) throw new Error("검산한 한 층의 도면만 생성해야 합니다.");
   const validFloors = floors.map((floor, floorIndex) => {
+    if (inventory) validateGeneratedRowCounts(floor, inventory);
     const aspectRatio = reconcileFloorAspectRatio(floor.aspectRatio, referenceAspectRatio);
     const slots = expandGeneratedRows(floor.rows, aspectRatio);
+    if (inventory && slots.length !== inventory.total) throw new Error("도면 변환 중 주차면이 누락되었습니다.");
+    if (inventory) preserveGeneratedLayout(slots);
     return {
       name: String(floor.name || `B${floorIndex + 1}`),
       aspectRatio,
       detectedSlotCount: slots.length,
+      rowInventory: inventory,
       outline: normalizeFloorPoints(floor.outline, 3),
       zones: [],
       elements: Array.isArray(floor.elements)
@@ -4587,6 +4683,28 @@ function validateGeneratedFloors(plan, referenceAspectRatio = null) {
 
   if (validFloors.length === 0) throw new Error("유효한 주차면이 없습니다.");
   return validFloors.slice(0, 8);
+}
+
+function validateGeneratedRowCounts(floor, inventory) {
+  if (!Array.isArray(floor.rows) || floor.rows.length !== inventory.rows.length || floor.detectedSlotCount !== inventory.total) {
+    throw new Error(`검산한 ${inventory.rows.length}개 열 · ${inventory.total}면과 생성 결과가 다릅니다.`);
+  }
+  const expected = new Map(inventory.rows.map(row => [row.id, row]));
+  const seen = new Set();
+  floor.rows.forEach(row => {
+    const original = expected.get(row.rowId);
+    if (!original || seen.has(row.rowId) || row.count !== original.count) throw new Error(`${row.rowId || "주차열"}: 칸 수가 누락되거나 중복되었습니다.`);
+    seen.add(row.rowId);
+    if (!Array.isArray(row.kinds) || !Array.isArray(row.statuses)
+      || JSON.stringify(row.kinds) !== JSON.stringify(original.kinds)
+      || JSON.stringify(row.statuses) !== JSON.stringify(original.statuses)) {
+      throw new Error(`${row.rowId}: 칸별 종류 또는 순서가 검산 결과와 다릅니다.`);
+    }
+    if (![row.startX, row.startY, row.endX, row.endY, row.w, row.h].every(Number.isFinite)
+      || (row.count > 1 && Math.hypot(row.endX - row.startX, row.endY - row.startY) < 1)) {
+      throw new Error(`${row.rowId}: 주차열의 양끝 좌표를 확인하지 못했습니다.`);
+    }
+  });
 }
 
 function expandGeneratedRows(rows, aspectRatio = FLOOR_PLAN_X_SCALE) {
@@ -4725,6 +4843,8 @@ function polishGeneratedFloor(floor) {
   return {
     name: floor.name,
     aspectRatio: normalizeFloorAspectRatio(floor.aspectRatio),
+    detectedSlotCount: floor.detectedSlotCount,
+    rowInventory: floor.rowInventory || null,
     outline: normalizeFloorPoints(floor.outline, 3),
     zones: [],
     elements: (floor.elements || []).map(cleanGeneratedElement).filter(Boolean),
@@ -4749,12 +4869,16 @@ function preserveGeneratedLayout(slots) {
       w: clamp(Number(slot.w), 1.5, 30),
       h: clamp(Number(slot.h), 1.5, 30)
     };
-    const duplicate = preserved.some((existing) => (
+    const duplicate = preserved.find((existing) => (
       Math.abs(existing.x - clean.x) < 0.5 &&
       Math.abs(existing.y - clean.y) < 0.5 &&
       Math.abs(existing.w - clean.w) < 0.5 &&
       Math.abs(existing.h - clean.h) < 0.5
     ));
+    if (duplicate && Number.isInteger(slot.rowIndex) && Number.isInteger(duplicate.rowIndex)
+      && (duplicate.rowIndex !== slot.rowIndex || duplicate.rowPosition !== slot.rowPosition)) {
+      throw new Error("서로 다른 주차칸이 같은 좌표에 겹쳤습니다. 사진을 유지한 채 다시 생성해 주세요.");
+    }
     if (!duplicate) preserved.push(clean);
   });
 
@@ -4937,7 +5061,7 @@ function applyGeneratedFloors(floors) {
 }
 
 async function imageFileToGeminiPart(file) {
-  const { dataUrl, width, height } = await resizeImageFile(file, 1600, 0.9);
+  const { dataUrl, width, height } = await resizeImageFile(file, 2400, 0.9);
   const [, meta, base64] = dataUrl.match(/^data:(.+);base64,(.+)$/) || [];
   return {
     mimeType: meta || "image/jpeg",
@@ -5832,6 +5956,6 @@ function escapeHtml(value) {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js?v=156", { updateViaCache: "none" }).catch(() => {});
+    navigator.serviceWorker.register("./sw.js?v=157", { updateViaCache: "none" }).catch(() => {});
   }
 }
