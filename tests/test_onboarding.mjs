@@ -12,6 +12,21 @@ test("motion preview has no visible captions while accessible progress remains a
   assert.match(html, /class="sr-only" id="onboardingAnimationStatus" role="status"/);
 });
 
+test("app and calibration have no placeholder logos but keep navigation and parking symbols", async () => {
+  const calibration = await readFile(new URL("../calibrate.html", import.meta.url), "utf8");
+  const manifest = JSON.parse(await readFile(new URL("../manifest.webmanifest", import.meta.url), "utf8"));
+  const build = await readFile(new URL("../scripts/prepare-mobile-web.mjs", import.meta.url), "utf8");
+  const cache = await readFile(new URL("../sw.js", import.meta.url), "utf8");
+  for (const content of [html, calibration, build, cache]) {
+    assert.doesNotMatch(content, /favicon\.svg|class="(?:menu-)?brand-mark"/);
+  }
+  assert.doesNotMatch(html, /class="(?:onboarding-brand|demo-management-heading)"[^\n]*<img/);
+  assert.match(html, /id="userButton"[^\n]*data-lucide="arrow-left"/);
+  assert.match(html, /class="demo-pin demo-pin-a">P /);
+  assert.match(html, /id="onboardingHome">ParkView<\/a>/);
+  assert.equal((manifest.icons || []).length, 0);
+});
+
 function harness({ seen = false, hash = "", reduced = false, denied = false } = {}) {
   const storage = new Map(seen ? [[key, "completed"]] : []);
   const session = new Map();

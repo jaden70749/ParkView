@@ -7,7 +7,6 @@
 .onboarding-pages { display: flex; flex-direction: column; height: 100%; overflow-y: auto; overscroll-behavior: contain; }
 .onboarding-header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; padding: max(20px, env(safe-area-inset-top)) 24px 16px; gap: 12px; }
 .onboarding-brand { display: flex; align-items: center; gap: 8px; text-decoration: none; color: #202523; font-size: 17px; font-weight: 800; }
-.onboarding-brand img { border-radius: 7px; }
 .onboarding-skip { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; color: #747c77; font-size: 12px; padding: 10px 0 10px 8px; white-space: nowrap; }
 .onboarding-skip svg { width: 14px; height: 14px; }
 .onboarding-choice { padding: 32px 24px max(20px, env(safe-area-inset-bottom)); display: flex; flex: 1; flex-direction: column; }
@@ -175,7 +174,6 @@
 
 .demo-management { position: absolute; inset: 0; z-index: 5; background: #fff; display: none; flex-direction: column; gap: 9px; padding: 12px; }
 .demo-management-heading { display: flex; align-items: center; gap: 5px; min-height: 24px; flex: 0 0 auto; }
-.demo-management-heading img { border-radius: 4px; }
 .demo-management-heading strong { font-size: 11px; }
 .demo-management-heading > span { font-size: 8px; color: #9ca595; background: #f0f3ec; border-radius: 3px; margin-left: auto; padding: 3px 4px; }
 .demo-camera-frame { position: relative; flex: 0 0 auto; aspect-ratio: 13 / 8; width: 100%; border-radius: 5px; overflow: hidden; background: #27352f; }

@@ -42,26 +42,13 @@ button:disabled { cursor: wait; opacity: 0.48; }
 
 .setup-header {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   min-height: 76px;
   padding: calc(12px + env(safe-area-inset-top)) 24px 12px;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
-}
-
-.brand-mark {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border-radius: 7px;
-  background: var(--brand);
-  color: #171717;
-  font-size: 22px;
-  font-style: italic;
-  font-weight: 950;
 }
 
 .setup-header p,
@@ -551,7 +538,7 @@ button:disabled { cursor: wait; opacity: 0.48; }
 
 @media (max-width: 560px) {
   .setup-badge { display: none; }
-  .setup-header { grid-template-columns: 42px minmax(0, 1fr); }
+  .setup-header { grid-template-columns: minmax(0, 1fr); }
   .section-heading p { display: none; }
   .editor-toolbar,
   .source-actions,

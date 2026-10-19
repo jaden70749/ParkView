@@ -1092,24 +1092,11 @@ textarea {
 
 .main-menu-header {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) 38px;
+  grid-template-columns: minmax(0, 1fr) 38px;
   align-items: center;
   gap: 10px;
   padding-bottom: 18px;
   border-bottom: 1px solid #ececef;
-}
-
-.menu-brand-mark {
-  width: 48px;
-  height: 48px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--brand);
-  color: #171717;
-  font-size: 25px;
-  font-style: italic;
-  font-weight: 950;
 }
 
 .main-menu-header small,
@@ -2373,12 +2360,14 @@ textarea {
 }
 
 .admin-back {
-  color: #ffffff;
-  background: var(--pink);
-  font-size: 18px;
-  font-style: italic;
-  letter-spacing: -1px;
+  width: 40px;
+  height: 40px;
+  color: #333c35;
+  background: #fff;
+  border: 1px solid #dfe5dd;
 }
+
+.admin-back svg { width: 20px; height: 20px; }
 
 .admin-grid {
   display: grid;
@@ -4764,7 +4753,6 @@ textarea {
   color: #604800;
 }
 
-.admin-back,
 .new-lot-button,
 .primary-button {
   background: var(--brand);

@@ -8,10 +8,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="ParkView">
   <title>ParkView</title>
-  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="data:,">
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=120">
-  <link rel="stylesheet" href="./onboarding.css?v=3">
+  <link rel="stylesheet" href="./styles.css?v=121">
+  <link rel="stylesheet" href="./onboarding.css?v=4">
 </head>
 <body>
   <main id="app" class="app-shell">
@@ -121,7 +121,6 @@
       <div id="menuScrim" class="panel-scrim" aria-hidden="true"></div>
       <aside id="mainMenu" class="main-menu" role="dialog" aria-modal="true" aria-labelledby="mainMenuTitle" aria-hidden="true">
         <header class="main-menu-header">
-          <span class="menu-brand-mark" aria-hidden="true">P</span>
           <span>
             <small>ParkView</small>
             <strong id="mainMenuTitle">메뉴</strong>
@@ -219,7 +218,7 @@
 
     <section id="adminScreen" class="screen admin-screen">
       <header class="admin-header">
-        <button id="userButton" class="icon-button admin-back" aria-label="사용자 화면">P</button>
+        <button id="userButton" class="icon-button admin-back" aria-label="사용자 화면으로 돌아가기"><i data-lucide="arrow-left" aria-hidden="true"></i></button>
         <div>
           <p id="adminEyebrow">ParkView Control</p>
           <h2 id="adminTitle">주차장 관리</h2>
@@ -537,7 +536,7 @@
     <section id="onboarding" class="onboarding" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle" hidden>
       <div class="onboarding-pages">
         <header class="onboarding-header">
-          <a class="onboarding-brand" href="#" aria-label="ParkView 처음으로" id="onboardingHome"><img src="./favicon.svg" alt="" width="30" height="30"><span>ParkView</span></a>
+          <a class="onboarding-brand" href="#" aria-label="ParkView 처음으로" id="onboardingHome">ParkView</a>
           <button class="onboarding-skip" id="onboardingSkip" type="button">건너뛰기 <i data-lucide="arrow-right"></i></button>
         </header>
         <div class="onboarding-choice" id="onboardingChoice">
@@ -605,7 +604,7 @@
                   <div class="demo-compare-row"><span class="demo-compare-icon">P</span><div><b>판교역 환승주차장</b><span>도보 5분 <i>운영 중</i></span></div><strong>3,000<small>원 / 시간</small></strong></div>
                 </section>
                 <section class="demo-management">
-                  <header class="demo-management-heading"><img src="./favicon.svg" alt="" width="18" height="18"><strong>주차장 관리</strong><span id="demoCameraStatus">미연결</span></header>
+                  <header class="demo-management-heading"><strong>주차장 관리</strong><span id="demoCameraStatus">미연결</span></header>
                   <div class="demo-camera-frame"><canvas id="onboardingCctv" width="520" height="320"></canvas><div class="demo-camera-regions" id="demoCameraRegions"></div><span class="demo-camera-label"><i></i>1F · CCTV 01</span><div class="demo-camera-scan"></div><div class="demo-camera-offline"><i data-lucide="cctv"></i></div></div>
                   <div class="demo-management-stats"><div><span>등록 주차면</span><strong id="demoRegisteredCount">—</strong></div><div><span>주차 중</span><strong id="demoOccupiedCount">—</strong></div><div><span>빈자리</span><strong id="demoManagedVacancy">—</strong></div></div>
                   <div class="demo-managed-floor"><header><b>1F 도면</b><span><i data-lucide="circle-check"></i>연동 완료</span></header><div class="demo-parking-plan"><div class="demo-parking-bays" id="demoManagedBays"></div><div class="demo-plan-aisle"><i data-lucide="arrow-right"></i><i data-lucide="arrow-right"></i></div></div></div>
