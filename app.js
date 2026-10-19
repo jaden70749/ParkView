@@ -234,6 +234,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   window.initializeParkViewSearch?.({ state, els, escapeHtml, refreshIcons, hideSearchSuggestions,
     resetMapSearch, selectSearchSuggestion, selectLot, loadKakaoMapSdk, renderSearchSuggestions,
     showFavoriteLotsFromMenu, renderMapMarkers });
+  const onboarding = window.initializeParkViewOnboarding?.({ refreshIcons, prepareHome() {
+    closeMainMenu();
+    closeFilterPanel();
+    hidePermissionPanel();
+    window.ParkViewSearch?.close();
+    showScreen("user");
+  } });
   refreshIcons();
   state.favoriteLotIds = loadFavoriteLotIds();
   state.directCameraUrl = loadDirectCameraLink();
@@ -264,7 +271,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   setRegistrationStep(0);
   registerServiceWorker();
-  if (!state.publicCameraViewer) initializeLocationAccess();
+  onboarding?.ready();
+  if (!state.publicCameraViewer) {
+    if (onboarding) onboarding.whenFinished.then(() => initializeLocationAccess());
+    else initializeLocationAccess();
+  }
 });
 
 function bindElements() {
@@ -5956,6 +5967,6 @@ function escapeHtml(value) {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js?v=157", { updateViaCache: "none" }).catch(() => {});
+    navigator.serviceWorker.register("./sw.js?v=158", { updateViaCache: "none" }).catch(() => {});
   }
 }

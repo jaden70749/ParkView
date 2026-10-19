@@ -11,6 +11,7 @@
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="stylesheet" href="./styles.css?v=119">
+  <link rel="stylesheet" href="./onboarding.css?v=1">
 </head>
 <body>
   <main id="app" class="app-shell">
@@ -134,6 +135,7 @@
           <button id="menuFavorites" type="button"><i data-lucide="star" aria-hidden="true"></i><span><strong>즐겨찾기</strong><small id="menuFavoriteCount">저장한 주차장 0개</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
           <button id="menuCurrentLocation" type="button"><i data-lucide="locate-fixed" aria-hidden="true"></i><span><strong>현재 위치</strong><small>내 주변 주차장으로 이동</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
           <button id="adminButton" type="button"><i data-lucide="building-2" aria-hidden="true"></i><span><strong>주차장 관리</strong><small>등록 및 운영 현황 관리</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+          <button id="menuTutorial" type="button"><i data-lucide="circle-help" aria-hidden="true"></i><span><strong>처음 사용 가이드</strong><small>ParkView 사용 방법 다시 보기</small></span><i data-lucide="chevron-right" aria-hidden="true"></i></button>
         </nav>
         <p class="menu-version">ParkView MVP</p>
       </aside>
@@ -530,6 +532,74 @@
       </section>
 
     </section>
+    <section id="onboarding" class="onboarding" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle" hidden>
+      <div class="onboarding-pages">
+        <header class="onboarding-header">
+          <a class="onboarding-brand" href="#" aria-label="ParkView 처음으로" id="onboardingHome"><img src="./favicon.svg" alt="" width="30" height="30"><span>ParkView</span></a>
+          <button class="onboarding-skip" id="onboardingSkip" type="button">건너뛰기 <i data-lucide="arrow-right"></i></button>
+        </header>
+        <div class="onboarding-choice" id="onboardingChoice">
+          <p class="onboarding-eyebrow">주차의 시작, ParkView</p>
+          <h1 id="onboardingTitle" tabindex="-1">어떤 주차가<br>필요하세요?</h1>
+          <p class="onboarding-subtitle">내게 필요한 것부터 만나보세요.</p>
+          <div class="onboarding-options">
+            <button type="button" data-onboarding-purpose="search"><span class="purpose-icon purpose-search"><i data-lucide="map-pin"></i></span><span><small>목적지 가까이</small><strong>주차장 찾기</strong></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" data-onboarding-purpose="availability"><span class="purpose-icon purpose-availability"><i data-lucide="square-parking"></i></span><span><small>도착하기 전에</small><strong>실시간 빈자리 확인</strong></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" data-onboarding-purpose="filters"><span class="purpose-icon purpose-filters"><i data-lucide="sliders-horizontal"></i></span><span><small>내 조건에 맞게</small><strong>요금·운영시간 비교</strong></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" data-onboarding-purpose="manage"><span class="purpose-icon purpose-manage"><i data-lucide="cctv"></i></span><span><small>주차장을 운영한다면</small><strong>CCTV로 주차장 관리</strong></span><i data-lucide="chevron-right"></i></button>
+          </div>
+          <p class="onboarding-choice-footer">찾는 순간부터, 주차하는 순간까지.</p>
+        </div>
+        <div class="onboarding-demo" id="onboardingDemo" hidden>
+          <div class="onboarding-demo-heading">
+            <p class="onboarding-eyebrow" id="onboardingDemoEyebrow">목적지 주변 주차장</p>
+            <h2 id="onboardingDemoTitle" tabindex="-1">검색 한 번으로,<br>주차가 한눈에.</h2>
+          </div>
+          <div class="onboarding-demo-stage" id="onboardingDemoStage" data-phase="idle" aria-hidden="true">
+            <div class="demo-phone">
+              <div class="demo-speaker"></div>
+              <div class="demo-screen">
+                <canvas id="onboardingMap" width="520" height="760"></canvas>
+                <div class="demo-map-caption">판교역</div>
+                <div class="demo-app-search">
+                  <div class="demo-search-line"><i data-lucide="menu"></i><span id="demoTypedSearch"></span><span class="demo-caret"></span><i data-lucide="search"></i></div>
+                  <div class="demo-filters"><span><i data-lucide="sliders-horizontal"></i></span><span>운영 중</span><span class="demo-available-filter">빈자리</span><span>무료</span></div>
+                </div>
+                <div class="demo-suggestions">
+                  <div class="demo-suggestion-caption">연관 검색</div>
+                  <div class="demo-suggestion selected"><i data-lucide="map-pin"></i><span><b>판교역</b><small>경기 성남시 분당구</small></span><i data-lucide="corner-up-left"></i></div>
+                  <div class="demo-suggestion"><i data-lucide="square-parking"></i><span><b>판교역 공영주차장</b><small>경기 성남시 분당구 판교역로</small></span></div>
+                  <div class="demo-suggestion"><i data-lucide="map-pin"></i><span><b>판교역 1번 출구</b><small>경기 성남시 분당구</small></span></div>
+                </div>
+                <span class="demo-pin demo-pin-a">P <b>12면</b></span>
+                <span class="demo-pin demo-pin-b">P <b>5면</b></span>
+                <span class="demo-pin demo-pin-c">P <b>8면</b></span>
+                <div class="demo-location"><i data-lucide="locate-fixed"></i></div>
+                <div class="demo-result"><span class="demo-result-handle"></span><div class="demo-result-title"><strong>판교역 공영주차장</strong><span>빈자리 12</span></div><p>도보 3분 <span>·</span> 30분 1,000원</p><div class="demo-result-bottom"><span><i data-lucide="clock-3"></i> 운영 중</span><b>상세 보기 <i data-lucide="arrow-up-right"></i></b></div></div>
+                <div class="demo-tap"></div>
+              </div>
+              <div class="demo-home-indicator"></div>
+            </div>
+            <span class="demo-preview-label">사용 예시 · 실제 주차 현황이 아닙니다</span>
+          </div>
+          <p class="onboarding-animation-status" id="onboardingAnimationStatus" role="status">목적지를 검색하고 있어요</p>
+          <footer class="onboarding-demo-footer">
+            <div class="onboarding-demo-actions"><button id="onboardingBack" class="onboarding-text-button" type="button"><i data-lucide="arrow-left"></i>다른 항목 보기</button><button id="onboardingReplay" class="onboarding-text-button" type="button" hidden><i data-lucide="rotate-ccw"></i>다시 재생</button></div>
+            <button id="onboardingStart" class="onboarding-primary" type="button" hidden>확인하고 시작하기 <i data-lucide="arrow-right"></i></button>
+            <div class="onboarding-animation-progress" id="onboardingAnimationProgress"><span></span></div>
+          </footer>
+        </div>
+      </div>
+      <div class="onboarding-tour" id="onboardingTour" hidden>
+        <div class="tour-spotlight" id="tourSpotlight"></div>
+        <div class="tour-tip" id="tourTip">
+          <div class="tour-tip-top"><span id="tourStepCount">1 / 4</span><button id="tourSkip" type="button" aria-label="버튼 안내 건너뛰기" title="안내 건너뛰기"><i data-lucide="x"></i></button></div>
+          <h2 id="tourTitle" tabindex="-1"></h2>
+          <p id="tourDescription"></p>
+          <div class="tour-tip-footer"><div class="tour-dots" id="tourDots" aria-hidden="true"></div><button id="tourNext" class="onboarding-primary" type="button">다음 <i data-lucide="arrow-right"></i></button></div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" crossorigin="anonymous"></script>
@@ -540,7 +610,8 @@
     }
   </script>
   <script src="./search-discovery.js?v=2"></script>
-  <script src="./app.js?v=156"></script>
+  <script src="./onboarding.js?v=1"></script>
+  <script src="./app.js?v=157"></script>
   <script src="./vendor/onnxruntime/ort.wasm.bundle.js?v=1"></script>
   <script type="module" src="./camera-analysis.js?v=16"></script>
 </body>

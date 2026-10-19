@@ -18,6 +18,8 @@ const files = [
   "favicon.svg",
   "styles.css",
   "search-discovery.js",
+  "onboarding.js",
+  "onboarding.css",
   "camera-analysis.js",
   "camera-analysis-core.js",
   "calibrate.html",

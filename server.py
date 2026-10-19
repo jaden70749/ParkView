@@ -1504,7 +1504,7 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
         path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
         allowed = {
             "/", "/index.html", "/styles.css", "/app.js", "/config.js",
-            "/search-discovery.js", "/favicon.svg",
+            "/search-discovery.js", "/favicon.svg", "/onboarding.js", "/onboarding.css",
             "/camera-analysis.js", "/camera-analysis-core.js",
             "/calibrate.html", "/calibrate.js", "/calibrate.css",
             "/native-bridge-source.js", "/manifest.webmanifest", "/sw.js",
