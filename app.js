@@ -6038,6 +6038,13 @@ function escapeHtml(value) {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js?v=158", { updateViaCache: "none" }).catch(() => {});
+    navigator.serviceWorker.register("./sw.js?v=159", { updateViaCache: "none" }).then((registration) => {
+      const checkForUpdate = () => registration.update().catch(() => {});
+      checkForUpdate();
+      window.addEventListener("pageshow", checkForUpdate);
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) checkForUpdate();
+      });
+    }).catch(() => {});
   }
 }

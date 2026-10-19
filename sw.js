@@ -1,11 +1,11 @@
-const CACHE_NAME = "parkview-v166";
+const CACHE_NAME = "parkview-v167";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css?v=121",
   "./config.js?v=4",
   "./native-bridge-source.js?v=100",
-  "./app.js?v=158",
+  "./app.js?v=159",
   "./search-discovery.js?v=2",
   "./onboarding.js?v=2",
   "./onboarding.css?v=4",
@@ -17,14 +17,16 @@ const ASSETS = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(
+      ASSETS.map((asset) => new Request(new URL(asset, self.location.href), { cache: "reload" }))
+    )).then(() => self.skipWaiting())
   );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then(async (keys) => {
-      const previousCaches = keys.filter((key) => key !== CACHE_NAME);
+      const previousCaches = keys.filter((key) => key.startsWith("parkview-v") && key !== CACHE_NAME);
       await Promise.all(previousCaches.map((key) => caches.delete(key)));
       await self.clients.claim();
       if (!previousCaches.some((key) => key.startsWith("parkview-v"))) return;
@@ -54,7 +56,7 @@ self.addEventListener("fetch", (event) => {
     ["document", "script", "style"].includes(event.request.destination);
   if (isCoreAsset) {
     event.respondWith(
-      fetch(event.request).then((response) => {
+      fetch(event.request, { cache: "no-store" }).then((response) => {
         const copy = response.clone();
         if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         return response;
