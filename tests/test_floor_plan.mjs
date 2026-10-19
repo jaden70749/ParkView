@@ -44,6 +44,11 @@ class FakeElement {
     this.children.push(...children);
   }
 
+  addEventListener(type, handler) {
+    this.events ||= {};
+    this.events[type] = handler;
+  }
+
   replaceChildren(...children) {
     this.children = [...children];
   }
@@ -82,6 +87,118 @@ function loadAppContext() {
   vm.runInContext(appSource, context);
   return context;
 }
+
+function descendantsOf(root) {
+  return [root, ...root.children.flatMap(descendantsOf)];
+}
+
+test("soft floor graphics preserve every bay, source geometry, and all three occupancy states", () => {
+  const context = loadAppContext();
+  const floor = {
+    name: "1F", aspectRatio: 1.6,
+    outline: [{ x: 4, y: 4 }, { x: 96, y: 4 }, { x: 96, y: 96 }, { x: 4, y: 96 }],
+    elements: [], zones: [],
+    slots: Array.from({ length: 12 }, (_, index) => ({
+      x: 9 + index % 6 * 14, y: index < 6 ? 10 : 65, w: 8, h: 20, rotation: 0,
+      status: ["occupied", "available", "unknown"][index % 3],
+      kind: index === 1 ? "disabled" : index === 3 ? "pregnant" : "normal"
+    }))
+  };
+  const original = JSON.stringify(floor);
+  context.fixtureFloor = floor;
+  context.fixtureContainer = new FakeElement("div");
+  vm.runInContext("renderFloorPlan(fixtureContainer, fixtureFloor, false)", context);
+  const nodes = descendantsOf(context.fixtureContainer);
+  const byClass = name => nodes.filter(node => node.attributes.get("class") === name);
+  assert.equal(JSON.stringify(floor), original);
+  assert.equal(byClass("floor-slot-body").length, 12);
+  assert.deepEqual(byClass("floor-slot-number").map(node => node.textContent), Array.from({ length: 12 }, (_, index) => String(index + 1)));
+  assert.equal(byClass("floor-vehicle-mark").length, 4);
+  assert.equal(byClass("floor-vehicle-window").length, 8);
+  assert.equal(byClass("floor-slot-kind floor-slot-kind-disabled")[0].textContent, "장애인");
+  assert.equal(byClass("floor-slot-kind floor-slot-kind-pregnant")[0].textContent, "임산부");
+  assert.ok(byClass("floor-slot-body").every(node => Number(node.attributes.get("rx")) > 0));
+  const unknown = nodes.filter(node => node.attributes.get("class")?.includes("floor-slot-unknown"));
+  assert.equal(unknown.length, 4);
+  assert.ok(unknown.every(node => node.attributes.get("aria-label").includes("미확인")));
+});
+
+test("slot labels stay upright and their vehicles remain inside rotated or horizontal bays", () => {
+  const context = loadAppContext();
+  for (const [width, height, rotation] of [[8, 16, 0], [8, 16, 90], [8, 16, -90], [8, 16, 35], [16, 8, 0]]) {
+    context.fixtureGroup = new FakeElement("g");
+    context.fixtureBox = { x: 10, y: 20, width, height, rotation };
+    vm.runInContext('appendFloorSlotGraphics(fixtureGroup, fixtureBox, {status:"occupied",kind:"normal"}, 239)', context);
+    const nodes = descendantsOf(context.fixtureGroup);
+    const number = nodes.find(node => node.attributes.get("class") === "floor-slot-number");
+    const content = nodes.find(node => node.attributes.get("class") === "floor-slot-content");
+    const body = nodes.find(node => node.attributes.get("class") === "floor-slot-body");
+    const car = nodes.find(node => node.attributes.get("class") === "floor-vehicle-mark");
+    assert.equal(number.textContent, "240");
+    const contentRotation = content.attributes.get("transform") ? 90 : 0;
+    const counterRotation = Number(number.attributes.get("transform").match(/^rotate\(([-\d.]+)/)[1]);
+    assert.equal(rotation + contentRotation + counterRotation, 0);
+    const cx = Number(body.attributes.get("x")) + Number(body.attributes.get("width")) / 2;
+    const cy = Number(body.attributes.get("y")) + Number(body.attributes.get("height")) / 2;
+    const carCorners = context.rotatedSlotCorners(
+      Number(car.attributes.get("x")) + Number(car.attributes.get("width")) / 2,
+      Number(car.attributes.get("y")) + Number(car.attributes.get("height")) / 2,
+      Number(car.attributes.get("width")), Number(car.attributes.get("height")), 0
+    );
+    for (const point of carCorners) {
+      const radians = contentRotation * Math.PI / 180;
+      const x = cx + (point.x - cx) * Math.cos(radians) - (point.y - cy) * Math.sin(radians);
+      const y = cy + (point.x - cx) * Math.sin(radians) + (point.y - cy) * Math.cos(radians);
+      assert.ok(x >= Number(body.attributes.get("x")) && x <= Number(body.attributes.get("x")) + Number(body.attributes.get("width")));
+      assert.ok(y >= Number(body.attributes.get("y")) && y <= Number(body.attributes.get("y")) + Number(body.attributes.get("height")));
+    }
+  }
+});
+
+test("legacy camera plans use the same numbered graphics without changing camera IDs or polygons", () => {
+  const context = loadAppContext();
+  const floor = { name: "1F", layoutSource: "camera_polygons", slots: Array.from({ length: 9 }, (_, index) => ({
+    cameraSlotId: `bay-${index + 1}`, kind: "normal", status: index === 4 ? "occupied" : "unknown",
+    cameraPolygon: [[.1 + index % 3 * .25, .1 + Math.floor(index / 3) * .2], [.2 + index % 3 * .25, .1 + Math.floor(index / 3) * .2],
+      [.2 + index % 3 * .25, .2 + Math.floor(index / 3) * .2], [.1 + index % 3 * .25, .2 + Math.floor(index / 3) * .2]]
+  })) };
+  const original = JSON.stringify(floor);
+  context.fixtureFloor = floor;
+  context.fixtureContainer = new FakeElement("div");
+  vm.runInContext("renderFloorPlan(fixtureContainer, fixtureFloor, false)", context);
+  const nodes = descendantsOf(context.fixtureContainer);
+  assert.equal(JSON.stringify(floor), original);
+  assert.equal(nodes.filter(node => node.attributes.get("class") === "floor-slot-body").length, 9);
+  assert.equal(nodes.filter(node => node.attributes.get("class") === "floor-vehicle-mark").length, 1);
+  assert.deepEqual(nodes.filter(node => node.attributes.has("data-camera-slot-id")).map(node => node.attributes.get("data-camera-slot-id")), floor.slots.map(slot => slot.cameraSlotId));
+});
+
+test("editable floor bays keep mouse and keyboard status changes after restyling", () => {
+  const context = loadAppContext();
+  const floor = { name: "1F", aspectRatio: 1.6, outline: [], zones: [], elements: [],
+    slots: [{ x: 20, y: 20, w: 10, h: 20, rotation: 0, status: "occupied", kind: "normal" }] };
+  context.fixtureFloor = floor;
+  context.fixtureContainer = new FakeElement("div");
+  vm.runInContext(`state.adminView = "registration";
+    syncSelectedLotFromAdmin = () => {};
+    renderAdminFloor = () => renderFloorPlan(fixtureContainer, fixtureFloor, true);
+    renderList = () => {};
+    renderMapMarkers = () => {};
+    renderAdminFloor();`, context);
+  const slot = () => descendantsOf(context.fixtureContainer).find(node => node.attributes.get("class")?.startsWith("floor-slot "));
+  const vehicles = () => descendantsOf(context.fixtureContainer).filter(node => node.attributes.get("class") === "floor-vehicle-mark");
+  const geometry = JSON.stringify({ ...floor.slots[0], status: null });
+  assert.equal(vehicles().length, 1);
+  slot().events.click();
+  assert.equal(floor.slots[0].status, "available");
+  assert.equal(vehicles().length, 0);
+  let prevented = false;
+  slot().events.keydown({ key: "Enter", preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(floor.slots[0].status, "occupied");
+  assert.equal(vehicles().length, 1);
+  assert.equal(JSON.stringify({ ...floor.slots[0], status: null }), geometry);
+});
 
 test("hosted page enables RTSP input and requires the administrator token", async () => {
   const context = loadAppContext();

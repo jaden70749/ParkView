@@ -3353,7 +3353,7 @@ function renderFloorPlan(container, floorOrSlots, editable) {
     viewBox: floorPlanViewBox(outline),
     preserveAspectRatio: "xMidYMid meet",
     role: "img",
-    "aria-label": `${floor.name || "주차장"} 건축 평면도`
+    "aria-label": `${floor.name || "주차장"} 주차면 배치도`
   });
   const defs = createSvgElement("defs");
   const stripePattern = createSvgElement("pattern", {
@@ -3384,7 +3384,8 @@ function renderFloorPlan(container, floorOrSlots, editable) {
       class: `floor-slot floor-slot-${slot.kind} floor-slot-${slot.status} ${orientation}`,
       role: editable ? "button" : "img",
       tabindex: editable ? "0" : "-1",
-      "aria-label": `${index + 1}번 주차면 ${slot.status === "available" ? "주차 가능" : "주차 중"}`
+      "data-slot-index": index,
+      "aria-label": floorSlotAccessibleLabel(slot, index)
     });
     const x = toSvgX(slot.x);
     const y = slot.y;
@@ -3394,7 +3395,7 @@ function renderFloorPlan(container, floorOrSlots, editable) {
     if (Math.abs(rotation) > 0.1) {
       group.setAttribute("transform", `rotate(${rotation} ${x + width / 2} ${y + height / 2})`);
     }
-    group.appendChild(createSvgElement("rect", { x, y, width, height, class: "floor-slot-body" }));
+    appendFloorSlotGraphics(group, { x, y, width, height, rotation }, slot, index);
     if (editable) {
       const toggle = () => {
         sourceSlot.status = sourceSlot.status === "available" ? "occupied" : "available";
@@ -3419,6 +3420,78 @@ function renderFloorPlan(container, floorOrSlots, editable) {
   });
   appendFloorOutline(svg, outline, drawableElements);
   container.appendChild(svg);
+}
+
+function floorSlotAccessibleLabel(slot, index) {
+  const status = { available: "주차 가능", occupied: "주차 중", unknown: "미확인" }[slot.status] || "미확인";
+  const kind = { disabled: "장애인 전용", pregnant: "임산부 전용" }[slot.kind];
+  return `${index + 1}번 주차면${kind ? ` ${kind}` : ""} ${status}`;
+}
+
+function appendFloorSlotGraphics(group, box, slot, index) {
+  const inset = Math.min(box.width, box.height) * 0.035;
+  const x = box.x + inset;
+  const y = box.y + inset;
+  const width = box.width - inset * 2;
+  const height = box.height - inset * 2;
+  const shortSide = Math.min(width, height);
+  group.appendChild(createSvgElement("title", {}, floorSlotAccessibleLabel(slot, index)));
+  group.appendChild(createSvgElement("rect", {
+    x, y, width, height, rx: shortSide * 0.06, class: "floor-slot-body"
+  }));
+
+  // Use one portrait symbol layout, including for horizontal or rotated parking bays.
+  const horizontal = width > height;
+  const centerX = x + width / 2;
+  const centerY = y + height / 2;
+  const contentRotation = horizontal ? 90 : 0;
+  const contentWidth = horizontal ? height : width;
+  const contentHeight = horizontal ? width : height;
+  const left = centerX - contentWidth / 2;
+  const top = centerY - contentHeight / 2;
+  const content = createSvgElement("g", {
+    class: "floor-slot-content",
+    "aria-hidden": "true",
+    ...(horizontal ? { transform: `rotate(90 ${centerX} ${centerY})` } : {})
+  });
+  const number = String(index + 1);
+  const labelY = top + contentHeight * 0.17;
+  const counterRotation = -(Number(box.rotation) || 0) - contentRotation;
+  const fontSize = Math.min(shortSide * 0.25, contentWidth * 0.75 / (number.length * 0.65));
+  content.appendChild(createSvgElement("text", {
+    x: centerX, y: labelY, class: "floor-slot-number",
+    style: `font-size:${fontSize}px`,
+    transform: `rotate(${counterRotation} ${centerX} ${labelY})`
+  }, number));
+  const kindLabel = { disabled: "장애인", pregnant: "임산부" }[slot.kind];
+  if (kindLabel) {
+    const kindY = top + contentHeight * 0.91;
+    content.appendChild(createSvgElement("text", {
+      x: centerX, y: kindY, class: `floor-slot-kind floor-slot-kind-${slot.kind}`,
+      style: `font-size:${shortSide * 0.14}px`,
+      transform: `rotate(${counterRotation} ${centerX} ${kindY})`
+    }, kindLabel));
+  }
+  if (slot.status === "occupied") {
+    const carX = left + contentWidth * 0.25;
+    const carY = top + contentHeight * 0.36;
+    const carWidth = contentWidth * 0.5;
+    const carHeight = contentHeight * (kindLabel ? 0.4 : 0.52);
+    const car = createSvgElement("g", { class: "floor-slot-vehicle" });
+    car.appendChild(createSvgElement("rect", {
+      x: carX, y: carY, width: carWidth, height: carHeight,
+      rx: carWidth * 0.2, class: "floor-vehicle-mark"
+    }));
+    for (const position of [0.27, 0.72]) {
+      car.appendChild(createSvgElement("line", {
+        x1: carX + carWidth * 0.12, x2: carX + carWidth * 0.88,
+        y1: carY + carHeight * position, y2: carY + carHeight * position,
+        class: "floor-vehicle-window"
+      }));
+    }
+    content.appendChild(car);
+  }
+  group.appendChild(content);
 }
 
 function floorPlanViewBox(outline) {
@@ -5200,15 +5273,13 @@ function renderCameraFloorPlan(container, floor) {
   container.style.setProperty("--floor-plan-aspect", String(width/height));
   const svg = createSvgElement("svg", { class: "floor-plan-svg", viewBox: `${minX} ${minY} ${width} ${height}`,
     role: "img", "aria-label": `${floor.name} 주차장 평면도`, preserveAspectRatio: "xMidYMid meet" });
-  slots.forEach(slot => {
+  slots.forEach((slot, index) => {
     const group = createSvgElement("g", { class: `floor-slot floor-slot-${slot.kind} floor-slot-${slot.status}`,
-      "data-camera-slot-id": slot.cameraSlotId, "aria-label": `${slot.cameraSlotId} ${slot.status}` });
-    const title = createSvgElement("title");
-    title.textContent = slot.cameraSlotId;
+      "data-camera-slot-id": slot.cameraSlotId, "data-slot-index": index,
+      role: "img", "aria-label": `${floorSlotAccessibleLabel(slot, index)} · ${slot.cameraSlotId}` });
     const placement = layout.placements.get(slot.cameraSlotId);
-    group.append(title, createSvgElement("rect", { class: "floor-slot-body",
-      x: placement.x, y: placement.y, width: placement.w, height: placement.h,
-      style: "stroke-width:1px" }));
+    appendFloorSlotGraphics(group, { x: placement.x, y: placement.y, width: placement.w,
+      height: placement.h, rotation: 0 }, slot, index);
     svg.append(group);
   });
   container.append(svg);
