@@ -7,6 +7,11 @@ const source = await readFile(new URL("../onboarding.js", import.meta.url), "utf
 const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
 const key = "parkview.onboarding.v1";
 
+test("motion preview has no visible captions while accessible progress remains available", () => {
+  assert.doesNotMatch(html, /demo-preview-label|사용 예시 · 실제 주차 현황이 아닙니다/);
+  assert.match(html, /class="sr-only" id="onboardingAnimationStatus" role="status"/);
+});
+
 function harness({ seen = false, hash = "", reduced = false, denied = false } = {}) {
   const storage = new Map(seen ? [[key, "completed"]] : []);
   const session = new Map();
