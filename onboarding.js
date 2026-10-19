@@ -6,7 +6,49 @@
     search: ["목적지 주변 주차장", "검색 한 번으로,<br>주차가 한눈에."],
     availability: ["도착 전에 빈자리 확인", "어디가 비었는지,<br>미리 알고 출발해요."],
     filters: ["요금부터 운영시간까지", "나에게 맞는 주차장,<br>조건으로 좁혀보세요."],
-    manage: ["주차장 운영도 ParkView", "주차장 찾기부터,<br>CCTV 관리까지."]
+    manage: ["주차장 운영도 ParkView", "CCTV를 연결하면,<br>주차 현황이 한눈에."]
+  };
+  const STORIES = {
+    search: [
+      ["search-focus", 500, "목적지 검색을 시작해요"],
+      ["typing", 280, "검색어를 입력해요", "판"],
+      ["typing", 280, "검색어를 입력해요", "판교"],
+      ["typing", 400, "검색어를 입력해요", "판교역"],
+      ["suggesting", 1100, "연관 검색에서 목적지를 선택해요"],
+      ["selecting", 650, "판교역을 선택했어요"],
+      ["locating", 950, "주변 주차장을 찾았어요"],
+      ["search-detail", 1000, "주차장 요금과 빈자리를 확인해요"]
+    ],
+    availability: [
+      ["availability-map", 850, "주차장의 빈자리를 확인해요"],
+      ["availability-select", 650, "주차장을 선택했어요"],
+      ["availability-detail", 1100, "층별 도면에 주차 상태가 표시돼요"],
+      ["availability-live", 900, "등록된 주차면의 상태를 확인해요"],
+      ["availability-update", 1600, "주차 중이던 한 자리가 비어 4자리가 됐어요"]
+    ],
+    filters: [
+      ["filters-map", 650, "원하는 검색 조건을 골라요"],
+      ["filters-open", 850, "상세 필터를 열었어요"],
+      ["filters-hours", 950, "운영 중인 주차장만 선택해요"],
+      ["filters-price", 1000, "요금은 3천원 이하로 선택해요"],
+      ["filters-apply", 650, "조건을 적용해요"],
+      ["filters-matched", 1100, "조건에 맞는 두 주차장을 비교해요"]
+    ],
+    manage: [
+      ["manage-connect", 850, "CCTV 카메라 주소로 연결해요"],
+      ["manage-linking", 900, "카메라에 연결하고 있어요"],
+      ["manage-preview", 950, "연결한 CCTV 화면을 불러왔어요"],
+      ["manage-detect", 1650, "주차 구획을 감지해요"],
+      ["manage-sync", 1250, "도면과 주차 현황에 반영됐어요"]
+    ]
+  };
+  const AVAILABLE_BAYS = [1, 7, 10];
+  const FREED_BAY = 4;
+  const TAP_TARGETS = {
+    selecting: ".demo-suggestion.selected", "availability-select": ".demo-pin-a",
+    "filters-open": ".demo-filter-trigger", "filters-hours": ".demo-switch",
+    "filters-price": ".demo-fee-options > span:last-child", "filters-apply": ".demo-filter-apply",
+    "manage-linking": ".demo-connect-button"
   };
   const STEPS = [
     { target: ".search-primary-row", title: "어디로 가시나요?", description: "장소나 주소를 검색하면 목적지 주변 주차장을 찾을 수 있어요. 마이크로 말해도 좋아요." },
@@ -29,6 +71,7 @@
     let run = 0;
     let timeout;
     let resume;
+    let tapAnimation;
     let previousFocus;
     let previousInert = [];
     let finished;
@@ -44,6 +87,7 @@
     function cancelAnimation() {
       run += 1;
       window.clearTimeout(timeout);
+      tapAnimation?.cancel();
       if (resume) { resume(false); resume = null; }
     }
 
@@ -101,7 +145,10 @@
 
     function showResults() {
       node("onboardingDemoStage").dataset.phase = "results";
-      node("demoTypedSearch").textContent = "판교역";
+      if (purpose === "search") node("demoTypedSearch").textContent = "판교역";
+      if (purpose === "availability") updateVacancy();
+      if (purpose === "filters") node("demoPriceFilter").textContent = "3천원 이하";
+      if (purpose === "manage") updateManagement();
       node("onboardingReplay").hidden = false;
       node("onboardingStart").hidden = false;
       node("onboardingAnimationProgress").hidden = true;
@@ -110,6 +157,70 @@
         : purpose === "availability" ? "빈자리 정보가 제공되는 주차장을 확인해 보세요"
           : purpose === "filters" ? "요금과 운영시간을 비교하고 골라보세요" : "주차장을 누르면 요금과 빈자리를 확인할 수 있어요";
       phase = "results";
+    }
+
+    function updateVacancy() {
+      node("demoVacancyCount").textContent = "4";
+      node("demoVacancyBay").classList.add("is-available", "just-freed");
+      node("demoVacancyBay").classList.remove("is-occupied");
+    }
+
+    function updateManagement() {
+      node("demoCameraStatus").textContent = "연결됨";
+      node("demoRegisteredCount").textContent = "12";
+      node("demoOccupiedCount").textContent = "8";
+      node("demoManagedVacancy").textContent = "4";
+    }
+
+    function resetScene() {
+      const stage = node("onboardingDemoStage");
+      stage.dataset.purpose = purpose;
+      stage.dataset.phase = "idle";
+      node("onboardingDemo").style.setProperty("--demo-duration", `${STORIES[purpose].reduce((total, frame) => total + frame[1], 0)}ms`);
+      node("demoTypedSearch").textContent = purpose === "search" ? "목적지 검색" : "내 주변 주차장";
+      node("demoPrimaryPinCount").textContent = purpose === "filters" ? "2,000" : purpose === "availability" ? "3면" : "12면";
+      node("demoSecondPinCount").textContent = purpose === "filters" ? "3,000" : "5면";
+      node("demoThirdPinCount").textContent = purpose === "filters" ? "6,000" : "8면";
+      node("demoPriceFilter").textContent = "무료";
+      node("demoVacancyCount").textContent = "3";
+      node("demoAvailabilityBays").innerHTML = bayMarkup(false);
+      node("demoVacancyBay").classList.remove("is-available", "just-freed");
+      node("demoVacancyBay").classList.add("is-occupied");
+      node("demoManagedBays").innerHTML = bayMarkup(true);
+      node("demoCameraRegions").innerHTML = Array.from({ length: 12 }, (_, index) => {
+        const available = AVAILABLE_BAYS.includes(index) || index === FREED_BAY;
+        const x = (28 + (index % 6) * 78) / 520 * 100;
+        const y = (index < 6 ? 30 : 204) / 320 * 100;
+        return `<span class="demo-camera-bay${available ? " is-available" : ""}" style="left:${x}%;top:${y}%;--bay-delay:${index * 55}ms"><b>${index + 1}</b></span>`;
+      }).join("");
+      node("demoCameraStatus").textContent = "미연결";
+      node("demoConnectLabel").textContent = "연결 및 테스트";
+      for (const id of ["demoRegisteredCount", "demoOccupiedCount", "demoManagedVacancy"]) node(id).textContent = "—";
+      refreshIcons?.();
+      drawMap(node("onboardingMap"));
+      drawCctv(node("onboardingCctv"));
+    }
+
+    function animateTap(frame) {
+      tapAnimation?.cancel();
+      const target = TAP_TARGETS[frame] && root.querySelector(TAP_TARGETS[frame]);
+      if (!target?.offsetParent) return;
+      const screen = root.querySelector(".demo-screen");
+      let x = target.offsetWidth / 2;
+      let y = target.offsetHeight / 2;
+      // Layout offsets ignore the incoming sheet's transition, keeping the tap on its destination.
+      for (let element = target; element && element !== screen; element = element.offsetParent) {
+        x += element.offsetLeft;
+        y += element.offsetTop;
+      }
+      const tap = node("demoTap");
+      tap.style.left = `${x - 12}px`;
+      tap.style.top = `${y - 12}px`;
+      tapAnimation = tap.animate([
+        { opacity: 0, transform: "scale(1.5)" },
+        { opacity: 1, transform: "scale(.8)", offset: .45 },
+        { opacity: 0, transform: "scale(1.4)" }
+      ], { duration: 650, easing: "ease-in-out" });
     }
 
     async function playDemo(selected = purpose) {
@@ -126,27 +237,25 @@
       node("onboardingStart").hidden = true;
       node("onboardingReplay").hidden = true;
       node("onboardingAnimationProgress").hidden = false;
-      node("onboardingDemoStage").dataset.phase = "idle";
-      node("demoTypedSearch").textContent = "목적지 검색";
-      node("onboardingAnimationStatus").textContent = "목적지를 검색하고 있어요";
+      resetScene();
       setFocus("onboardingDemoTitle");
-      drawMap(node("onboardingMap"));
       if (motion.matches) { showResults(); return; }
       const wait = async (ms) => (await pause(ms)) && active && run === currentRun;
-      if (!await wait(450)) return;
-      node("onboardingDemoStage").dataset.phase = "typing";
-      for (const word of ["판", "판교", "판교역"]) {
-        node("demoTypedSearch").textContent = word;
-        if (!await wait(340)) return;
+      for (const [frame, duration, announcement, query] of STORIES[purpose]) {
+        node("onboardingDemoStage").dataset.phase = frame;
+        node("onboardingAnimationStatus").textContent = announcement;
+        animateTap(frame);
+        if (query) node("demoTypedSearch").textContent = query;
+        if (frame === "availability-update") updateVacancy();
+        if (frame === "filters-matched") node("demoPriceFilter").textContent = "3천원 이하";
+        if (frame === "manage-linking") {
+          node("demoCameraStatus").textContent = "연결 중";
+          node("demoConnectLabel").textContent = "연결 중";
+        }
+        if (frame === "manage-preview") node("demoCameraStatus").textContent = "연결됨";
+        if (frame === "manage-sync") updateManagement();
+        if (!await wait(duration)) return;
       }
-      node("onboardingDemoStage").dataset.phase = "suggesting";
-      node("onboardingAnimationStatus").textContent = "연관 검색에서 목적지를 선택해요";
-      if (!await wait(1250)) return;
-      node("onboardingDemoStage").dataset.phase = "selecting";
-      if (!await wait(700)) return;
-      node("onboardingDemoStage").dataset.phase = "locating";
-      node("onboardingAnimationStatus").textContent = "주변 주차장을 찾았어요";
-      if (!await wait(1300)) return;
       showResults();
     }
 
@@ -236,6 +345,43 @@
     else start();
     return api;
   };
+
+  function bayMarkup(managed) {
+    return Array.from({ length: 12 }, (_, index) => {
+      const available = AVAILABLE_BAYS.includes(index) || (managed && index === FREED_BAY);
+      return `<span class="demo-bay ${available ? "is-available" : "is-occupied"}" style="--bay-index:${index}"${!managed && index === FREED_BAY ? ' id="demoVacancyBay"' : ""}><b>${index + 1}</b><i class="demo-bay-car"></i></span>`;
+    }).join("");
+  }
+
+  function drawCctv(canvas) {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#515b58";
+    ctx.fillRect(0, 0, 520, 320);
+    for (let x = 0; x < 520; x += 26) {
+      for (let y = 0; y < 320; y += 26) {
+        ctx.fillStyle = (x + y) % 52 ? "#54605b" : "#505a56";
+        ctx.fillRect(x, y, 25, 25);
+      }
+    }
+    ctx.fillStyle = "#68726d"; ctx.fillRect(0, 124, 520, 72);
+    ctx.strokeStyle = "#c3c9a7"; ctx.setLineDash([20, 16]); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, 160); ctx.lineTo(520, 160); ctx.stroke(); ctx.setLineDash([]);
+    for (let index = 0; index < 12; index++) {
+      const x = 28 + index % 6 * 78;
+      const y = index < 6 ? 30 : 204;
+      ctx.strokeStyle = "#e4e8de"; ctx.lineWidth = 3; ctx.strokeRect(x, y, 70, 86);
+      if (AVAILABLE_BAYS.includes(index) || index === FREED_BAY) continue;
+      ctx.save(); ctx.translate(x + 35, y + 43);
+      ctx.fillStyle = "#26373066"; ctx.fillRect(-22, -33, 46, 69);
+      ctx.fillStyle = ["#d5dad4", "#b2bfc4", "#a4b4a8"][index % 3];
+      ctx.beginPath(); ctx.roundRect(-19, -33, 38, 65, 8); ctx.fill();
+      ctx.fillStyle = "#4b615d"; ctx.fillRect(-15, -18, 30, 12); ctx.fillRect(-15, 16, 30, 8);
+      ctx.fillStyle = "#edf0de"; ctx.fillRect(-15, -31, 6, 4); ctx.fillRect(9, -31, 6, 4);
+      ctx.fillStyle = "#c18578"; ctx.fillRect(-15, 28, 6, 3); ctx.fillRect(9, 28, 6, 3);
+      ctx.restore();
+    }
+  }
 
   function drawMap(canvas) {
     const ctx = canvas.getContext("2d");

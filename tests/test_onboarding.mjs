@@ -22,11 +22,12 @@ function harness({ seen = false, hash = "", reduced = false, denied = false } = 
   const nodes = new Map();
   const document = { activeElement: null, body: {}, addEventListener(type, handler) { events[type] = handler; } };
   function node(id) {
+    const classes = new Set();
     if (!nodes.has(id)) nodes.set(id, {
       id, hidden: ["onboarding", "onboardingDemo", "onboardingTour", "onboardingStart", "onboardingReplay"].includes(id),
       inert: false, dataset: {}, events: {}, textContent: "", innerHTML: "", isConnected: true,
       style: { setProperty(name, value) { this[name] = value; } },
-      classList: { add() {}, remove() {} }, offsetWidth: 330,
+      classList: { add(...values) { values.forEach(value => classes.add(value)); }, remove(...values) { values.forEach(value => classes.delete(value)); }, contains(value) { return classes.has(value); } }, offsetWidth: 330,
       addEventListener(type, handler) { this.events[type] = handler; },
       setAttribute(name, value) { this[name] = value; },
       focus() { document.activeElement = this; },
@@ -52,14 +53,13 @@ function harness({ seen = false, hash = "", reduced = false, denied = false } = 
   vm.runInNewContext(source, { window, document });
   const api = window.initializeParkViewOnboarding({ prepareHome() { prepared += 1; }, refreshIcons() {} });
   const click = (id) => node(id).events.click({ preventDefault() {} });
-  async function advance() {
-    for (let i = 0; i < 20; i++) {
-      const next = timers.entries().next().value;
-      if (next) { timers.delete(next[0]); next[1](); }
-      for (let j = 0; j < 6; j++) await Promise.resolve();
-    }
+  async function tick() {
+    const next = timers.entries().next().value;
+    if (next) { timers.delete(next[0]); next[1](); }
+    for (let j = 0; j < 6; j++) await Promise.resolve();
   }
-  return { api, node, click, storage, session, timers, media, events, advance, prepared: () => prepared };
+  async function advance() { for (let i = 0; i < 20; i++) await tick(); }
+  return { api, node, click, storage, session, timers, media, events, advance, tick, prepared: () => prepared };
 }
 
 test("a first visit blocks background interaction and permission initialization until finished", async () => {
@@ -166,6 +166,83 @@ test("replaying the animation hides confirmation until the new run completes", a
   assert.equal(h.node("onboardingStart").hidden, true);
   assert.equal(h.storage.has(key), false);
   await h.advance();
+  assert.equal(h.node("onboardingStart").hidden, false);
+});
+
+test("each purpose has its own storyboard rather than reusing the search sequence", async () => {
+  const expected = {
+    search: ["search-focus", "typing", "suggesting", "selecting", "locating", "search-detail"],
+    availability: ["availability-map", "availability-select", "availability-detail", "availability-live", "availability-update"],
+    filters: ["filters-map", "filters-open", "filters-hours", "filters-price", "filters-apply", "filters-matched"],
+    manage: ["manage-connect", "manage-linking", "manage-preview", "manage-detect", "manage-sync"]
+  };
+  for (const [purpose, frames] of Object.entries(expected)) {
+    const h = harness();
+    h.click(purpose);
+    const observed = [];
+    for (let i = 0; i < 15 && h.timers.size; i++) {
+      assert.equal(h.node("onboardingStart").hidden, true);
+      observed.push(h.node("onboardingDemoStage").dataset.phase);
+      await h.tick();
+    }
+    assert.deepEqual([...new Set(observed)], frames);
+    assert.equal(h.node("onboardingDemoStage").dataset.purpose, purpose);
+    assert.equal(h.node("onboardingDemoStage").dataset.phase, "results");
+    assert.equal(h.node("onboardingStart").hidden, false);
+    assert.match(h.node("onboardingDemo").style["--demo-duration"], /^\d+ms$/);
+  }
+});
+
+test("availability frees one bay, updates the count, and resets it when replayed", async () => {
+  const h = harness();
+  h.click("availability");
+  assert.equal(h.node("demoVacancyCount").textContent, "3");
+  assert.equal(h.node("demoVacancyBay").classList.contains("is-occupied"), true);
+  await h.advance();
+  assert.equal(h.node("demoVacancyCount").textContent, "4");
+  assert.equal(h.node("demoVacancyBay").classList.contains("is-available"), true);
+  h.click("onboardingReplay");
+  assert.equal(h.node("demoVacancyCount").textContent, "3");
+  assert.equal(h.node("demoVacancyBay").classList.contains("just-freed"), false);
+});
+
+test("management connects, detects twelve regions, and syncs occupancy without calling a real camera", async () => {
+  const h = harness();
+  h.click("manage");
+  assert.equal(h.node("demoCameraStatus").textContent, "미연결");
+  await h.tick();
+  assert.equal(h.node("demoCameraStatus").textContent, "연결 중");
+  await h.advance();
+  assert.equal(h.node("demoCameraStatus").textContent, "연결됨");
+  assert.equal(h.node("demoRegisteredCount").textContent, "12");
+  assert.equal(h.node("demoOccupiedCount").textContent, "8");
+  assert.equal(h.node("demoManagedVacancy").textContent, "4");
+  assert.equal((h.node("demoCameraRegions").innerHTML.match(/<span /g) || []).length, 12);
+  assert.doesNotMatch(source, /\bfetch\s*\(|getUserMedia|192\.168\./);
+});
+
+test("filter conditions match the final comparison and all reduced-motion finales are complete", async () => {
+  for (const purpose of ["search", "availability", "filters", "manage"]) {
+    const h = harness({ reduced: true });
+    h.click(purpose);
+    assert.equal(h.timers.size, 0);
+    assert.equal(h.node("onboardingStart").hidden, false);
+    if (purpose === "filters") assert.equal(h.node("demoPriceFilter").textContent, "3천원 이하");
+    if (purpose === "manage") assert.equal(h.node("demoRegisteredCount").textContent, "12");
+    if (purpose === "availability") assert.equal(h.node("demoVacancyCount").textContent, "4");
+  }
+});
+
+test("switching purposes cancels old frames and never displays another story's result", async () => {
+  const h = harness();
+  h.click("manage");
+  await h.tick();
+  h.click("onboardingBack");
+  h.click("availability");
+  await h.advance();
+  assert.equal(h.node("onboardingDemoStage").dataset.purpose, "availability");
+  assert.equal(h.node("demoRegisteredCount").textContent, "—");
+  assert.equal(h.node("demoVacancyCount").textContent, "4");
   assert.equal(h.node("onboardingStart").hidden, false);
 });
 

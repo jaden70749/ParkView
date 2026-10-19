@@ -11,7 +11,7 @@
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="stylesheet" href="./styles.css?v=119">
-  <link rel="stylesheet" href="./onboarding.css?v=2">
+  <link rel="stylesheet" href="./onboarding.css?v=3">
 </head>
 <body>
   <main id="app" class="app-shell">
@@ -559,11 +559,18 @@
             <div class="demo-phone">
               <div class="demo-speaker"></div>
               <div class="demo-screen">
-                <canvas id="onboardingMap" width="520" height="760"></canvas>
-                <div class="demo-map-caption">판교역</div>
-                <div class="demo-app-search">
+                <div class="demo-map-surface">
+                  <canvas id="onboardingMap" width="520" height="760"></canvas>
+                  <div class="demo-map-caption">판교역</div>
+                  <div class="demo-walking-route"></div>
+                  <span class="demo-position-dot"></span>
+                  <span class="demo-pin demo-pin-a">P <b id="demoPrimaryPinCount">12면</b></span>
+                  <span class="demo-pin demo-pin-b">P <b id="demoSecondPinCount">5면</b></span>
+                  <span class="demo-pin demo-pin-c">P <b id="demoThirdPinCount">8면</b></span>
+                </div>
+                <div class="demo-app-search demo-map-ui">
                   <div class="demo-search-line"><i data-lucide="menu"></i><span id="demoTypedSearch"></span><span class="demo-caret"></span><i data-lucide="search"></i></div>
-                  <div class="demo-filters"><span><i data-lucide="sliders-horizontal"></i></span><span>운영 중</span><span class="demo-available-filter">빈자리</span><span>무료</span></div>
+                  <div class="demo-filters"><span class="demo-filter-trigger"><i data-lucide="sliders-horizontal"></i></span><span class="demo-open-filter">운영 중</span><span class="demo-available-filter">빈자리</span><span class="demo-price-filter" id="demoPriceFilter">무료</span></div>
                 </div>
                 <div class="demo-suggestions">
                   <div class="demo-suggestion-caption">연관 검색</div>
@@ -571,12 +578,38 @@
                   <div class="demo-suggestion"><i data-lucide="square-parking"></i><span><b>판교역 공영주차장</b><small>경기 성남시 분당구 판교역로</small></span></div>
                   <div class="demo-suggestion"><i data-lucide="map-pin"></i><span><b>판교역 1번 출구</b><small>경기 성남시 분당구</small></span></div>
                 </div>
-                <span class="demo-pin demo-pin-a">P <b>12면</b></span>
-                <span class="demo-pin demo-pin-b">P <b>5면</b></span>
-                <span class="demo-pin demo-pin-c">P <b>8면</b></span>
-                <div class="demo-location"><i data-lucide="locate-fixed"></i></div>
+                <div class="demo-location demo-map-ui"><i data-lucide="locate-fixed"></i></div>
                 <div class="demo-result"><span class="demo-result-handle"></span><div class="demo-result-title"><strong>판교역 공영주차장</strong><span>빈자리 12</span></div><p>도보 3분 <span>·</span> 30분 1,000원</p><div class="demo-result-bottom"><span><i data-lucide="clock-3"></i> 운영 중</span><b>상세 보기 <i data-lucide="arrow-up-right"></i></b></div></div>
-                <div class="demo-tap"></div>
+                <section class="demo-availability">
+                  <header class="demo-detail-heading"><span>판교역 공영주차장</span><i data-lucide="heart"></i></header>
+                  <div class="demo-vacancy-summary"><span>지금 주차 가능한 자리</span><div><strong id="demoVacancyCount">3</strong><small>/ 12면</small><span class="demo-live-indicator">LIVE</span></div><div class="demo-vacancy-track"><span></span></div></div>
+                  <div class="demo-floor-title"><b>층별 주차 현황</b><span><i data-lucide="chevron-left"></i>1F<i data-lucide="chevron-right"></i></span></div>
+                  <div class="demo-parking-plan"><div class="demo-parking-bays" id="demoAvailabilityBays"></div><div class="demo-plan-aisle"><i data-lucide="arrow-right"></i><i data-lucide="arrow-right"></i></div></div>
+                  <div class="demo-plan-legend"><span><i></i>가능</span><span><i></i>주차 중</span></div>
+                  <div class="demo-live-update"><i data-lucide="circle-check"></i><span>방금 갱신됨</span><b>+1</b></div>
+                </section>
+                <div class="demo-filter-scrim"></div>
+                <section class="demo-filter-sheet">
+                  <div class="demo-sheet-handle"></div>
+                  <header><strong>검색 조건</strong><i data-lucide="x"></i></header>
+                  <div class="demo-filter-section"><b>이용 가능</b><div class="demo-switch-row"><span>운영 중인 주차장만</span><i class="demo-switch"></i></div></div>
+                  <div class="demo-filter-section"><b>주차 요금</b><div class="demo-fee-options"><span>전체</span><span>무료</span><span>3천원 이하<i data-lucide="check"></i></span></div></div>
+                  <div class="demo-filter-section demo-type-section"><b>주차장 유형</b><div class="demo-type-options"><span>전체</span><span>공영</span><span>민영</span></div></div>
+                  <div class="demo-filter-apply">조건 적용<i data-lucide="arrow-right"></i></div>
+                </section>
+                <section class="demo-comparison">
+                  <header><strong>조건에 맞는 주차장</strong><span>2곳</span></header>
+                  <div class="demo-compare-row"><span class="demo-compare-icon">P</span><div><b>판교역 공영주차장</b><span>도보 3분 <i>운영 중</i></span></div><strong>2,000<small>원 / 시간</small></strong></div>
+                  <div class="demo-compare-row"><span class="demo-compare-icon">P</span><div><b>판교역 환승주차장</b><span>도보 5분 <i>운영 중</i></span></div><strong>3,000<small>원 / 시간</small></strong></div>
+                </section>
+                <section class="demo-management">
+                  <header class="demo-management-heading"><img src="./favicon.svg" alt="" width="18" height="18"><strong>주차장 관리</strong><span id="demoCameraStatus">미연결</span></header>
+                  <div class="demo-camera-frame"><canvas id="onboardingCctv" width="520" height="320"></canvas><div class="demo-camera-regions" id="demoCameraRegions"></div><span class="demo-camera-label"><i></i>1F · CCTV 01</span><div class="demo-camera-scan"></div><div class="demo-camera-offline"><i data-lucide="cctv"></i></div></div>
+                  <div class="demo-management-stats"><div><span>등록 주차면</span><strong id="demoRegisteredCount">—</strong></div><div><span>주차 중</span><strong id="demoOccupiedCount">—</strong></div><div><span>빈자리</span><strong id="demoManagedVacancy">—</strong></div></div>
+                  <div class="demo-managed-floor"><header><b>1F 도면</b><span><i data-lucide="circle-check"></i>연동 완료</span></header><div class="demo-parking-plan"><div class="demo-parking-bays" id="demoManagedBays"></div><div class="demo-plan-aisle"><i data-lucide="arrow-right"></i><i data-lucide="arrow-right"></i></div></div></div>
+                  <div class="demo-camera-connect"><span class="demo-connect-icon"><i data-lucide="cctv"></i></span><strong>고정 CCTV 연결</strong><label>RTSP 카메라 링크</label><div class="demo-camera-url">rtsp://camera/stream</div><div class="demo-connect-button"><i data-lucide="link"></i><span id="demoConnectLabel">연결 및 테스트</span></div></div>
+                </section>
+                <div class="demo-tap" id="demoTap"></div>
               </div>
               <div class="demo-home-indicator"></div>
             </div>
@@ -609,7 +642,7 @@
     }
   </script>
   <script src="./search-discovery.js?v=2"></script>
-  <script src="./onboarding.js?v=1"></script>
+  <script src="./onboarding.js?v=2"></script>
   <script src="./app.js?v=157"></script>
   <script src="./vendor/onnxruntime/ort.wasm.bundle.js?v=1"></script>
   <script type="module" src="./camera-analysis.js?v=16"></script>
