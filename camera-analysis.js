@@ -11,7 +11,7 @@ import {
 const MODEL_URL = "./models/yolov5su.onnx";
 const RESULT_STORAGE_KEY = "parkview.deviceCamera.latest";
 const ANALYSIS_CHANNEL = "parkview-camera-analysis";
-const FRAME_INTERVAL_MS = 250;
+const FRAME_INTERVAL_MS = 10000;
 const FIXED_CONFIDENCE = 0.75;
 
 const state = {
@@ -29,6 +29,10 @@ const state = {
   previewFrame: 0,
   cctvFrameBusy: false,
   cctvTimer: 0,
+  starting: false,
+  pendingAutoStart: false,
+  cctvContextKey: "",
+  analysisPromise: null,
   regions: null,
   slotResults: [],
   slotHistory: new Map()
@@ -38,7 +42,6 @@ const els = {
   toggle: document.querySelector("#deviceCameraToggle"),
   panel: document.querySelector("#deviceCameraPanel"),
   modelBadge: document.querySelector("#deviceModelBadge"),
-  startCameraButton: document.querySelector("#deviceStartCameraButton"),
   switchCameraButton: document.querySelector("#deviceSwitchCameraButton"),
   sourceFile: document.querySelector("#deviceSourceFile"),
   stopButton: document.querySelector("#deviceStopButton"),
@@ -69,10 +72,10 @@ window.addEventListener("pagehide", stopSource);
 window.addEventListener("parkview:stop-device-camera", closeDeviceCameraPanel);
 window.addEventListener("parkview:cctv-frame", handleCctvFrame);
 window.addEventListener("parkview:cctv-state", handleCctvState);
+window.addEventListener("parkview:auto-cctv", ensureAutomaticCctv);
 
 function bindEvents() {
   els.toggle.addEventListener("click", toggleDeviceCameraPanel);
-  els.startCameraButton.addEventListener("click", () => startDeviceCamera());
   els.switchCameraButton.addEventListener("click", switchDeviceCamera);
   els.stopButton.addEventListener("click", stopSource);
   els.sourceFile.addEventListener("change", handleSourceFile);
@@ -88,7 +91,39 @@ function toggleDeviceCameraPanel() {
     return;
   }
   els.panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  setStatus("분석 시작을 누르면 CCTV 현재 화면을 분석합니다.");
+  ensureAutomaticCctv();
+}
+
+async function ensureAutomaticCctv() {
+  const context = activeFloorContext();
+  if (!context && !getPublicCameraShare()) return;
+  const token = getCameraAdminToken();
+  if (!token && !getPublicCameraShare()) {
+    setStatus("CCTV 설정에서 관리자 인증을 확인해 주세요.", true);
+    return;
+  }
+  const key = JSON.stringify([context?.lotId, context?.floorId, getCameraPreviewUrl(), token]);
+  if (state.starting) {
+    if (state.cctvContextKey !== key) {
+      prepareForNewSource();
+      state.cctvContextKey = key;
+    }
+    state.pendingAutoStart = true;
+    return;
+  }
+  if (state.running && state.sourceType === "cctv" && state.cctvContextKey === key) return;
+  state.cctvContextKey = key;
+  state.starting = true;
+  openPanelForCctv();
+  try {
+    await startDeviceCamera();
+  } finally {
+    state.starting = false;
+    if (state.pendingAutoStart) {
+      state.pendingAutoStart = false;
+      ensureAutomaticCctv();
+    }
+  }
 }
 
 function closeDeviceCameraPanel() {
@@ -168,7 +203,7 @@ async function loadModel() {
     });
     state.session = session;
     setModelState("ready", "AI 준비됨");
-    setStatus(state.source ? "현장 화면을 분석하고 있습니다." : "분석 시작을 눌러 CCTV 화면을 확인하세요.");
+    setStatus(state.source ? "10초 주기 자동 분석 중" : "CCTV 연결 대기 중");
     return session;
   })().catch((error) => {
     state.modelPromise = null;
@@ -227,41 +262,37 @@ async function startCctvCamera() {
   const token = getCameraAdminToken();
   const publicShare = getPublicCameraShare();
   prepareForNewSource();
+  const runId = state.runId;
+  const started = performance.now();
   state.sourceType = "cctv";
   state.running = true;
   setModelState("loading", "CCTV 연결 중");
   setStatus("CCTV 영상을 받고 있습니다.");
-  els.startCameraButton.disabled = true;
   els.stopButton.disabled = false;
   try {
     await loadCameraRegions(previewUrl, token, publicShare);
-    await loadCctvFrame(previewUrl, token);
+    if (!state.running || state.runId !== runId) return;
+    await loadCctvFrame(previewUrl, token, runId);
+    if (!state.running || state.runId !== runId) return;
     showSource(publicShare ? "공개 CCTV" : "고정 CCTV");
     if (!publicShare) {
-      await loadModel();
+      if (state.regions?.occupancy_strategy !== "empty_reference_difference") await loadModel();
       await analyzeCurrentFrame();
     } else {
       setModelState("ready", "수신 중");
       updateManagementConnection("수신 중");
       setStatus("공개 CCTV 화면을 수신 중입니다.");
     }
-    scheduleCctvFrame(previewUrl, token, ++state.runId);
+    if (state.running && state.runId === runId) scheduleCctvFrame(previewUrl, token, runId, Math.max(0, FRAME_INTERVAL_MS-(performance.now()-started)));
   } catch (error) {
+    if (!state.running || state.runId !== runId) return;
     setStatus(`CCTV 연결 실패: ${error.message}`, true);
-    if (publicShare) scheduleCctvFrame(previewUrl, token, ++state.runId);
-    else {
-      state.running = false;
-      els.stopButton.disabled = true;
-    }
-  } finally {
-    els.startCameraButton.disabled = false;
+    scheduleCctvFrame(previewUrl, token, runId);
   }
 }
 
 async function loadCameraRegions(previewUrl, token, publicShare = null) {
-  state.regions = null;
-  state.slotResults = [];
-  state.slotHistory.clear();
+  const runId = state.runId;
   try {
     const context = activeFloorContext();
     if (!context || publicShare) return;
@@ -269,14 +300,22 @@ async function loadCameraRegions(previewUrl, token, publicShare = null) {
       + `?lot_id=${encodeURIComponent(context.lotId)}&floor_id=${encodeURIComponent(context.floorId.trim().toUpperCase())}`;
     const response = await fetch(regionsUrl, {
       cache: "no-store",
-      headers: cameraRequestHeaders(regionsUrl, { Authorization: `Bearer ${token}` })
+      headers: cameraRequestHeaders(regionsUrl, { Authorization: `Bearer ${token}` }),
+      signal: AbortSignal.timeout(10000)
     });
     if (!response.ok) throw new Error(`주차면 API HTTP ${response.status}`);
-    state.regions = await response.json();
-    if (els.occupancyStatus) els.occupancyStatus.textContent = state.regions.slots?.length
-      ? "주차면 등록됨 · 분석 대기 중"
-      : "주차 가능 여부 미확인 · 먼저 CCTV 주차면을 등록해 주세요.";
+    const regions = await response.json();
+    if (runId !== state.runId) return;
+    if (JSON.stringify(regions) !== JSON.stringify(state.regions)) {
+      state.regions = regions;
+      state.slotResults = [];
+      state.slotHistory.clear();
+      if (els.occupancyStatus) els.occupancyStatus.textContent = state.regions.slots?.length
+        ? "주차면 등록됨 · 분석 대기 중"
+        : "주차 가능 여부 미확인 · 먼저 CCTV 주차면을 등록해 주세요.";
+    }
   } catch (_error) {
+    if (runId !== state.runId) return;
     if (els.occupancyStatus) els.occupancyStatus.textContent = "주차면 정보를 읽지 못했습니다. 관리자 토큰과 주차면 등록을 확인해 주세요.";
   }
 }
@@ -288,7 +327,7 @@ function activeFloorContext() {
   return slots.length ? { ...context, slots } : null;
 }
 
-async function loadCctvFrame(previewUrl, token) {
+async function loadCctvFrame(previewUrl, token, runId = null) {
   const headers = cameraRequestHeaders(previewUrl);
   const publicShare = getPublicCameraShare();
   if (publicShare) headers.Authorization = `Viewer ${publicShare.token}`;
@@ -296,7 +335,8 @@ async function loadCctvFrame(previewUrl, token) {
   const separator = previewUrl.includes("?") ? "&" : "?";
   const response = await fetch(`${previewUrl}${separator}t=${Date.now()}`, {
     cache: "no-store",
-    headers
+    headers,
+    signal: AbortSignal.timeout(10000)
   });
   if (!response.ok) {
     if (response.status === 401) {
@@ -309,8 +349,10 @@ async function loadCctvFrame(previewUrl, token) {
   }
   const objectUrl = URL.createObjectURL(await response.blob());
   try {
+    if (runId !== null && (!state.running || state.runId !== runId)) return;
     els.sourceImage.src = objectUrl;
     await waitForImage(els.sourceImage);
+    if (runId !== null && (!state.running || state.runId !== runId)) return;
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
@@ -333,25 +375,22 @@ function cameraRequestHeaders(url, extra = {}) {
     : { ...extra };
 }
 
-function scheduleCctvFrame(previewUrl, token, runId) {
+function scheduleCctvFrame(previewUrl, token, runId, delay = FRAME_INTERVAL_MS) {
   window.clearTimeout(state.cctvTimer);
   state.cctvTimer = window.setTimeout(async () => {
     if (!state.running || state.runId !== runId || state.sourceType !== "cctv") return;
+    const started = performance.now();
     try {
-      await loadCctvFrame(previewUrl, token);
+      if (!getPublicCameraShare()) await loadCameraRegions(previewUrl, token);
+      await loadCctvFrame(previewUrl, token, runId);
+      if (!state.running || state.runId !== runId) return;
       if (!getPublicCameraShare()) await analyzeCurrentFrame();
     } catch (error) {
+      if (!state.running || state.runId !== runId) return;
       setStatus(`CCTV 수신 오류: ${error.message}`, true);
-      if (getPublicCameraShare()) {
-        scheduleCctvFrame(previewUrl, token, runId);
-        return;
-      }
-      state.running = false;
-      els.stopButton.disabled = true;
-      return;
     }
-    scheduleCctvFrame(previewUrl, token, runId);
-  }, 2000);
+    if (state.running && state.runId === runId) scheduleCctvFrame(previewUrl, token, runId, Math.max(0, FRAME_INTERVAL_MS-(performance.now()-started)));
+  }, delay);
 }
 
 async function switchDeviceCamera() {
@@ -408,13 +447,21 @@ async function runContinuousAnalysis(runId) {
 }
 
 async function analyzeCurrentFrame() {
+  if (state.analysisPromise) return state.analysisPromise;
   if (!state.source) return;
+  state.analysisPromise = performCurrentFrame(state.runId);
+  try { await state.analysisPromise; }
+  finally { state.analysisPromise = null; }
+}
+
+async function performCurrentFrame(runId) {
   try {
     if (state.sourceType === "cctv" && state.regions?.occupancy_strategy === "empty_reference_difference") {
       const url = getCameraPreviewUrl().replace(/\/api\/camera\/preview$/, "/api/result");
       const response = await fetch(url, { cache: "no-store", headers: cameraRequestHeaders(url), signal: AbortSignal.timeout(10000) });
       if (!response.ok) throw new Error(`분석 서버 HTTP ${response.status}`);
       const result = await response.json();
+      if (state.runId !== runId) return;
       if (result.lot_id !== state.regions.lot_id || result.calibration_floor_id !== state.regions.floor_id || result.strategy !== "empty_reference_difference") {
         throw new Error("이 주차장·층의 물체 점유 분석을 기다리고 있습니다.");
       }
@@ -426,6 +473,7 @@ async function analyzeCurrentFrame() {
       return;
     }
     const session = await loadModel();
+    if (state.runId !== runId) return;
     const transform = prepareInput(state.source);
     const imageData = inputContext.getImageData(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
     const tensor = new window.ort.Tensor(
@@ -437,6 +485,7 @@ async function analyzeCurrentFrame() {
     let outputs = null;
     try {
       outputs = await session.run({ [session.inputNames[0]]: tensor });
+      if (state.runId !== runId) return;
       const elapsed = performance.now() - started;
       const output = outputs[session.outputNames[0]];
       state.detections = decodeYoloOutput(output, transform, FIXED_CONFIDENCE, 0.45);
@@ -447,9 +496,12 @@ async function analyzeCurrentFrame() {
       Object.values(outputs || {}).forEach((output) => output.dispose?.());
     }
   } catch (error) {
+    if (state.runId !== runId) return;
     setStatus(`분석 오류: ${error.message}`, true);
-    state.running = false;
-    els.stopButton.disabled = true;
+    if (state.sourceType !== "cctv") {
+      state.running = false;
+      els.stopButton.disabled = true;
+    }
   }
 }
 
@@ -584,6 +636,7 @@ function prepareForNewSource() {
   state.detections = [];
   state.matchedDetections = [];
   state.slotResults = [];
+  state.regions = null;
   state.slotHistory.clear();
   cancelAnimationFrame(state.previewFrame);
   window.clearTimeout(state.cctvTimer);
@@ -606,12 +659,14 @@ function prepareForNewSource() {
 
 function stopSource() {
   if (!els.panel || !resultContext) return;
+  state.pendingAutoStart = false;
+  state.cctvContextKey = "";
   prepareForNewSource();
   els.viewportPlaceholder.hidden = false;
   els.sourceBadge.hidden = true;
   resultContext.fillStyle = "#151619";
   resultContext.fillRect(0, 0, els.resultCanvas.width, els.resultCanvas.height);
-  setStatus(state.session ? "카메라를 연결하거나 사진·영상을 선택하세요." : "카메라 연결을 눌러 시작하세요.");
+  setStatus("CCTV 연결 대기 중 · 자동 분석 10초");
 }
 
 function releaseMediaStream() {
@@ -674,7 +729,7 @@ function updateManagementConnection(label, sourceType = state.sourceType) {
     chip.classList.add("is-live");
   }
   if (cameraStatus) cameraStatus.textContent = label;
-  if (intervalStatus) intervalStatus.textContent = getPublicCameraShare() ? "서버 갱신" : isCctv ? "2초" : "연속";
+  if (intervalStatus) intervalStatus.textContent = "10초";
 }
 
 function updateManagementResult(count) {

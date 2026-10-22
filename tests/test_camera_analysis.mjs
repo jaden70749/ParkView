@@ -125,8 +125,8 @@ test("device camera analysis is integrated into parking management", async () =>
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   assert.match(html, /id="deviceCameraToggle"/);
   assert.match(html, /id="deviceCameraPanel"/);
-  assert.match(html, /id="deviceStartCameraButton"/);
-  assert.match(html, /id="deviceStartCameraButton"[\s\S]*?분석 시작/);
+  assert.doesNotMatch(html, /deviceStartCameraButton|분석 시작을/);
+  assert.match(html, /10초마다 자동 분석/);
   assert.doesNotMatch(html, />\s*전환\s*</);
   assert.doesNotMatch(html, />\s*사진·영상\s*</);
   assert.doesNotMatch(html, />\s*중지\s*</);
@@ -159,6 +159,8 @@ async function cameraButtonHarness({ hostname = "localhost", publicShare = false
   const elements = new Map();
   const requests = [];
   const timers = [];
+  const timerDelays = [];
+  let clock = 0;
   let permissionRequests = 0;
   function element() {
     return {
@@ -166,7 +168,7 @@ async function cameraButtonHarness({ hostname = "localhost", publicShare = false
       classList: { toggle() {}, add() {}, remove() {} },
       addEventListener(name, handler) { this.handlers[name] = handler; },
       setAttribute() {}, removeAttribute() {}, pause() {}, load() {}, play: async () => {},
-      getContext: () => ({ drawImage() {} }),
+      getContext: () => ({ drawImage() {}, fillRect() {} }),
       complete: true, naturalWidth: 1920, naturalHeight: 1080,
       readyState: 1, videoWidth: 1280
     };
@@ -180,12 +182,12 @@ async function cameraButtonHarness({ hostname = "localhost", publicShare = false
   };
   document.querySelector("#cameraAdminToken").value = enteredToken;
   const context = vm.createContext({
-    document, DEFAULT_CONFIDENCE: 0.25, MODEL_INPUT_SIZE: 640,
+    document, DEFAULT_CONFIDENCE: 0.25, MODEL_INPUT_SIZE: 640, AbortSignal, performance: {now:()=>clock},
     matchCameraSlots, matchedCameraDetections, stabilizeCameraSlots,
     window: {
       location: { hostname, hash: publicShare ? "#cctv=site-1:viewer-token" : "", href: "https://jaden70749.github.io/ParkView/" },
       PARKVIEW_CONFIG: { cameraApiBaseUrl: "https://parkview-plan-api.onrender.com" },
-      addEventListener() {}, clearTimeout() {}, setTimeout(callback) { timers.push(callback); return timers.length; }
+      addEventListener() {}, clearTimeout() {}, setTimeout(callback, delay) { timers.push(callback); timerDelays.push(delay); return timers.length; }
     },
     sessionStorage: { getItem: () => savedToken },
     navigator: { mediaDevices: { getUserMedia: async () => { permissionRequests++; return { getTracks: () => [] }; } } },
@@ -202,8 +204,11 @@ async function cameraButtonHarness({ hostname = "localhost", publicShare = false
   // Exercise the real click, source selection, authentication and frame flow;
   // ONNX execution is covered separately by the model tests.
   vm.runInContext("loadModel = async () => ({}); analyzeCurrentFrame = async () => {}; runContinuousAnalysis = async () => {};", context);
-  return { context, elements, requests, timers, permissionRequests: () => permissionRequests,
-    click: () => elements.get("#deviceStartCameraButton").handlers.click() };
+  return { context, elements, requests, timers, timerDelays, advance: ms => {clock+=ms;}, permissionRequests: () => permissionRequests,
+    click: () => vm.runInContext(`
+      window.PARKVIEW_ACTIVE_FLOOR_CONTEXT ||= {lotId:"test-lot",floorId:"1F",slots:[{x:10,y:10,w:8,h:16}]};
+      ensureAutomaticCctv();
+    `,context) };
 }
 
 test("public CCTV link reads Render frames with viewer key and keeps polling", async () => {
@@ -248,20 +253,71 @@ test("loading a floor reads only its coordinates and never automatically overwri
   assert.equal(h.requests[0].options.headers.Authorization, "Bearer saved-test-token");
 });
 
-test("unauthorized CCTV displays the token setup instruction without starting polling", async () => {
+test("automatic CCTV waits for saved credentials without requesting phone camera permission", async () => {
   const h = await cameraButtonHarness({ savedToken: "", status: 401 });
   await h.click();
-  assert.match(h.elements.get("#deviceAnalysisStatus").textContent, /고정 CCTV 설정.*관리자 토큰/);
-  assert.equal(h.requests[0].options.headers.Authorization, undefined);
+  assert.match(h.elements.get("#deviceAnalysisStatus").textContent, /CCTV 설정.*관리자 인증/);
+  assert.equal(h.requests.length, 0);
   assert.equal(h.timers.length, 0);
-  assert.equal(h.elements.get("#deviceStartCameraButton").disabled, false);
+  assert.equal(h.permissionRequests(), 0);
 });
 
 test("GitHub Pages without a share link uses the configured CCTV server", async () => {
   const h = await cameraButtonHarness({ hostname: "jaden70749.github.io" });
   await h.click();
   assert.equal(h.permissionRequests(), 0);
-  assert.equal(h.requests.length, 1);
-  assert.match(h.requests[0].url, /^https:\/\/parkview-plan-api\.onrender\.com\/api\/camera\/preview\?t=/);
+  assert.equal(h.requests.length, 2);
+  assert.match(h.requests[1].url, /^https:\/\/parkview-plan-api\.onrender\.com\/api\/camera\/preview\?t=/);
   assert.equal(vm.runInContext("state.sourceType", h.context), "cctv");
+});
+
+test("CCTV starts without a button, uses a ten-second cadence, and ignores duplicate ready events", async () => {
+  const h = await cameraButtonHarness();
+  await h.click();
+  assert.equal(h.timerDelays[0],10000);
+  const calls=h.requests.length;
+  await h.click();
+  assert.equal(h.requests.length,calls);
+  h.advance(10000);
+  await h.timers[0]();
+  assert.equal(h.requests.length,calls+2);
+  assert.equal(h.timerDelays[1],10000);
+});
+
+test("automatic CCTV retries a failed connection on the next ten-second cycle", async () => {
+  const h=await cameraButtonHarness({status:401});
+  await h.click();
+  assert.equal(h.timerDelays[0],10000);
+  const calls=h.requests.length;
+  await h.timers[0]();
+  assert.ok(h.requests.length>calls);
+  assert.equal(h.timerDelays[1],10000);
+});
+
+test("leaving management cancels scheduled CCTV work without restarting it", async () => {
+  const h=await cameraButtonHarness();
+  await h.click();
+  vm.runInContext("stopSource()",h.context);
+  const calls=h.requests.length;
+  await h.timers[0]();
+  assert.equal(h.requests.length,calls);
+  assert.equal(vm.runInContext("state.running",h.context),false);
+});
+
+test("slow analysis is single-flight even if another cycle or source requests it", async () => {
+  const h=await cameraButtonHarness();
+  vm.runInContext(`
+    workCount=0;
+    performCurrentFrame=async()=>{workCount++;await new Promise(resolve=>{finishWork=resolve;});};
+    state.source={};
+  `,h.context);
+  // Restore the real single-flight wrapper replaced by this test harness's inference stub.
+  const source=await readFile(new URL("../camera-analysis.js",import.meta.url),"utf8");
+  vm.runInContext(source.slice(source.indexOf("async function analyzeCurrentFrame()"),source.indexOf("async function performCurrentFrame(")),h.context);
+  const first=vm.runInContext("analyzeCurrentFrame()",h.context);
+  const second=vm.runInContext("analyzeCurrentFrame()",h.context);
+  assert.equal(h.context.workCount,1);
+  vm.runInContext("finishWork()",h.context);
+  await Promise.all([first,second]);
+  assert.equal(vm.runInContext("state.analysisPromise",h.context),null);
 });

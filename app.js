@@ -1899,6 +1899,7 @@ function renderManagementFloor() {
       rotation: slot.rotation
     }))
   } : null;
+  window.dispatchEvent?.(new Event("parkview:auto-cctv"));
   if (calibrationLink) {
     const setupUrl = new URL("./calibrate.html", window.location.href);
     setupUrl.searchParams.set("lot_id", String(state.selectedLot?.id || ""));
@@ -5563,7 +5564,7 @@ function renderDeviceCameraStatus() {
   els.cameraConnectionChip.classList.remove("is-linked", "is-error", "is-manual");
   els.cameraConnectionChip.classList.add("is-live");
   els.cameraStatus.textContent = "분석 완료";
-  if (els.cameraIntervalStatus) els.cameraIntervalStatus.textContent = "실시간";
+  if (els.cameraIntervalStatus) els.cameraIntervalStatus.textContent = "10초";
   els.analysisStatus.textContent = formatAnalysisTime(result.analyzedAt);
   els.objectStatus.textContent = `${isCctv ? "고정 CCTV" : "기기 카메라"}에서 객체 ${Number(result.count) || 0}개를 감지했습니다.`;
   if (isCctv) {
@@ -5586,7 +5587,7 @@ function renderNativeCctvStatus() {
   els.cameraConnectionChip.classList.remove("is-linked", "is-error", "is-manual");
   els.cameraConnectionChip.classList.add("is-live");
   els.cameraStatus.textContent = "프레임 수신 중";
-  if (els.cameraIntervalStatus) els.cameraIntervalStatus.textContent = "2초";
+  if (els.cameraIntervalStatus) els.cameraIntervalStatus.textContent = "10초";
   els.analysisStatus.textContent = "연결됨";
   els.objectStatus.textContent = "아이폰이 CCTV 사진을 직접 받아 기기 내 AI로 분석합니다.";
   return true;
@@ -5754,11 +5755,11 @@ async function connectNativeCctvFromAdmin(url) {
   if (label) label.textContent = "첫 프레임 확인 중";
   setCameraConnectFeedback("아이폰에서 CCTV에 직접 연결하고 있습니다.");
   try {
-    const result = await window.ParkViewNative.connectCctv(url, { intervalMs: 2000 });
+    const result = await window.ParkViewNative.connectCctv(url, { intervalMs: 10000 });
     state.nativeCctvConnected = true;
     els.cameraRtspUrl.value = "";
     setCameraConnectFeedback(
-      `CCTV 직접 연결 완료 · ${result.channel || "채널 101"} · 2초마다 분석`,
+      `CCTV 직접 연결 완료 · ${result.channel || "채널 101"} · 10초마다 분석`,
       "success"
     );
     renderNativeCctvStatus();
@@ -5800,6 +5801,7 @@ async function refreshEdgeStatus() {
     state.edgeStatusFailures = 0;
     state.edgeStatusRetryAt = 0;
     const cameraConnected = health.camera?.connected === true;
+    if (cameraConnected) window.dispatchEvent?.(new Event("parkview:auto-cctv"));
     const configured = health.camera?.configured === true;
     const manualMode = !cameraConnected;
 
@@ -5812,7 +5814,7 @@ async function refreshEdgeStatus() {
       ? "정상"
       : configured ? "연결 대기" : "선택 연결";
     if (els.cameraIntervalStatus) {
-      els.cameraIntervalStatus.textContent = `${health.analysis_interval_seconds || 30}초`;
+      els.cameraIntervalStatus.textContent = `${health.analysis_interval_seconds || 10}초`;
     }
 
     const currentFloor = state.floors[state.floorIndex];
@@ -6107,7 +6109,7 @@ function escapeHtml(value) {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js?v=162", { updateViaCache: "none" }).then((registration) => {
+    navigator.serviceWorker.register("./sw.js?v=163", { updateViaCache: "none" }).then((registration) => {
       const checkForUpdate = () => registration.update().catch(() => {});
       checkForUpdate();
       window.addEventListener("pageshow", checkForUpdate);

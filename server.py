@@ -100,7 +100,7 @@ CAMERA_SOCKET_TIMEOUT = max(
 FLOOR_ID = _persisted_camera_settings.get("floor_id", os.environ.get("PARKVIEW_FLOOR_ID", "B1")).strip() or "B1"
 CAMERA_ID = _persisted_camera_settings.get("camera_id", SITE_ID).strip() or SITE_ID
 CAMERA_VIEWER_TOKEN = _persisted_camera_settings.get("viewer_token", "").strip() or secrets.token_urlsafe(32)
-CAPTURE_INTERVAL = max(5, int(os.environ.get("PARKVIEW_ANALYSIS_INTERVAL", "30")))
+CAPTURE_INTERVAL = max(5, int(os.environ.get("PARKVIEW_ANALYSIS_INTERVAL", "10")))
 INFERENCE_SIZE = int(os.environ.get("PARKVIEW_IMAGE_SIZE", "640"))
 MIN_SCORE = float(os.environ.get("PARKVIEW_CONFIDENCE", "0.25"))
 DETECTION_CLASSES = {
@@ -1126,7 +1126,7 @@ class AnalysisWorker:
                 )
             remaining = max(
                 0,
-                (5 if load_region_config().get("occupancy_strategy") == "empty_reference_difference" else CAPTURE_INTERVAL)
+                CAPTURE_INTERVAL
                 - (time.monotonic() - started),
             )
             self._stop.wait(remaining)
@@ -1385,7 +1385,7 @@ class AnalysisWorker:
                 "ready": MODEL_PATH.exists(),
                 "model": MODEL_PATH.name,
                 "strategy": "edge_rtsp_object_occupancy",
-                "analysis_interval_seconds": 5 if load_region_config().get("occupancy_strategy") == "empty_reference_difference" else CAPTURE_INTERVAL,
+                "analysis_interval_seconds": CAPTURE_INTERVAL,
                 "region_count": len(
                     load_region_config()["slots"]
                 ),

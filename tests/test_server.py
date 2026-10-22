@@ -241,6 +241,21 @@ class RegionMatchingTests(unittest.TestCase):
 
 
 class StabilityTests(unittest.TestCase):
+    def test_automatic_analysis_uses_ten_second_cycle_in_both_occupancy_modes(self):
+        for strategy in ["yolo", "empty_reference_difference"]:
+            with self.subTest(strategy=strategy):
+                worker = server.AnalysisWorker()
+                worker._stop = mock.Mock()
+                worker._stop.is_set.side_effect = [False, True]
+                worker.run_once = mock.Mock()
+                with mock.patch.object(server, "CAPTURE_INTERVAL", 10), \
+                        mock.patch.object(server, "load_region_config", return_value={"slots": [], "occupancy_strategy": strategy}), \
+                        mock.patch.object(server.time, "monotonic", side_effect=[0, 1.25]):
+                    worker._run()
+                    self.assertEqual(worker.health()["analysis_interval_seconds"], 10)
+                worker.run_once.assert_called_once()
+                worker._stop.wait.assert_called_once_with(8.75)
+
     def test_initial_empty_frame_remains_unknown_until_confirmed(self):
         worker = server.AnalysisWorker()
         empty = {"id": "B1-001", "status": "empty"}

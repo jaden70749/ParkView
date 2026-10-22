@@ -3869,7 +3869,7 @@ textarea {
 
 .device-analysis-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(118px, 0.7fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   padding: 9px 10px;
   border-bottom: 1px solid #e2e3e7;
