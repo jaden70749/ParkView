@@ -32,7 +32,7 @@ test("declined mapping swap preserves both existing links", () => {
   assert.deepEqual(state.slots.map(s => s.slot_index), [0,1]);
 });
 const detection = source.slice(source.indexOf("async function detectRegions()"), source.indexOf("function addCompletedSlot()"));
-function harness({ slots = [], confirm = true, fail = false, cameraFrame = false } = {}) {
+function harness({ slots = [], confirm = true, fail = false, cameraFrame = false, result = { slots: [{ id: "detected" }] } } = {}) {
   let requests = 0;
   let lastRequest = null;
   const state = { slots, roi: null, image: { naturalWidth: 100, naturalHeight: 100 }, points: [], cameraFrame };
@@ -43,7 +43,7 @@ function harness({ slots = [], confirm = true, fail = false, cameraFrame = false
     authHeaders: (headers = {}) => headers,
     document: { createElement: () => ({ getContext: () => ({ drawImage() {} }), toBlob: fn => fn({}) }) },
     fetch: async (url, options) => { requests++; lastRequest = { url, options }; if (fail) throw new Error("offline");
-      return { ok: true, json: async () => ({ slots: [{ id: "detected" }] }) }; }
+      return { ok: true, json: async () => result }; }
   });
   vm.runInContext(detection, context);
   return { state, els, run: () => context.detectRegions(), requests: () => requests, lastRequest: () => lastRequest };
@@ -54,6 +54,16 @@ test("missing detection region is explained next to the detection button", async
   await h.run();
   assert.match(h.els.sourceStatus.textContent, /감지 구역/);
   assert.equal(h.requests(), 0);
+});
+
+test("CCTV detection reports measured row counts without overwriting saved bays", async () => {
+  const original = {id:"saved",polygon:[[0,0],[1,0],[1,1],[0,1]]};
+  const h = harness({slots:[original],cameraFrame:true,result:{slots:Array.from({length:46},(_,id)=>({id})),row_counts:[11,8,8,11,8]}});
+  h.state.roi = [[0,0],[1,0],[1,1],[0,1]];
+  await h.run();
+  assert.match(h.els.sourceStatus.textContent,/46면 감지됨 · 열별 11 · 8 · 8 · 11 · 8/);
+  assert.equal(h.state.slots[0],original);
+  assert.equal(h.state.candidates.length,46);
 });
 
 test("one large accidental parking bay can become the search region without deleting coordinates", async () => {

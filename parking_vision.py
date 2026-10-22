@@ -179,6 +179,126 @@ def complete_row_gaps(row, projected=None, x_bounds=None):
     return completed, inferred
 
 
+def rectified_line_candidates(frame):
+    """Keep borders seen at multiple exposures, including bays touching the selected edge."""
+    hsv = cv2.cvtColor(frame, cv2.COLOR_RGB2HSV)
+    h, w = frame.shape[:2]
+    groups = []
+    for threshold in range(140, 231, 5):
+        mask = cv2.inRange(hsv, (0, 0, threshold), (180, 100, 255))
+        cv2.rectangle(mask, (0, 0), (w-1, h-1), 255, 3)
+        contours, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if not h*w*0.0004 < area < h*w*0.16:
+                continue
+            repaired = False
+            polygon = cv2.approxPolyDP(contour, cv2.arcLength(contour, True)*0.025, True)
+            if len(polygon) != 4 or not cv2.isContourConvex(polygon):
+                hull = cv2.convexHull(contour)
+                _, hull_sides, _ = cv2.minAreaRect(hull)
+                box_area = hull_sides[0]*hull_sides[1]
+                if box_area <= 0 or area/box_area < 0.68 or cv2.contourArea(hull)/box_area < 0.9:
+                    continue
+                # Wheelchair paint can connect to the white border; retain its rectangular hull.
+                polygon = cv2.approxPolyDP(hull, cv2.arcLength(hull, True)*0.025, True)
+                if len(polygon) != 4:
+                    continue
+                repaired = True
+            _, sides, _ = cv2.minAreaRect(polygon)
+            if min(sides) < 10 or max(sides)/min(sides) > 4:
+                continue
+            points = order_quad(polygon.reshape(-1, 2))
+            center = points.mean(axis=0)
+            size = np.ptp(points, axis=0)
+            match = next((group for group in groups
+                          if group["repaired"] == repaired
+                          and np.all(np.abs(group["center"]-center) < size*0.25)), None)
+            if match is None:
+                groups.append({"center": center, "polygons": [points], "thresholds": {threshold}, "repaired": repaired})
+            else:
+                match["polygons"].append(points)
+                match["thresholds"].add(threshold)
+    candidates = []
+    for group in sorted(groups, key=lambda group: group["repaired"]):
+        if len(group["thresholds"]) < 2:
+            continue
+        polygon = np.median(group["polygons"], axis=0).astype(np.float32)
+        if group["repaired"] and any(
+                cv2.intersectConvexConvex(polygon, existing)[0]
+                > min(cv2.contourArea(polygon), cv2.contourArea(existing))*0.4
+                for existing in candidates):
+            continue
+        candidates.append(polygon)
+    candidates = deduplicate_nested_polygons(candidates)
+    candidates = remove_group_outlines(candidates)
+    if not candidates:
+        return []
+    typical_area = float(np.median([cv2.contourArea(p) for p in candidates]))
+    return [p for p in candidates if typical_area*0.4 < cv2.contourArea(p) < typical_area*1.8]
+
+
+def complete_rectified_rows(polygons):
+    rows = []
+    for polygon in sorted(polygons, key=lambda p: tuple(p.mean(axis=0))):
+        size = np.ptp(polygon, axis=0)
+        axis = 1 if size[0] > size[1] else 0
+        cross_axis = 1-axis
+        center = polygon.mean(axis=0)
+        row = next((row for row in rows if row["axis"] == axis
+                    and abs(row["cross"]-center[cross_axis]) < size[cross_axis]*0.35), None)
+        if row is None:
+            row = {"axis": axis, "cross": center[cross_axis], "polygons": []}
+            rows.append(row)
+        row["polygons"].append(polygon)
+        row["cross"] = float(np.median([p[:, cross_axis].mean() for p in row["polygons"]]))
+
+    completed = []
+    counts = []
+    inferred = 0
+    for row in sorted(rows, key=lambda row: (-row["axis"], row["cross"])):
+        axis = row["axis"]
+        ordered = sorted(row["polygons"], key=lambda p: float(p[:, axis].mean()))
+        if len(ordered) < 2:
+            continue
+        positions = [float(p[:, axis].mean()) for p in ordered]
+        gaps = np.diff(positions)
+        pitch = float(np.median(gaps))
+        measured = []
+        for index, polygon in enumerate(ordered):
+            measured.append((polygon, False))
+            if index == len(ordered)-1 or len(ordered) < 4 or pitch <= 0:
+                continue
+            ratio = float(gaps[index]/pitch)
+            missing = round(ratio)-1
+            # Only bridge interior paint breaks. Never extend a row across the ROI or an aisle.
+            if 1 <= missing <= 2 and abs(ratio-missing-1) < 0.25:
+                for step in range(1, missing+1):
+                    weight = step/(missing+1)
+                    measured.append((polygon*(1-weight)+ordered[index+1]*weight, True))
+                    inferred += 1
+        counts.append(len(measured))
+        completed.extend(measured)
+    return completed, inferred, counts
+
+
+def detect_rectified_lines(frame, boundary, lot_id, floor_id):
+    h, w = frame.shape[:2]
+    destination = np.float32([[0, 0], [1199, 0], [1199, 1199], [0, 1199]])
+    matrix = cv2.getPerspectiveTransform((order_quad(boundary)*[w, h]).astype(np.float32), destination)
+    rectified = cv2.warpPerspective(frame, matrix, (1200, 1200))
+    completed, inferred, counts = complete_rectified_rows(rectified_line_candidates(rectified))
+    inverse = np.linalg.inv(matrix)
+    slots = []
+    for index, (polygon, restored) in enumerate(completed):
+        original = cv2.perspectiveTransform(polygon.astype(np.float32)[None], inverse)[0]/[w, h]
+        slots.append(dict(id=f"{floor_id}-{index+1:03d}", slot_index=index, kind="normal",
+                          polygon=np.round(np.clip(original, 0, 1), 6).tolist(), inferred=restored))
+    return dict(lot_id=lot_id, floor_id=floor_id, slots=slots,
+                source="opencv_rectified_closed_lines", inferred_count=inferred, row_counts=counts,
+                review_required=True, coordinate_system="normalized_camera_image")
+
+
 def detect(raw, lot_id, floor_id, roi=None):
     if not lot_id or not floor_id:
         raise ValueError("주차장과 층이 필요합니다")
@@ -197,6 +317,9 @@ def detect(raw, lot_id, floor_id, roi=None):
             raise ValueError("감지 구역의 모서리 4개를 선택해 주세요")
         if not cv2.isContourConvex(order_quad(boundary)):
             raise ValueError("감지 구역의 모서리를 주차장 둘레를 따라 선택해 주세요")
+        if np.any(boundary < 0) or np.any(boundary > 1):
+            raise ValueError("감지 구역을 영상 안에서 선택해 주세요")
+        return detect_rectified_lines(frame, boundary, lot_id, floor_id)
     candidates = []
     for contour in contours:
         area = cv2.contourArea(contour)

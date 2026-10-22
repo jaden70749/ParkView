@@ -132,6 +132,54 @@ class VisionTests(unittest.TestCase):
         roi = [[.1,.1],[.35,.1],[.35,.65],[.1,.65]]
         self.assertEqual(len(vision.detect(encode(frame), "lot", "1F", roi)["slots"]), 8)
 
+    def test_perspective_board_detects_far_edge_bays_and_keeps_unequal_rows(self):
+        board = np.full((600, 600, 3), 165, np.uint8)
+        for x, count, start in [(8, 11, 90), (210, 8, 215), (330, 8, 215), (520, 11, 90)]:
+            for index in range(count):
+                y = start+index*42
+                cv2.rectangle(board, (x, y), (x+65, y+40), (240, 240, 240), 3)
+        for index in range(8):
+            x = 95+index*52
+            cv2.rectangle(board, (x, 0), (x+50, 65), (240, 240, 240), 3)
+        corners = np.float32([[480, 120], [900, 105], [1180, 650], [160, 680]])
+        matrix = cv2.getPerspectiveTransform(np.float32([[0, 0], [599, 0], [599, 599], [0, 599]]), corners)
+        frame = cv2.warpPerspective(board, matrix, (1280, 720))
+        roi = (corners/[1280, 720]).tolist()
+        result = vision.detect(encode(frame), "lot", "1F", roi)
+        self.assertEqual(result["row_counts"], [11, 8, 8, 11, 8])
+        self.assertEqual(len(result["slots"]), 46)
+        self.assertEqual(result["source"], "opencv_rectified_closed_lines")
+        boundary = np.array(roi, np.float32)
+        for slot in result["slots"]:
+            for point in slot["polygon"]:
+                self.assertGreaterEqual(cv2.pointPolygonTest(boundary, tuple(point), True), -0.002)
+
+    def test_rectified_completion_never_extends_a_short_inner_column_to_roi_edge(self):
+        def bay(x, y):
+            return np.float32([[x, y], [x+130, y], [x+130, y+75], [x, y+75]])
+        polygons = [bay(100, 100+i*90) for i in range(11)]
+        polygons += [bay(400, 400+i*90) for i in range(8) if i != 3]
+        completed, inferred, counts = vision.complete_rectified_rows(polygons)
+        self.assertEqual(counts, [11, 8])
+        self.assertEqual((len(completed), inferred), (19, 1))
+        self.assertGreater(min(p[:, 1].min() for p, _ in completed if p[:, 0].mean() > 400), 399)
+
+    def test_white_special_bay_paint_touching_border_does_not_hide_or_merge_the_bay(self):
+        frame = np.full((600, 600, 3), 160, np.uint8)
+        for y in [80, 350]:
+            for x in [80, 180, 280, 380]:
+                cv2.rectangle(frame, (x, y), (x+70, y+120), (30, 70, 180), -1)
+                cv2.rectangle(frame, (x, y), (x+70, y+120), (240, 240, 240), 4)
+        cv2.line(frame, (380, 130), (414, 130), (240, 240, 240), 9)
+        cv2.line(frame, (414, 130), (414, 160), (240, 240, 240), 9)
+        result = vision.detect(encode(frame), "lot", "1F", [[0, 0], [1, 0], [1, 1], [0, 1]])
+        self.assertEqual(len(result["slots"]), 8)
+        self.assertEqual(result["row_counts"], [4, 4])
+
+    def test_out_of_frame_detection_region_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "영상 안"):
+            vision.detect(encode(self.frame), "lot", "1F", [[-.1, 0], [.8, 0], [.8, .9], [0, .9]])
+
     def test_nested_slot_borders_are_not_counted_twice(self):
         frame = np.full((600, 800, 3), 180, np.uint8)
         for x in [100, 220, 340]:
