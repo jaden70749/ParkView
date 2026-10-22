@@ -306,6 +306,24 @@ async function loadCameraRegions(previewUrl, token, publicShare = null) {
     if (!response.ok) throw new Error(`주차면 API HTTP ${response.status}`);
     const regions = await response.json();
     if (runId !== state.runId) return;
+    if (context.layoutSource === "photo_lines" && regions.lot_id === context.lotId
+        && regions.floor_id === context.floorId.trim().toUpperCase() && !regions.plan_mapping
+        && regions.slots?.every((slot, i) => slot.slot_index === i)) {
+      const matched = window.ParkViewSlotMapping?.match(regions.slots, context.slots, context.floorId);
+      if (matched) {
+        const saved = await fetch(previewUrl.replace(/\/api\/camera\/preview$/, "/api/regions"), {
+          method: "POST", headers: cameraRequestHeaders(regionsUrl, {
+            Authorization: `Bearer ${token}`, "Content-Type": "application/json"
+          }), signal: AbortSignal.timeout(10000),
+          body: JSON.stringify({ ...regions, expected_revision: regions.revision, slots: matched.slots,
+            plan_mapping: { version: 1, rotation: matched.rotation, source: "photo_geometry" } })
+        });
+        if (!saved.ok) throw new Error(`번호 연결 저장 HTTP ${saved.status}`);
+        if (runId !== state.runId) return;
+        // Reload the server revision rather than applying an uncommitted local mapping.
+        return loadCameraRegions(previewUrl, token, publicShare);
+      }
+    }
     if (JSON.stringify(regions) !== JSON.stringify(state.regions)) {
       state.regions = regions;
       state.slotResults = [];

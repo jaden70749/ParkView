@@ -1890,6 +1890,7 @@ function renderManagementFloor() {
   window.PARKVIEW_ACTIVE_FLOOR_CONTEXT = floor ? {
     lotId: String(state.selectedLot?.id || ""),
     floorId: floor.name || "B1",
+    layoutSource: floor.layoutSource,
     slots: floor.slots.map((slot) => ({
       kind: slot.kind,
       x: slot.x,
@@ -1921,7 +1922,7 @@ function renderManagementFloor() {
     const fitted = fitFloorToDrawingBounds(floor);
     const outline = simplifyFloorOutline(resolveFloorOutline(fitted, fitted.slots, fitted.elements || []));
     localStorage.setItem(`parkview-calibration-plan:${state.selectedLot.id}:${floor.name}`, JSON.stringify({
-      lotId: String(state.selectedLot.id), floorId: floor.name,
+      lotId: String(state.selectedLot.id), floorId: floor.name, layoutSource: floor.layoutSource,
       aspect: activeFloorPlanXScale,
       slots: fitted.layoutSource === "photo_lines" ? fitted.slots : standardizeFloorPlanSlots(fitted.slots, outline)
     }));
@@ -6109,7 +6110,7 @@ function escapeHtml(value) {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js?v=163", { updateViaCache: "none" }).then((registration) => {
+    navigator.serviceWorker.register("./sw.js?v=164", { updateViaCache: "none" }).then((registration) => {
       const checkForUpdate = () => registration.update().catch(() => {});
       checkForUpdate();
       window.addEventListener("pageshow", checkForUpdate);

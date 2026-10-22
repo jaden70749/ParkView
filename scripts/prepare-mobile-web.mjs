@@ -20,6 +20,7 @@ const files = [
   "onboarding.js",
   "onboarding.css",
   "photo-plan.js",
+  "slot-mapping.js",
   "camera-analysis.js",
   "camera-analysis-core.js",
   "calibrate.html",

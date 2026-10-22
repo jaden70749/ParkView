@@ -86,6 +86,7 @@ function bindEvents() {
   els.detectButton.addEventListener("click", detectRegions);
   els.applyDetectionButton.addEventListener("click", () => {
     state.slots = state.candidates;
+    state.mappingConfirmed = state.candidateMapping;
     state.candidates = null;
     state.points = [];
     state.selected = -1;
@@ -115,6 +116,7 @@ function bindEvents() {
     if (other) { other.slot_index = selected.slot_index; other.id = selected.id; }
     selected.slot_index = next;
     selected.id = `${currentFloorId()}-${String(next+1).padStart(3, "0")}`;
+    state.mappingConfirmed = { version: 1, source: "manual" };
     render();
   });
 }
@@ -291,6 +293,8 @@ async function loadRegions() {
       throw new Error(payload.error || `HTTP ${response.status}`);
     }
     const payload = await response.json();
+    state.config = payload;
+    state.mappingConfirmed = payload.plan_mapping;
     state.revision = payload.revision;
     state.candidates = null;
     state.points = [];
@@ -458,6 +462,11 @@ async function detectRegions() {
     if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
     if (!result.slots?.length) throw new Error("감지된 주차면이 없습니다. 기존 좌표는 유지됩니다.");
     state.candidates = result.slots;
+    let plan;
+    try { plan = JSON.parse(localStorage.getItem(`parkview-calibration-plan:${setupLotId}:${currentFloorId()}`)); } catch (_) {}
+    const mapping = plan && window.ParkViewSlotMapping?.match(result.slots, plan.slots, currentFloorId());
+    if (mapping) state.candidates = mapping.slots;
+    state.candidateMapping = mapping ? { version: 1, source: "photo_geometry", rotation: mapping.rotation } : undefined;
     const restored = Number(result.inferred_count) || 0;
     const rows = Array.isArray(result.row_counts) ? result.row_counts.filter(Number.isInteger).join(" · ") : "";
     detectionStatus(`${result.slots.length}면 감지됨${rows ? ` · 열별 ${rows}` : ""}${restored ? ` · 끊긴 구획 ${restored}면 복원` : ""}. 아래 감지 결과 적용을 누른 뒤 좌표를 저장해 주세요.`);
@@ -539,12 +548,14 @@ async function saveRegions() {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
+        ...state.config,
         coordinate_system: "normalized_camera_image",
         occupancy_strategy: "empty_reference_difference",
         occupancy_threshold: 0.3,
         lot_id: setupLotId,
         floor_id: currentFloorId(),
         expected_revision: state.revision,
+        plan_mapping: state.mappingConfirmed,
         slots: state.slots
       })
     });
@@ -552,7 +563,7 @@ async function saveRegions() {
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     state.revision = payload.revision;
     state.savedSlots = JSON.stringify(state.slots);
-    els.saveStatus.textContent = `${payload.count}개 주차면을 저장했습니다. 원래 화면에서 카메라 연결을 다시 눌러 적용하세요.`;
+    els.saveStatus.textContent = `${payload.count}개 주차면을 저장했습니다. 다음 자동 분석부터 반영됩니다.`;
   } catch (error) {
     els.saveStatus.textContent = `저장 실패: ${error.message}`;
   } finally {
@@ -594,6 +605,7 @@ function connectPlanSlot(index, count) {
   if (other) { other.slot_index = selected.slot_index; other.id = selected.id; }
   selected.slot_index = index;
   selected.id = `${currentFloorId()}-${String(index+1).padStart(3, "0")}`;
+  state.mappingConfirmed = { version: 1, source: "manual" };
   els.slotNumber.value = String(index+1);
   els.saveStatus.textContent = `도면 ${index+1}번에 연결했습니다. 주차면 저장을 눌러 확정해 주세요.`;
   render();
