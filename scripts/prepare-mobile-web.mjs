@@ -34,13 +34,11 @@ await rm(output, { recursive: true, force: true });
 await Promise.all([
   mkdir(resolve(output, "data"), { recursive: true }),
   mkdir(resolve(output, "models"), { recursive: true }),
-  mkdir(resolve(output, "hachabell"), { recursive: true }),
   mkdir(resolve(output, "vendor", "onnxruntime"), { recursive: true }),
   mkdir(resolve(output, "vendor", "opencv"), { recursive: true })
 ]);
 
 await Promise.all(files.map((file) => cp(resolve(root, file), resolve(output, file))));
-await cp(resolve(root, "hachabell"), resolve(output, "hachabell"), { recursive: true });
 await cp(resolve(root, "node_modules/@techstark/opencv-js/dist/opencv.js"), resolve(output, "vendor/opencv/opencv.js"));
 await cp(resolve(root, "node_modules/@techstark/opencv-js/LICENSE"), resolve(output, "vendor/opencv/LICENSE"));
 await cp(resolve(root, "data", "parking-lots.json"), resolve(output, "data", "parking-lots.json"));
@@ -92,13 +90,5 @@ const config = {
 await writeFile(
   resolve(output, "config.js"),
   `window.PARKVIEW_CONFIG = Object.freeze(${JSON.stringify(config)});\n`,
-  "utf8"
-);
-await writeFile(
-  resolve(output, "hachabell", "config.js"),
-  `window.HACHABELL_CONFIG = Object.freeze(${JSON.stringify({
-    kakaoJavaScriptKey: envValue("KAKAO_JAVASCRIPT_KEY"),
-    transitApiBaseUrl: envValue("HACHABELL_TRANSIT_API_BASE_URL")
-  })});\n`,
   "utf8"
 );

@@ -4,16 +4,6 @@
    
 ParkView는 기기 카메라 또는 설치형 CCTV의 YOLO 객체 감지 결과를 주차면 좌표와 매칭하고, 웹 지도와 2D 도면에 점유 정보를 표시하는 프로토타입입니다.
 
-## 하차벨 1차 버전
-
-대중교통 하차 알림 앱의 1차 버전은 `hachabell/`에 별도 경로로 포함되어 있습니다. 기존 ParkView 주차장 화면을 유지하면서 같은 정적 배포 결과에서 다음 주소로 확인할 수 있습니다.
-
-```text
-https://jaden70749.github.io/ParkView/hachabell/
-```
-
-하차벨은 React 기반 UI, 카카오맵 JavaScript SDK, 목적지 검색, GPS 현재 위치, 버스·지하철 경로 요약, 즐겨찾기, 하차 거리 알림을 제공합니다. `npm run build:web`가 `.env` 또는 CI의 `KAKAO_JAVASCRIPT_KEY`를 `dist/hachabell/config.js`에 주입합니다. REST 기반 실시간 버스 도착 정보는 카카오 개발자 앱을 정식 생성한 뒤 별도 서버 프록시로 연결할 예정입니다.
-
 ## 구성
 
 - `server.py`: 정적 웹 서버, YOLO 분석, Firebase 전송, Gemini 프록시
