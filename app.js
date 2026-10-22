@@ -4516,19 +4516,41 @@ function validatePlanInventory(inventory) {
 }
 
 async function requestGeminiGeneration(payload) {
-  const response = await fetch(edgeApiUrl("/api/gemini/generate"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(result.error || `AI 서버 HTTP ${response.status}`);
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 195000);
+  try {
+    const response = await fetch(edgeApiUrl("/api/gemini/generate"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = typeof result.error === "string" ? result.error : "";
+      if ([502, 504].includes(response.status) || /timed?\s*out|timeout/i.test(message)) {
+        throw new Error("AI 서버 응답이 늦어 도면을 생성하지 못했습니다. 사진은 유지되니 잠시 후 다시 시도해 주세요.");
+      }
+      throw new Error(message || `AI 서버 HTTP ${response.status}`);
+    }
+    if (!Array.isArray(result.candidates) || !result.candidates.length) {
+      throw new Error("AI 서버가 도면 응답을 보내지 않았습니다. 잠시 후 다시 시도해 주세요.");
+    }
+    return result;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("AI 응답 대기 시간이 초과되었습니다. 사진은 유지되니 잠시 후 다시 시도해 주세요.");
+    }
+    if (error instanceof TypeError) {
+      throw new Error("AI 서버에 연결하지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도해 주세요.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
   }
-  return result;
 }
 
 function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
@@ -6038,7 +6060,7 @@ function escapeHtml(value) {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js?v=159", { updateViaCache: "none" }).then((registration) => {
+    navigator.serviceWorker.register("./sw.js?v=160", { updateViaCache: "none" }).then((registration) => {
       const checkForUpdate = () => registration.update().catch(() => {});
       checkForUpdate();
       window.addEventListener("pageshow", checkForUpdate);

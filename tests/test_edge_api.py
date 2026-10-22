@@ -1,10 +1,55 @@
 import http.client
 import threading
 import unittest
+import urllib.error
 from http.server import ThreadingHTTPServer
 from unittest import mock
 
 import edge_api
+
+
+class GeminiTimeoutTests(unittest.TestCase):
+    payload = {"contents": [{"parts": [{"text": "test"}]}]}
+
+    def test_socket_and_wrapped_timeouts_are_retryable(self):
+        for error in (TimeoutError("The read operation timed out"), urllib.error.URLError(TimeoutError())):
+            with self.subTest(error=type(error).__name__), mock.patch.object(edge_api.urllib.request, "urlopen", side_effect=error):
+                with self.assertRaises(edge_api.GeminiApiError) as raised:
+                    edge_api.request_gemini_model(self.payload, "test-model")
+                self.assertEqual(raised.exception.status, 504)
+
+    def test_timeout_during_response_read_is_retryable(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.side_effect = TimeoutError()
+        with mock.patch.object(edge_api.urllib.request, "urlopen", return_value=response):
+            with self.assertRaises(edge_api.GeminiApiError) as raised:
+                edge_api.request_gemini_model(self.payload, "test-model")
+        self.assertEqual(raised.exception.status, 504)
+
+    def test_stalled_model_falls_back_without_repeating_the_same_model(self):
+        with mock.patch.object(edge_api, "GEMINI_API_KEY", "test-key"), \
+                mock.patch.object(edge_api, "GEMINI_MODELS", ("slow", "working")), \
+                mock.patch.object(edge_api, "request_gemini_model", side_effect=[
+                    edge_api.GeminiApiError("timeout", 504, "slow"), {"candidates": []}
+                ]) as request:
+            self.assertEqual(edge_api.request_gemini(self.payload), {"candidates": []})
+        self.assertEqual([call.args[1] for call in request.call_args_list], ["slow", "working"])
+
+    def test_fallback_stops_when_request_budget_is_exhausted(self):
+        with mock.patch.object(edge_api, "GEMINI_API_KEY", "test-key"), \
+                mock.patch.object(edge_api, "GEMINI_MODELS", ("slow", "next")), \
+                mock.patch.object(edge_api.time, "monotonic", side_effect=[0, 0, 181]), \
+                mock.patch.object(edge_api, "request_gemini_model", side_effect=edge_api.GeminiApiError("timeout", 504)) as request:
+            with self.assertRaises(edge_api.GeminiUnavailableError):
+                edge_api.request_gemini(self.payload)
+        self.assertEqual(request.call_count, 1)
+
+    def test_invalid_requests_are_not_retried(self):
+        with mock.patch.object(edge_api, "GEMINI_API_KEY", "test-key"), \
+                mock.patch.object(edge_api, "request_gemini_model", side_effect=edge_api.GeminiApiError("bad request", 400)) as request:
+            with self.assertRaises(edge_api.GeminiApiError):
+                edge_api.request_gemini(self.payload)
+        self.assertEqual(request.call_count, 1)
 
 
 class CameraRelayTests(unittest.TestCase):

@@ -92,6 +92,46 @@ function descendantsOf(root) {
   return [root, ...root.children.flatMap(descendantsOf)];
 }
 
+test("AI generation explains gateway timeouts and always clears its timer", async () => {
+  const context = loadAppContext();
+  vm.runInContext(`
+    timerCleared = false;
+    window.setTimeout = () => 123;
+    window.clearTimeout = id => { timerCleared = id === 123; };
+    fetch = async () => ({ok:false,status:502,json:async()=>({error:"The read operation timed out"})});
+  `, context);
+  await assert.rejects(vm.runInContext("requestGeminiGeneration({contents:[]})", context), /사진은 유지/);
+  assert.equal(context.timerCleared, true);
+});
+
+test("AI generation aborts a stalled fetch and offers a retry without dropping photos", async () => {
+  const context = loadAppContext();
+  vm.runInContext(`
+    state.planImages = [{base64:"saved-photo"}];
+    timerCleared = false;
+    window.setTimeout = callback => { abortRequest = callback; return 123; };
+    window.clearTimeout = () => { timerCleared = true; };
+    fetch = (_url, options) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener("abort", () => reject(new Error("aborted")));
+    });
+    pendingGeneration = requestGeminiGeneration({contents:[]});
+    abortRequest();
+  `, context);
+  await assert.rejects(context.pendingGeneration, /대기 시간이 초과/);
+  assert.equal(vm.runInContext("state.planImages[0].base64", context), "saved-photo");
+  assert.equal(context.timerCleared, true);
+});
+
+test("AI generation keeps successful JSON and explains non-JSON gateway responses", async () => {
+  const context = loadAppContext();
+  vm.runInContext(`window.setTimeout = () => 1; window.clearTimeout = () => {};`, context);
+  context.fetch = async () => ({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: "{}" }] } }] }) });
+  const result = await vm.runInContext("requestGeminiGeneration({contents:[]})", context);
+  assert.equal(result.candidates[0].content.parts[0].text, "{}");
+  context.fetch = async () => ({ ok: false, status: 504, json: async () => { throw Error("HTML gateway response"); } });
+  await assert.rejects(vm.runInContext("requestGeminiGeneration({contents:[]})", context), /AI 서버 응답이 늦어/);
+});
+
 test("soft floor graphics preserve every bay, source geometry, and all three occupancy states", () => {
   const context = loadAppContext();
   const floor = {

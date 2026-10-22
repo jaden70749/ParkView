@@ -44,6 +44,8 @@ GEMINI_MODELS = tuple(
 )
 ACTIVE_GEMINI_MODEL = GEMINI_MODELS[0]
 GEMINI_RETRY_ATTEMPTS = max(1, int(os.environ.get("GEMINI_RETRY_ATTEMPTS", "2")))
+GEMINI_TIMEOUT_SECONDS = 60
+GEMINI_REQUEST_BUDGET_SECONDS = 180
 BUILD_COMMIT = os.environ.get("RENDER_GIT_COMMIT", "local").strip()[:7]
 ALLOWED_ORIGINS = {
     origin.strip().rstrip("/")
@@ -103,7 +105,7 @@ class GeminiUnavailableError(RuntimeError):
         self.attempts = attempts
 
 
-def request_gemini_model(payload: Any, model: str) -> dict[str, Any]:
+def request_gemini_model(payload: Any, model: str, timeout: float = GEMINI_TIMEOUT_SECONDS) -> dict[str, Any]:
     model_name = model
     model = urllib.parse.quote(model_name, safe="-._")
     key = urllib.parse.quote(GEMINI_API_KEY, safe="")
@@ -118,7 +120,7 @@ def request_gemini_model(payload: Any, model: str) -> dict[str, Any]:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=90) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         body = error.read().decode("utf-8", errors="replace")
@@ -128,7 +130,11 @@ def request_gemini_model(payload: Any, model: str) -> dict[str, Any]:
             detail = None
         raise GeminiApiError(detail or f"AI API HTTP {error.code}", error.code, model_name) from error
     except urllib.error.URLError as error:
+        if isinstance(error.reason, TimeoutError):
+            raise GeminiApiError("AI 응답 시간이 초과되었습니다", 504, model_name) from error
         raise GeminiApiError("AI API에 연결할 수 없습니다", None, model_name) from error
+    except TimeoutError as error:
+        raise GeminiApiError("AI 응답 시간이 초과되었습니다", 504, model_name) from error
 
 
 def request_gemini(payload: Any) -> dict[str, Any]:
@@ -138,11 +144,15 @@ def request_gemini(payload: Any) -> dict[str, Any]:
     last_error: GeminiApiError | None = None
     attempts: list[dict[str, Any]] = []
     transient_statuses = {408, 429, 500, 502, 503, 504}
+    deadline = time.monotonic() + GEMINI_REQUEST_BUDGET_SECONDS
 
     for model in GEMINI_MODELS:
         for attempt in range(GEMINI_RETRY_ATTEMPTS):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise GeminiUnavailableError("AI 응답이 지연되고 있습니다. 사진은 유지되니 잠시 후 다시 시도해 주세요.", attempts) from last_error
             try:
-                return request_gemini_model(payload, model)
+                return request_gemini_model(payload, model, timeout=min(GEMINI_TIMEOUT_SECONDS, remaining))
             except GeminiApiError as error:
                 last_error = error
                 attempts.append({"model": model, "status": error.status or 0})
@@ -151,7 +161,8 @@ def request_gemini(payload: Any) -> dict[str, Any]:
                     f"attempt={attempt + 1}/{GEMINI_RETRY_ATTEMPTS}",
                     flush=True,
                 )
-                if error.status == 404:
+                # A stalled model should not consume another full timeout before fallback.
+                if error.status in {404, 408, 504}:
                     break
                 if error.status is not None and error.status not in transient_statuses:
                     raise
