@@ -32,7 +32,7 @@ function harness({ offline = false } = {}) {
     },
     caches: {
       open() { return Promise.resolve(cache); },
-      keys() { return Promise.resolve(["parkview-v151", "parkview-v170", "another-app-cache"]); },
+      keys() { return Promise.resolve(["parkview-v151", "parkview-v171", "another-app-cache"]); },
       delete(name) { deleted.push(name); return Promise.resolve(true); },
       match(request) { return Promise.resolve(stored.get(typeof request === "string" ? request : request.url)); }
     },

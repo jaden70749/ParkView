@@ -1705,6 +1705,14 @@ function renderRegistrationSummary() {
 }
 
 function saveRegisteredLot() {
+  try {
+    validateRequestedPlanCounts(state.floors);
+  } catch (error) {
+    state.planGenerated = false;
+    setRegistrationStep(2);
+    els.geminiStatus.textContent = error.message;
+    return;
+  }
   const floors = state.floors.map((floor) => ({
     name: floor.name,
     aspectRatio: normalizeFloorAspectRatio(floor.aspectRatio),
@@ -3790,7 +3798,8 @@ function toSvgX(value) {
 }
 
 function normalizeFloorAspectRatio(value) {
-  return clamp(Number(value) || FLOOR_PLAN_X_SCALE, 0.55, 3.2);
+  const ratio = Number(value);
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : FLOOR_PLAN_X_SCALE;
 }
 
 function fitFloorToDrawingBounds(floor) {
@@ -3804,13 +3813,15 @@ function fitFloorToDrawingBounds(floor) {
   const sourceHeight = maxY - minY;
   if (sourceWidth < 1 || sourceHeight < 1) return floor;
 
-  const targetMin = 4;
   const targetSize = 92;
-  const scaleX = targetSize / sourceWidth;
-  const scaleY = targetSize / sourceHeight;
+  // Use one scale so fitting never stretches the parking geometry along one axis.
+  const scaleX = Math.min(targetSize / sourceWidth, targetSize / sourceHeight);
+  const scaleY = scaleX;
+  const offsetX = (100 - sourceWidth * scaleX) / 2;
+  const offsetY = (100 - sourceHeight * scaleY) / 2;
   const transformPoint = (point) => ({
-    x: targetMin + (Number(point.x) - minX) * scaleX,
-    y: targetMin + (Number(point.y) - minY) * scaleY
+    x: offsetX + (Number(point.x) - minX) * scaleX,
+    y: offsetY + (Number(point.y) - minY) * scaleY
   });
   const transformRect = (item) => {
     const center = transformPoint({
@@ -4224,6 +4235,7 @@ async function generatePlanFromPrompt() {
         if (revision !== planImageRevision) return;
         generatedFloors.push(polishGeneratedFloor({ ...generated[0], name: floorName }));
       }
+      validateRequestedPlanCounts(generatedFloors);
       applyGeneratedFloors(generatedFloors);
       clearPlanImages();
       state.planGenerated = true;
@@ -4362,6 +4374,22 @@ function formatFloorName(kind, number) {
   return kind === "basement" ? `B${number}` : `${number}F`;
 }
 
+function requestedPlanCount() {
+  if (document.querySelector?.("#planAutoCount")?.checked) return null;
+  const count = Number(els.registerTotalSpaces?.value);
+  return Number.isInteger(count) && count > 0 ? count : null;
+}
+
+function validateRequestedPlanCounts(floors) {
+  const expected = requestedPlanCount();
+  if (!expected) return;
+  for (const floor of floors) {
+    if (floor.slots.length !== expected) {
+      throw new Error(`${floor.name}: 입력한 ${expected}면과 도면의 ${floor.slots.length}면이 다릅니다. 누락된 칸을 확인한 뒤 다시 생성해 주세요.`);
+    }
+  }
+}
+
 async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
   const referenceAspectRatio = floorPlanReferenceAspect(floorName);
   const images = state.planImages.filter(image => image.floor === floorName);
@@ -4375,14 +4403,29 @@ async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
     }
   ]);
   const detailParts = await planDetailImageParts(images);
-  const inventoryPayload = await requestGeminiGeneration({
+  const expectedCount = requestedPlanCount();
+  const inventoryRequest = {
     contents: [{ role: "user", parts: [
-      { text: geminiPlanInventoryPrompt(floorName) }, ...imageParts, ...detailParts
+      { text: geminiPlanInventoryPrompt(floorName) + (expectedCount ? `\n사용자가 확인한 이 층의 전체 주차면은 ${expectedCount}면이다. 모든 열의 양끝까지 확인해 누락 여부를 검산한다. 개수를 맞추려고 사진에 없는 칸을 추가하지 않는다.` : "") }, ...imageParts, ...detailParts
     ] }],
     generationConfig: { temperature: 0, maxOutputTokens: 16384,
       responseMimeType: "application/json", responseSchema: floorPlanInventorySchema() }
-  });
-  const inventory = validatePlanInventory(parseGeminiPlanResponse(inventoryPayload));
+  };
+  let inventory = validatePlanInventory(parseGeminiPlanResponse(await requestGeminiGeneration(inventoryRequest)));
+  if (expectedCount && inventory.total !== expectedCount) {
+    els.geminiStatus.textContent = `${floorName}: 입력 ${expectedCount}면 · 감지 ${inventory.total}면, 누락된 주차열을 다시 확인하고 있습니다...`;
+    const recountRequest = {
+      ...inventoryRequest,
+      contents: [{ role: "user", parts: [
+        ...inventoryRequest.contents[0].parts,
+        { text: `이전 집계는 ${inventory.total}면으로 사용자 확인값 ${expectedCount}면과 다르다. 이전 집계: ${JSON.stringify(inventory)}\n긴 바깥 열의 끝부분, 짧은 안쪽 열, 하단 가로열과 모서리 칸을 확대해 경계선 사이를 다시 센다. 각 열의 실제 위치와 경계선 근거를 보존하고, 다른 열에 칸을 몰아넣거나 간격을 늘려 숫자만 맞추지 않는다.` }
+      ] }]
+    };
+    inventory = validatePlanInventory(parseGeminiPlanResponse(await requestGeminiGeneration(recountRequest)));
+    if (inventory.total !== expectedCount) {
+      throw new Error(`${floorName}: 입력한 ${expectedCount}면과 사진에서 확인한 ${inventory.total}면이 다릅니다. 이 결과는 완료하지 않습니다. 주차장 전체가 보이는 사진을 추가하거나 입력 면수를 확인해 주세요.`);
+    }
+  }
   els.geminiStatus.textContent = `${floorName}: ${inventory.rows.length}개 열 · ${inventory.total}면 확인, 도면 작성 중...`;
   const inventoryInstruction = `
 아래 목록은 원본 사진의 확대 구획선에서 먼저 센 주차열 목록이다.
@@ -4559,21 +4602,17 @@ function geminiPlanPrompt(floorName, floorIndex, floorTotal) {
   const expectedTotal = enteredTotal > 0 ? `${enteredTotal}면` : "미입력(사진에서 직접 계산)";
   const expectedDisabled = Math.max(0, Number(els.registerDisabledSpaces?.value) || 0);
   const expectedPregnant = Math.max(0, Number(els.registerPregnantSpaces?.value) || 0);
-  const referenceAspectRatio = floorPlanReferenceAspect(floorName);
-  const referenceAspectInstruction = Number.isFinite(referenceAspectRatio)
-    ? `업로드 사진의 가로÷세로 비율은 ${referenceAspectRatio.toFixed(2)}다. 주차 배치가 사진 대부분을 차지하면 최종 aspectRatio도 이 값에서 15% 이상 넓어지거나 좁아지지 않게 한다.`
-    : "";
   return `
 너는 항공·드론·고정 카메라 사진을 실제 2D 주차장 평면도로 복원하는 측량 CAD 변환기다. 색칠된 예시 배치도를 새로 디자인하지 말고, 사진에 존재하는 주차열과 차로의 위상 관계를 탑뷰로 복원해라.
 
-사용자 입력 참고값: 전체 예상 ${expectedTotal}, 장애인 ${expectedDisabled}면, 임산부 ${expectedPregnant}면. 숫자를 맞추기 위해 사진에 없는 칸을 만들지 말고 사진을 우선한다.
+사용자 확인값: 이 층 전체 ${expectedTotal}, 장애인 ${expectedDisabled}면, 임산부 ${expectedPregnant}면. 수동 입력한 전체 면수와 다르면 앱에서 완료할 수 없다. 주차열별 실제 경계선을 검산하고, 숫자를 맞추기 위해 사진에 없는 칸을 만들지 않는다.
 
 반드시 아래 규칙을 지켜라.
 - 출력은 JSON만 반환한다.
 - 지금 생성할 층은 ${floorName}이다. 전체 ${floorTotal}개 층 중 ${floorIndex + 1}번째다.
 - floors 배열에는 반드시 ${floorName} 한 층만 넣는다.
-- aspectRatio는 원근을 제거한 실제 주차 구역의 가로 길이 ÷ 세로 길이다. 사진 파일 전체나 화면 비율이 아니라 주차선이 놓인 바닥 영역의 실측 비율을 0.55~3.2 사이로 기록한다. 세로로 긴 배치는 1보다 작은 비율을 그대로 사용하고 정사각형으로 압축하지 않는다.
-- ${referenceAspectInstruction}
+- aspectRatio는 원근을 제거한 실제 주차 구역의 가로 길이 ÷ 세로 길이다. 사진 파일 전체나 화면 비율에 맞추지 않는다. 주차열의 실제 길이, 주차면 폭과 깊이, 차로 폭을 기준으로 주차장마다 독립적으로 계산한다. 세로로 긴 배치는 1보다 작은 비율을 그대로 사용하고 정사각형으로 압축하지 않는다.
+- 사진의 촬영 방향이나 여백 때문에 도면을 가로형·세로형 템플릿에 맞추지 않는다. 모든 칸을 넣기 위해 주차열을 줄이거나 통로를 늘이지 않는다.
 - 첨부 사진이 여러 장이면 같은 장소를 다른 방향에서 본 보조 사진으로 취급한다. 가장 넓은 전경을 기준 좌표계로 사용하고, 다른 사진은 가려진 칸과 특수 표식을 확인하는 데만 사용한다. 중복 주차면을 두 번 세거나 서로 모순되는 별도 구조를 이어 붙이지 않는다.
 - 먼저 각 사진에서 독립된 주차열을 찾고, 각 열의 면수·방향·맞은편 열·사이 차로·출입구 순서를 내부적으로 표로 정리한 다음 JSON 좌표를 작성한다.
 - 모든 x/y/w/h/rotation은 카메라 화면의 원근 좌표가 아니라 원근을 제거한 최종 탑뷰 좌표다. 좌상단이 0,0이고 우하단이 100,100이다.
@@ -5217,12 +5256,8 @@ function floorPlanReferenceAspect(floorName) {
     : (ratios[middle - 1] + ratios[middle]) / 2;
 }
 
-function reconcileFloorAspectRatio(generatedValue, referenceValue) {
-  const generated = normalizeFloorAspectRatio(generatedValue);
-  const reference = Number(referenceValue);
-  if (!Number.isFinite(reference) || reference < 0.55 || reference > 3.2) return generated;
-  if (reference < 1) return generated > reference * 1.15 ? reference : generated;
-  return generated < reference * 0.85 ? reference : generated;
+function reconcileFloorAspectRatio(generatedValue) {
+  return normalizeFloorAspectRatio(generatedValue);
 }
 
 function stripJsonFence(text) {
@@ -6060,7 +6095,7 @@ function escapeHtml(value) {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js?v=160", { updateViaCache: "none" }).then((registration) => {
+    navigator.serviceWorker.register("./sw.js?v=161", { updateViaCache: "none" }).then((registration) => {
       const checkForUpdate = () => registration.update().catch(() => {});
       checkForUpdate();
       window.addEventListener("pageshow", checkForUpdate);

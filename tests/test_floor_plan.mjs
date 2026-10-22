@@ -526,7 +526,7 @@ test("floor plan keeps a 3-4-4 layout on both sides", () => {
   );
 });
 
-test("a wide reference photo prevents a compressed plan and preserves a nine-slot row", () => {
+test("a wide photo does not override the measured parking aspect or lose bays", () => {
   const context = loadAppContext();
   vm.runInContext(`
     state.planImages = [{ floor: "1F", width: 1600, height: 1000 }];
@@ -553,12 +553,12 @@ test("a wide reference photo prevents a compressed plan and preserves a nine-slo
     'validateGeneratedFloors(wideReferencePlan, floorPlanReferenceAspect("1F"))[0]',
     context
   );
-  assert.equal(floor.aspectRatio, 1.6);
+  assert.equal(floor.aspectRatio, 1.1);
   assert.equal(floor.slots.length, 9);
   assert.equal(floor.slots[8].rowPosition, 8);
 });
 
-test("a portrait reference preserves all nineteen spaces in each long row", () => {
+test("a portrait photo does not force a portrait floor and preserves all row counts", () => {
   const context = loadAppContext();
   vm.runInContext(`
     state.planImages = [{ floor: "1F", width: 1200, height: 1600 }];
@@ -585,7 +585,7 @@ test("a portrait reference preserves all nineteen spaces in each long row", () =
     'validateGeneratedFloors(portraitReferencePlan, floorPlanReferenceAspect("1F"))[0]',
     context
   );
-  assert.equal(floor.aspectRatio, 0.75);
+  assert.equal(floor.aspectRatio, 1.2);
   assert.equal(floor.slots.length, 76);
   assert.deepEqual(
     Array.from({ length: 4 }, (_, rowIndex) => floor.slots.filter((slot) => slot.rowIndex === rowIndex).length),
@@ -620,6 +620,92 @@ function countedRowsFixture() {
   return { inventory, plan: { floors: [{ name: "1F", aspectRatio: 0.75,
     detectedSlotCount: 48, outline: [{x:2,y:2},{x:98,y:2},{x:98,y:98},{x:2,y:98}], rows }] } };
 }
+
+test("a manual count is enforced per floor, even while the form is disabled for generation", () => {
+  const context = loadAppContext();
+  vm.runInContext(`
+    els.registerTotalSpaces = {value:"46",disabled:true};
+    document.querySelector = () => ({checked:false});
+  `, context);
+  assert.equal(vm.runInContext("requestedPlanCount()", context), 46);
+  assert.throws(() => vm.runInContext('validateRequestedPlanCounts([{name:"1F",slots:Array(31)}])', context), /46면.*31면/);
+  assert.throws(() => vm.runInContext('validateRequestedPlanCounts([{name:"1F",slots:Array(46)},{name:"2F",slots:Array(45)}])', context), /2F/);
+  vm.runInContext('validateRequestedPlanCounts([{name:"1F",slots:Array(46)}]); document.querySelector = () => ({checked:true});', context);
+  assert.equal(vm.runInContext("requestedPlanCount()", context), null);
+});
+
+test("an older 31-bay preview cannot be saved when 46 bays were entered", () => {
+  const context = loadAppContext();
+  vm.runInContext(`
+    els.registerTotalSpaces = {value:"46"}; els.geminiStatus = {};
+    state.floors = [{name:"1F",slots:Array(31)}]; state.planGenerated = true;
+    setRegistrationStep = step => { state.registrationStep = step; };
+    saveRegisteredLot();
+  `,context);
+  assert.equal(vm.runInContext("state.planGenerated",context),false);
+  assert.equal(vm.runInContext("state.registrationStep",context),2);
+  assert.match(vm.runInContext("els.geminiStatus.textContent",context),/46면.*31면/);
+});
+
+function inventoryWithCounts(counts) {
+  return {total:counts.reduce((a,b)=>a+b,0),rows:counts.map((count,index)=>({
+    id:`r${index}`,count,boundaryPositions:Array.from({length:count+1},(_,i)=>i*100/count),
+    kinds:Array(count).fill("normal"),statuses:Array(count).fill("available")
+  }))};
+}
+
+test("46 entered versus 31 detected triggers one recount and never completes an undercounted plan", async () => {
+  const context = loadAppContext();
+  context.inventory = inventoryWithCounts([8,6,6,8,3]);
+  vm.runInContext(`
+    els.registerTotalSpaces = {value:"46",disabled:true};
+    els.geminiStatus = {};
+    state.planImages = [{floor:"1F",base64:"photo",mimeType:"image/jpeg",width:1800,height:2400}];
+    planDetailImageParts = async () => [];
+    requests = [];
+    requestGeminiGeneration = async payload => {
+      requests.push(payload);
+      return {candidates:[{content:{parts:[{text:JSON.stringify(inventory)}]}}]};
+    };
+  `, context);
+  await assert.rejects(vm.runInContext('generatePlanWithGemini("1F",0,1)', context), /46면.*31면/);
+  assert.equal(context.requests.length, 2);
+  assert.match(context.requests[0].contents[0].parts[0].text, /46면/);
+  assert.equal(vm.runInContext("state.planImages.length", context), 1);
+});
+
+test("a corrected census produces exactly 46 bays without padding or redistributing the rows", async () => {
+  const context = loadAppContext();
+  const inventory = inventoryWithCounts([12,8,8,12,6]);
+  const plan = countedRowsFixture().plan;
+  plan.floors[0].detectedSlotCount = 46;
+  plan.floors[0].rows.forEach((row,index)=>{
+    row.rowId=inventory.rows[index].id;
+    row.count=inventory.rows[index].count;
+    row.kinds=inventory.rows[index].kinds;
+    row.statuses=inventory.rows[index].statuses;
+  });
+  context.responses = [inventoryWithCounts([8,6,6,8,3]),inventory,plan];
+  vm.runInContext(`
+    els.registerTotalSpaces = {value:"46",disabled:true};
+    els.registerDisabledSpaces = {value:"0"}; els.registerPregnantSpaces = {value:"0"};
+    els.planPrompt = {value:""}; els.geminiStatus = {};
+    state.planImages = [{floor:"1F",base64:"photo",mimeType:"image/jpeg",width:1800,height:2400}];
+    planDetailImageParts = async () => [];
+    requestGeminiGeneration = async () => ({candidates:[{content:{parts:[{text:JSON.stringify(responses.shift())}]}}]});
+  `, context);
+  const floors = await vm.runInContext('generatePlanWithGemini("1F",0,1)',context);
+  assert.equal(floors[0].slots.length,46);
+  assert.deepEqual([0,1,2,3,4].map(index=>floors[0].slots.filter(slot=>slot.rowIndex===index).length),[12,8,8,12,6]);
+});
+
+test("different floor shapes keep their own aspect without a fixed photo-shaped range", () => {
+  const context = loadAppContext();
+  for(const ratio of [0.25,0.75,1,2.4,4.5]) {
+    assert.equal(vm.runInContext(`reconcileFloorAspectRatio(${ratio},1.6)`,context),ratio);
+  }
+  assert.doesNotMatch(appSource,/최종 aspectRatio도 이 값에서 15%/);
+});
 
 test("independent boundary inventory preserves unequal row counts and special bay positions", () => {
   const context = loadAppContext();
@@ -709,7 +795,7 @@ test("a complete counted plan finishes in two requests with every bay preserved"
   assert.equal(floors[0].slots.length, 48);
 });
 
-test("compressed AI coordinates are fitted to the full drawing area", () => {
+test("fitting uses a uniform scale rather than stretching compressed coordinates", () => {
   const context = loadAppContext();
   context.compressedFloor = {
     aspectRatio: 2.35,
@@ -728,9 +814,10 @@ test("compressed AI coordinates are fitted to the full drawing area", () => {
 
   assert.equal(Math.min(...xs), 4);
   assert.equal(Math.max(...xs), 96);
-  assert.equal(Math.min(...ys), 4);
-  assert.equal(Math.max(...ys), 96);
-  assert.ok(fitted.slots[1].y - fitted.slots[0].y > 35);
+  assert.equal(Math.min(...ys), 34);
+  assert.equal(Math.max(...ys), 66);
+  assert.equal(fitted.slots[1].y - fitted.slots[0].y, 14);
+  assert.equal(fitted.slots[0].w / fitted.slots[0].h, 5 / 12);
 });
 
 test("access labels inside the parking rows are rejected", () => {
@@ -749,7 +836,7 @@ test("access labels inside the parking rows are rejected", () => {
   assert.equal(accepted.length, 0);
 });
 
-test("rendering a saved compressed floor fills the plan and preserves statuses", () => {
+test("rendering a saved compressed floor preserves its geometry and statuses", () => {
   const context = loadAppContext();
   const container = new FakeElement("div");
   const slotPositions = [10, 18, 26, 38, 46, 54, 62, 74, 82, 90, 91];
@@ -791,8 +878,8 @@ test("rendering a saved compressed floor fills the plan and preserves statuses",
   const footprintPoints = footprint.attributes.get("points").split(" ").map((pair) => pair.split(",").map(Number));
   assert.ok(Math.abs(Math.min(...footprintPoints.map(([x]) => x)) - 9.4) < 0.001);
   assert.ok(Math.abs(Math.max(...footprintPoints.map(([x]) => x)) - 225.6) < 0.001);
-  assert.equal(Math.min(...footprintPoints.map(([, y]) => y)), 4);
-  assert.equal(Math.max(...footprintPoints.map(([, y]) => y)), 96);
+  assert.equal(Math.min(...footprintPoints.map(([, y]) => y)), 34);
+  assert.equal(Math.max(...footprintPoints.map(([, y]) => y)), 66);
   assert.equal(accessLabels.length, 0);
 
   const slotBodies = slotGroups
