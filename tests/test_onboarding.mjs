@@ -103,7 +103,12 @@ test("returning visitors and shared CCTV viewers bypass the tutorial", async () 
 
 test("search animation types, shows related searches, then results before offering confirmation", async () => {
   const h = harness();
-  h.click("search");
+  assert.doesNotMatch(html, /onboardingChoice|onboardingBack|어떤 주차가/);
+  assert.equal(h.node("onboardingDemo").hidden, false);
+  assert.equal(h.node("onboardingDemoStage").dataset.purpose, "search");
+  assert.equal(h.node("onboardingDemoStage").dataset.phase, "search-focus");
+  assert.equal(h.node("search")["aria-pressed"], "true");
+  assert.equal(h.node("manage")["aria-pressed"], "false");
   assert.equal(h.node("onboardingStart").hidden, true);
   await h.advance();
   assert.equal(h.node("demoTypedSearch").textContent, "판교역");
@@ -111,6 +116,20 @@ test("search animation types, shows related searches, then results before offeri
   assert.equal(h.node("onboardingStart").hidden, false);
   assert.equal(h.node("onboardingReplay").hidden, false);
   assert.equal(h.storage.has(key), false);
+});
+
+test("reopening the tutorial starts with search and keeps the old tour hidden", () => {
+  const h = harness({ reduced: true });
+  h.api.ready();
+  h.click("manage");
+  assert.equal(h.node("manage")["aria-pressed"], "true");
+  assert.equal(h.node("search")["aria-pressed"], "false");
+  h.click("onboardingStart");
+  h.click("tourSkip");
+  h.api.replay();
+  assert.equal(h.node("onboardingDemoStage").dataset.purpose, "search");
+  assert.equal(h.node("onboardingTour").hidden, true);
+  assert.equal(h.node("onboarding").classList.contains("is-tour"), false);
 });
 
 test("all four purposes lead through real anchored controls and completion is saved", async () => {
@@ -130,12 +149,12 @@ test("all four purposes lead through real anchored controls and completion is sa
   }
 });
 
-test("going back or skipping cancels animation and cannot reveal stale confirmation", async () => {
+test("switching or skipping cancels animation and cannot reveal stale confirmation", async () => {
   const h = harness();
   h.click("search");
-  h.click("onboardingBack");
-  await h.advance();
-  assert.equal(h.node("onboardingChoice").hidden, false);
+  h.click("availability");
+  await h.tick();
+  assert.equal(h.node("onboardingDemoStage").dataset.purpose, "availability");
   assert.equal(h.node("onboardingStart").hidden, true);
   h.click("filters");
   h.click("onboardingSkip");
@@ -252,7 +271,6 @@ test("switching purposes cancels old frames and never displays another story's r
   const h = harness();
   h.click("manage");
   await h.tick();
-  h.click("onboardingBack");
   h.click("availability");
   await h.advance();
   assert.equal(h.node("onboardingDemoStage").dataset.purpose, "availability");

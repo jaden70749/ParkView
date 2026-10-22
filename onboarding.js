@@ -109,7 +109,8 @@
       screens.forEach((screen) => { screen.inert = true; });
       root.hidden = false;
       root.classList.remove("is-tour");
-      showChoices();
+      node("onboardingTour").hidden = true;
+      playDemo("search");
       refreshIcons?.();
     }
 
@@ -131,16 +132,6 @@
       // Do not focus the search field here: that would open search discovery behind permissions.
       if (target && target.id !== "searchInput") target.focus({ preventScroll: true });
       finished();
-    }
-
-    function showChoices() {
-      cancelAnimation();
-      phase = "choices";
-      root.setAttribute("aria-labelledby", "onboardingTitle");
-      node("onboardingChoice").hidden = false;
-      node("onboardingDemo").hidden = true;
-      node("onboardingTour").hidden = true;
-      setFocus("onboardingTitle");
     }
 
     function showResults() {
@@ -230,7 +221,9 @@
       purpose = selected;
       phase = "demo";
       root.setAttribute("aria-labelledby", "onboardingDemoTitle");
-      node("onboardingChoice").hidden = true;
+      root.querySelectorAll("[data-onboarding-purpose]").forEach((button) => {
+        button.setAttribute("aria-pressed", String(button.dataset.onboardingPurpose === purpose));
+      });
       node("onboardingDemo").hidden = false;
       node("onboardingDemoEyebrow").textContent = PURPOSES[purpose][0];
       node("onboardingDemoTitle").innerHTML = PURPOSES[purpose][1];
@@ -308,8 +301,7 @@
 
     node("onboardingSkip").addEventListener("click", () => finish(true));
     node("tourSkip").addEventListener("click", () => finish(true));
-    node("onboardingHome").addEventListener("click", (event) => { event.preventDefault(); showChoices(); });
-    node("onboardingBack").addEventListener("click", showChoices);
+    node("onboardingHome").addEventListener("click", (event) => { event.preventDefault(); playDemo("search"); });
     node("onboardingReplay").addEventListener("click", () => playDemo());
     node("onboardingStart").addEventListener("click", beginTour);
     node("tourNext").addEventListener("click", () => {
