@@ -699,6 +699,33 @@ test("a corrected census produces exactly 46 bays without padding or redistribut
   assert.deepEqual([0,1,2,3,4].map(index=>floors[0].slots.filter(slot=>slot.rowIndex===index).length),[12,8,8,12,6]);
 });
 
+test("a measured photo plan bypasses generative geometry and retains its layout source when saved", async () => {
+  const context = loadAppContext();
+  vm.runInContext(`
+    els.registerTotalSpaces = {value:"46"}; els.geminiStatus = {};
+    state.planImages = [{floor:"1F",previewUrl:"local-photo"}];
+    measured = {name:"1F",layoutSource:"photo_lines",aspectRatio:0.95,outline:[],elements:[],zones:[],slots:[]};
+    window.ParkViewPhotoPlan = {detect:async()=>measured};
+    requestGeminiGeneration = async () => {throw Error("must not regenerate measured geometry");};
+  `,context);
+  const floors = await vm.runInContext('generatePlanWithGemini("1F",0,1)',context);
+  assert.equal(floors[0].layoutSource,"photo_lines");
+  assert.equal(vm.runInContext("polishGeneratedFloor(measured).layoutSource",context),"photo_lines");
+  assert.equal(vm.runInContext("normalizeStoredFloor(measured).layoutSource",context),"photo_lines");
+});
+
+test("measured bays retain their source dimensions instead of adopting display row templates", () => {
+  const context = loadAppContext();
+  context.measuredContainer = new FakeElement("div");
+  vm.runInContext(`
+    standardizeFloorPlanSlots = () => {throw Error("measured geometry must not be standardized");};
+    renderFloorPlan(measuredContainer,{name:"1F",layoutSource:"photo_lines",aspectRatio:0.95,
+      outline:[{x:4,y:4},{x:96,y:4},{x:96,y:96},{x:4,y:96}],elements:[],zones:[],
+      slots:[{x:10,y:10,w:12,h:7,kind:"normal",status:"unknown",rotation:0}]},false);
+  `,context);
+  assert.equal(descendantsOf(context.measuredContainer).filter(item=>item.attributes.get("class")?.includes("floor-slot ")).length,1);
+});
+
 test("different floor shapes keep their own aspect without a fixed photo-shaped range", () => {
   const context = loadAppContext();
   for(const ratio of [0.25,0.75,1,2.4,4.5]) {

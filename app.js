@@ -1451,7 +1451,7 @@ function normalizeStoredFloor(floor, floorIndex = 0) {
     : [];
   return {
     name: String(floor?.name || `B${floorIndex + 1}`),
-    layoutSource: floor?.layoutSource === "camera_polygons" ? "camera_polygons" : null,
+    layoutSource: ["camera_polygons", "photo_lines"].includes(floor?.layoutSource) ? floor.layoutSource : null,
     aspectRatio: normalizeFloorAspectRatio(floor?.aspectRatio),
     outline,
     zones,
@@ -1715,6 +1715,7 @@ function saveRegisteredLot() {
   }
   const floors = state.floors.map((floor) => ({
     name: floor.name,
+    layoutSource: floor.layoutSource,
     aspectRatio: normalizeFloorAspectRatio(floor.aspectRatio),
     outline: clonePoints(floor.outline),
     zones: (floor.zones || []).map((zone) => ({ ...zone, points: clonePoints(zone.points) })),
@@ -1921,7 +1922,7 @@ function renderManagementFloor() {
     localStorage.setItem(`parkview-calibration-plan:${state.selectedLot.id}:${floor.name}`, JSON.stringify({
       lotId: String(state.selectedLot.id), floorId: floor.name,
       aspect: activeFloorPlanXScale,
-      slots: standardizeFloorPlanSlots(fitted.slots, outline)
+      slots: fitted.layoutSource === "photo_lines" ? fitted.slots : standardizeFloorPlanSlots(fitted.slots, outline)
     }));
   } catch (error) { console.warn("Calibration plan preview unavailable", error.name); }
 }
@@ -3347,7 +3348,7 @@ function renderFloorPlan(container, floorOrSlots, editable) {
   const elements = Array.isArray(floor.elements) ? floor.elements : [];
   const zones = Array.isArray(floor.zones) ? floor.zones : [];
   const outline = simplifyFloorOutline(resolveFloorOutline(floor, slots, elements));
-  const displaySlots = standardizeFloorPlanSlots(slots, outline);
+  const displaySlots = floor.layoutSource === "photo_lines" ? slots : standardizeFloorPlanSlots(slots, outline);
   const drawableElements = prepareDrawableFloorElements(elements, displaySlots, outline);
   const hasPlan = slots.length > 0 || elements.length > 0 || zones.length > 0;
 
@@ -4393,6 +4394,17 @@ function validateRequestedPlanCounts(floors) {
 async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
   const referenceAspectRatio = floorPlanReferenceAspect(floorName);
   const images = state.planImages.filter(image => image.floor === floorName);
+  const expectedCount = requestedPlanCount();
+  if (window.ParkViewPhotoPlan && expectedCount && images.length === 1) {
+    els.geminiStatus.textContent = `${floorName}: 사진의 실제 구획선을 확인하고 있습니다...`;
+    let measured;
+    try {
+      measured = await window.ParkViewPhotoPlan.detect(images, floorName, expectedCount);
+    } catch (error) {
+      console.warn("Photo line detection unavailable:", error.name);
+    }
+    if (measured) return [measured];
+  }
   const imageParts = images.flatMap((image, index) => [
     { text: `참고 사진 ${index + 1}: ${floorName}의 동일한 주차장을 다른 위치에서 촬영한 사진` },
     {
@@ -4403,7 +4415,6 @@ async function generatePlanWithGemini(floorName, floorIndex, floorTotal) {
     }
   ]);
   const detailParts = await planDetailImageParts(images);
-  const expectedCount = requestedPlanCount();
   const inventoryRequest = {
     contents: [{ role: "user", parts: [
       { text: geminiPlanInventoryPrompt(floorName) + (expectedCount ? `\n사용자가 확인한 이 층의 전체 주차면은 ${expectedCount}면이다. 모든 열의 양끝까지 확인해 누락 여부를 검산한다. 개수를 맞추려고 사진에 없는 칸을 추가하지 않는다.` : "") }, ...imageParts, ...detailParts
@@ -4987,6 +4998,7 @@ function normalizeParkingSlotRect(rawX, rawY, rawW, rawH) {
 function polishGeneratedFloor(floor) {
   return {
     name: floor.name,
+    layoutSource: floor.layoutSource === "photo_lines" ? "photo_lines" : null,
     aspectRatio: normalizeFloorAspectRatio(floor.aspectRatio),
     detectedSlotCount: floor.detectedSlotCount,
     rowInventory: floor.rowInventory || null,
@@ -6095,7 +6107,7 @@ function escapeHtml(value) {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js?v=161", { updateViaCache: "none" }).then((registration) => {
+    navigator.serviceWorker.register("./sw.js?v=162", { updateViaCache: "none" }).then((registration) => {
       const checkForUpdate = () => registration.update().catch(() => {});
       checkForUpdate();
       window.addEventListener("pageshow", checkForUpdate);

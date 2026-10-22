@@ -19,6 +19,7 @@ const files = [
   "search-discovery.js",
   "onboarding.js",
   "onboarding.css",
+  "photo-plan.js",
   "camera-analysis.js",
   "camera-analysis-core.js",
   "calibrate.html",
@@ -32,10 +33,13 @@ await rm(output, { recursive: true, force: true });
 await Promise.all([
   mkdir(resolve(output, "data"), { recursive: true }),
   mkdir(resolve(output, "models"), { recursive: true }),
-  mkdir(resolve(output, "vendor", "onnxruntime"), { recursive: true })
+  mkdir(resolve(output, "vendor", "onnxruntime"), { recursive: true }),
+  mkdir(resolve(output, "vendor", "opencv"), { recursive: true })
 ]);
 
 await Promise.all(files.map((file) => cp(resolve(root, file), resolve(output, file))));
+await cp(resolve(root, "node_modules/@techstark/opencv-js/dist/opencv.js"), resolve(output, "vendor/opencv/opencv.js"));
+await cp(resolve(root, "node_modules/@techstark/opencv-js/LICENSE"), resolve(output, "vendor/opencv/LICENSE"));
 await cp(resolve(root, "data", "parking-lots.json"), resolve(output, "data", "parking-lots.json"));
 await cp(
   resolve(root, "models", "yolov5su.onnx"),

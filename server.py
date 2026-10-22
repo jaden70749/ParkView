@@ -1497,6 +1497,11 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Max-Age", "600")
         self.end_headers()
 
+    def translate_path(self, path):
+        if urllib.parse.urlsplit(path).path == "/vendor/opencv/opencv.js":
+            return str(ROOT / "node_modules/@techstark/opencv-js/dist/opencv.js")
+        return super().translate_path(path)
+
     def send_head(self):
         if PUBLIC_RELAY_MODE:
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -1504,12 +1509,13 @@ class ParkViewHandler(SimpleHTTPRequestHandler):
         path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
         allowed = {
             "/", "/index.html", "/styles.css", "/app.js", "/config.js",
-            "/search-discovery.js", "/onboarding.js", "/onboarding.css",
+            "/search-discovery.js", "/onboarding.js", "/onboarding.css", "/photo-plan.js",
             "/camera-analysis.js", "/camera-analysis-core.js",
             "/calibrate.html", "/calibrate.js", "/calibrate.css",
             "/native-bridge-source.js", "/manifest.webmanifest", "/sw.js",
             "/data/parking-lots.json", "/models/yolov5su.onnx",
             "/vendor/onnxruntime/ort.wasm.bundle.js",
+            "/vendor/opencv/opencv.js",
             "/vendor/onnxruntime/ort-wasm-simd-threaded.wasm",
         }
         if path not in allowed:
