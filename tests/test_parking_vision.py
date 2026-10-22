@@ -34,6 +34,56 @@ class VisionTests(unittest.TestCase):
         self.assertFalse(ready)
         self.assertIsNone(slots[0]["occupied"])
 
+    def textured_board(self):
+        rng = np.random.default_rng(51)
+        frame = np.repeat(rng.integers(90, 200, (500, 800, 1), dtype=np.uint8), 3, axis=2)
+        slots = []
+        for y in (90, 300):
+            for x in range(90, 660, 95):
+                cv2.rectangle(frame, (x, y), (x+75, y+120), (245, 245, 245), 4)
+                slots.append(dict(id=str(len(slots)), slot_index=len(slots),
+                                  polygon=[[x/799, y/499], [(x+75)/799, y/499],
+                                           [(x+75)/799, (y+120)/499], [x/799, (y+120)/499]]))
+        return frame, dict(slots=slots, reference_id=vision.save_reference(encode(frame)))
+
+    def test_board_registration_ignores_room_motion_and_compensates_small_board_motion(self):
+        frame, config = self.textured_board()
+        cv2.rectangle(frame, (115, 120), (145, 180), (25, 25, 25), -1)
+        cv2.rectangle(frame, (590, 330), (620, 390), (245, 245, 245), -1)
+        moved = cv2.warpAffine(frame, np.float32([[1, 0, 8], [0, 1, 4]]), (800, 500))
+        cv2.rectangle(moved, (0, 0), (780, 65), (10, 10, 10), -1)
+        results, ready, message = vision.analyze(encode(moved), config)
+        self.assertTrue(ready, message)
+        self.assertEqual([s["slot_index"] for s in results if s["occupied"]], [0, 11])
+        self.assertNotEqual(results[0]["polygon"], config["slots"][0]["polygon"])
+
+    def test_unrelated_board_or_excessive_motion_is_unknown_not_false_occupancy(self):
+        frame, config = self.textured_board()
+        rng = np.random.default_rng(67)
+        unrelated = rng.integers(0, 255, frame.shape, dtype=np.uint8)
+        moved = cv2.warpAffine(frame, np.float32([[1, 0, 40], [0, 1, 0]]), (800, 500))
+        for current in (unrelated, moved):
+            results, ready, message = vision.analyze(encode(current), config)
+            self.assertFalse(ready)
+            self.assertTrue(message)
+            self.assertTrue(all(s["occupied"] is None for s in results))
+
+    def test_neighbor_lighting_never_uses_the_target_object_as_its_baseline(self):
+        polygon = np.int32([[100, 100], [160, 100], [160, 140], [100, 140]])
+        samples = [(0, np.array([130, 120]), 80), (1, np.array([190, 120]), 0),
+                   (2, np.array([250, 120]), 1), (3, np.array([310, 120]), -1)]
+        self.assertEqual(vision.neighboring_lighting(0, polygon, samples), 0)
+        self.assertIsNone(vision.neighboring_lighting(0, polygon, samples[:3]))
+
+    def test_row_exposure_changes_do_not_turn_empty_bays_into_objects(self):
+        frame, config = self.textured_board()
+        for index, x in enumerate(range(90, 660, 95)):
+            patch = frame[94:207, x+4:x+72].astype(np.int16)
+            frame[94:207, x+4:x+72] = np.clip(patch+index*8, 0, 255)
+        results, ready, message = vision.analyze(encode(frame), config)
+        self.assertTrue(ready, message)
+        self.assertTrue(all(s["occupied"] == 0 for s in results), results)
+
     def test_object_then_removal_and_uniform_lighting(self):
         self.config["reference_id"] = vision.save_reference(encode(self.frame))
         slots, ready, _ = vision.analyze(encode(self.frame), self.config)

@@ -5375,7 +5375,7 @@ function applyServerSlotResults(slotResults, analyzedAt = "") {
   logParkingOccupancy(slotResults, state.selectedLot?.id, floor.name, analyzedAt);
 
   const resultsByIndex = new Map(
-    slotResults.filter((result) => ["occupied", "empty"].includes(result.status)
+    slotResults.filter((result) => ["occupied", "empty", "unknown"].includes(result.status)
       && Number.isInteger(Number(result.slot_index)) && Number(result.slot_index) >= 0
       && Number(result.slot_index) < floor.slots.length)
       .map((result) => [Number(result.slot_index), result])
@@ -5387,7 +5387,7 @@ function applyServerSlotResults(slotResults, analyzedAt = "") {
   floor.slots.forEach((slot, slotIndex) => {
     const result = resultsByIndex.get(slotIndex);
     if (!result) return;
-    slot.status = result.status === "occupied" ? "occupied" : "available";
+    slot.status = result.status === "occupied" ? "occupied" : result.status === "empty" ? "available" : "unknown";
   });
   refreshParkingStateViews();
   return { ...countFloorStatus(floor), mapped: resultsByIndex.size, ignored: 0 };
@@ -5826,6 +5826,10 @@ async function refreshEdgeStatus() {
       const counts = applyServerSlotResults(result.slot_results, result.analyzed_at);
       els.analysisStatus.textContent = formatAnalysisTime(result.analyzed_at);
       els.objectStatus.textContent = `현재 가능 ${counts.available}면 · 주차중 ${counts.occupied}면`;
+      if (result.mapping_ready === false) {
+        els.analysisStatus.textContent = "판정 보류";
+        els.objectStatus.textContent = result.mapping_message || "주차판 위치를 확인하지 못했습니다.";
+      }
     } else if (cameraConnected && result?.slot_results?.length && !matchesCurrentFloor) {
       els.analysisStatus.textContent = "이 층 결과 없음";
       els.objectStatus.textContent = "CCTV 주차면이 현재 주차장·층과 연결되지 않았습니다. 주차면 등록을 확인해 주세요.";
@@ -6110,7 +6114,7 @@ function escapeHtml(value) {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js?v=164", { updateViaCache: "none" }).then((registration) => {
+    navigator.serviceWorker.register("./sw.js?v=165", { updateViaCache: "none" }).then((registration) => {
       const checkForUpdate = () => registration.update().catch(() => {});
       checkForUpdate();
       window.addEventListener("pageshow", checkForUpdate);

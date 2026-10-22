@@ -377,6 +377,85 @@ def save_reference(raw):
     return key
 
 
+def register_board(base, gray, polygons):
+    """Match fixed board features, with RANSAC rejecting cars and moving people."""
+    h, w = base.shape
+    mask = np.zeros((h, w), np.uint8)
+    points = np.concatenate(polygons).astype(np.float32)
+    cv2.fillConvexPoly(mask, cv2.convexHull(points.astype(np.int32)), 255)
+    orb = cv2.ORB_create(nfeatures=4000)
+    before, descriptors = orb.detectAndCompute(base, mask)
+    after, current = orb.detectAndCompute(gray, cv2.dilate(mask, np.ones((31, 31), np.uint8)))
+    if descriptors is None or len(before) < 30:
+        return None, ""
+    if current is None or len(after) < 30:
+        return None, "주차판이 가려져 위치를 확인하지 못했습니다. 카메라를 확인해 주세요"
+    pairs = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(descriptors, current, k=2)
+    matches = [pair[0] for pair in pairs if len(pair) == 2 and pair[0].distance < .7*pair[1].distance]
+    if len(matches) < 20:
+        return None, "주차판 위치를 확인하지 못했습니다. 기준 사진과 카메라를 확인해 주세요"
+    source = np.float32([before[m.queryIdx].pt for m in matches])
+    target = np.float32([after[m.trainIdx].pt for m in matches])
+    matrix, inliers = cv2.findHomography(source, target, cv2.RANSAC, 2)
+    if matrix is None or inliers is None or inliers.sum() < 20 or inliers.mean() < .5:
+        return None, "주차판 정렬에 실패했습니다. 기준 사진과 카메라를 확인해 주세요"
+    support = source[inliers.ravel() > 0]
+    span = np.ptp(points, axis=0)
+    if np.any(np.ptp(support, axis=0) < span*.5):
+        return None, "주차판 전체 위치를 확인하지 못했습니다. 기준 사진을 확인해 주세요"
+    moved = cv2.perspectiveTransform(points[None], matrix)[0]
+    motion_limit = max(3, .015*np.hypot(w, h)) if len(polygons) >= 3 else 3
+    if not np.isfinite(moved).all() or np.max(np.linalg.norm(moved-points, axis=1)) > motion_limit:
+        return None, "카메라 위치가 크게 바뀌었습니다. 좌표와 기준 사진을 다시 확인해 주세요"
+    if np.any(moved < 0) or np.any(moved > [w-1, h-1]):
+        return None, "주차판이 화면 밖으로 벗어났습니다. 카메라 위치를 확인해 주세요"
+    return matrix, ""
+
+
+def bay_lighting_samples(difference, polygons):
+    samples = []
+    for index, polygon in enumerate(polygons):
+        x, y, w, h = cv2.boundingRect(polygon)
+        mask = np.zeros((h, w), np.uint8)
+        cv2.fillPoly(mask, [polygon-[x, y]], 255)
+        margin = max(1, int(min(w, h)*.12))
+        mask = cv2.erode(mask, np.ones((margin*2+1, margin*2+1), np.uint8),
+                         borderType=cv2.BORDER_CONSTANT, borderValue=0)
+        values = difference[y:y+h, x:x+w][mask > 0]
+        if values.size < 30:
+            continue
+        low, median, high = np.percentile(values, [25, 50, 75])
+        if high-low <= 12:
+            samples.append((index, polygon.mean(axis=0), float(median)))
+    return samples
+
+
+def neighboring_lighting(index, polygon, samples):
+    center = polygon.mean(axis=0)
+    candidates = []
+    for edge in (polygon[1]-polygon[0], polygon[-1]-polygon[0]):
+        length = np.linalg.norm(edge)
+        if length < 1:
+            continue
+        direction = edge/length
+        normal = np.array([-direction[1], direction[0]])
+        depth = np.ptp(polygon @ normal)
+        neighbors = []
+        for other, point, offset in samples:
+            delta = point-center
+            distance = abs(delta @ direction)
+            if other != index and abs(delta @ normal) < .45*depth and 0 < distance < 4.5*length:
+                neighbors.append((distance, offset))
+        neighbors.sort()
+        if len(neighbors) >= 3:
+            candidates.append(neighbors[:3])
+    if not candidates:
+        return None
+    nearest = min(candidates, key=lambda items: sum(item[0] for item in items))
+    offsets = [offset for _, offset in nearest]
+    return float(np.median(offsets)) if np.ptp(offsets) <= 45 else None
+
+
 def analyze(raw, config):
     rgb = decode(raw)
     slots = config.get("slots", [])
@@ -394,12 +473,22 @@ def analyze(raw, config):
     base = cv2.cvtColor(reference, cv2.COLOR_RGB2GRAY)
     h, w = gray.shape
     polygons = [np.round(np.array(s["polygon"])*[w-1, h-1]).astype(np.int32) for s in slots]
+    registration, registration_error = register_board(base, gray, polygons) if polygons else (None, "")
+    if registration_error:
+        return results, False, registration_error
+    if registration is not None:
+        base = cv2.warpPerspective(base, registration, (w, h), flags=cv2.INTER_LINEAR,
+                                   borderMode=cv2.BORDER_REFLECT)
+        polygons = [np.round(cv2.perspectiveTransform(p.astype(np.float32)[None], registration)[0]).astype(np.int32)
+                    for p in polygons]
+        for polygon, result in zip(polygons, results):
+            result["polygon"] = np.round(np.clip(polygon/[w-1, h-1], 0, 1), 6).tolist()
     shift, response = cv2.phaseCorrelate(base.astype(np.float32), gray.astype(np.float32))
-    if response > 0.15 and np.hypot(*shift) > 3:
+    if registration is None and response > 0.15 and np.hypot(*shift) > 3:
         return results, False, "카메라 위치가 바뀌었습니다. 좌표와 기준 사진을 다시 확인해 주세요"
-    warp = np.float32([[1, 0, shift[0]], [0, 1, shift[1]]]) if response > 0.15 else None
+    warp = np.float32([[1, 0, shift[0]], [0, 1, shift[1]]]) if registration is None and response > 0.15 else None
     # Register fixed tape and nearby floor, excluding cars and the rest of the room.
-    if polygons and response <= 0.15:
+    if registration is None and polygons and response <= 0.15:
         registration_mask = np.zeros((h, w), np.uint8)
         cv2.fillConvexPoly(registration_mask, cv2.convexHull(np.concatenate(polygons)), 255)
         registration_mask = cv2.dilate(registration_mask, np.ones((21, 21), np.uint8))
@@ -434,13 +523,19 @@ def analyze(raw, config):
     difference = (cv2.GaussianBlur(gray, (3, 3), 0).astype(np.float32)
                   - cv2.GaussianBlur(base, (3, 3), 0).astype(np.float32))
     floor = (excluded == 0) & (base > 40) & (base < 235) & (gray > 20) & (gray < 245)
+    if registration is not None:
+        board = np.zeros((h, w), np.uint8)
+        cv2.fillConvexPoly(board, cv2.convexHull(np.concatenate(polygons)), 255)
+        floor &= board > 0
     lighting_offset = float(np.median(difference[floor])) if floor.any() else 0.0
-    for polygon, result in zip(polygons, results):
+    lighting_samples = bay_lighting_samples(difference, polygons) if registration is not None else []
+    for index, (polygon, result) in enumerate(zip(polygons, results)):
         x, y, bw, bh = cv2.boundingRect(polygon)
         mask = np.zeros((bh, bw), np.uint8)
         cv2.fillPoly(mask, [polygon-[x, y]], 255)
-        margin = max(1, int(min(bw, bh)*0.07))
-        mask = cv2.erode(mask, np.ones((margin*2+1, margin*2+1), np.uint8))
+        margin = max(1, int(min(bw, bh)*(.12 if registration is not None and len(slots) >= 3 else .07)))
+        mask = cv2.erode(mask, np.ones((margin*2+1, margin*2+1), np.uint8),
+                         borderType=cv2.BORDER_CONSTANT, borderValue=0)
         inside = mask > 0
         count = int(inside.sum())
         if count < 30:
@@ -454,7 +549,12 @@ def analyze(raw, config):
             low, high = np.percentile(surrounding, [25, 75])
             if high-low <= 12:
                 offset = float(np.median(surrounding))
-        delta = difference[y:y+bh, x:x+bw] - offset
+        local_difference = difference[y:y+bh, x:x+bw]
+        # Infer exposure from other bays in the same row, never from this object.
+        neighbor_offset = neighboring_lighting(index, polygon, lighting_samples)
+        if neighbor_offset is not None:
+            offset = neighbor_offset
+        delta = local_difference - offset
         changed = ((np.abs(delta) > 25) & inside).astype(np.uint8)
         changed = cv2.morphologyEx(changed, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
         n, _, stats, _ = cv2.connectedComponentsWithStats(changed, 8)

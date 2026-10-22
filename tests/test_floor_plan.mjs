@@ -5,6 +5,16 @@ import vm from "node:vm";
 
 const appSource = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 
+test("an inconclusive camera result clears stale red and green floor statuses", () => {
+  const state = {floorIndex:0, selectedLot:{id:"lot"},floors:[{name:"1F",slots:[{status:"occupied"},{status:"available"}]}]};
+  const context = vm.createContext({state,restoreCameraReplacedFloor:f=>f,logParkingOccupancy(){},refreshParkingStateViews(){},
+    countFloorStatus:()=>({available:0,occupied:0})});
+  const source=appSource.slice(appSource.indexOf("function applyServerSlotResults("),appSource.indexOf("function restoreCameraReplacedFloor("));
+  vm.runInContext(source,context);
+  context.applyServerSlotResults([{slot_index:0,status:"unknown"},{slot_index:1,status:"unknown"}]);
+  assert.deepEqual(state.floors[0].slots.map(s=>s.status),["unknown","unknown"]);
+});
+
 class FakeElement {
   constructor(tagName) {
     this.tagName = tagName;
@@ -410,7 +420,7 @@ test("CCTV relay headers preserve authentication and bypass the tunnel reminder 
   }
 });
 
-test("live parking results update only their calibrated lot and floor, preserving unknown slots", () => {
+test("live parking results update only their calibrated lot and floor, including unknown slots", () => {
   const context = loadAppContext();
   vm.runInContext(`
     state.selectedLot = { id: "lot-a" };
@@ -431,7 +441,7 @@ test("live parking results update only their calibrated lot and floor, preservin
   context.detail.floorId = "B1";
   vm.runInContext("handleCameraSlotResults({detail})", context);
   assert.equal(vm.runInContext("state.floors[0].slots[0].status", context), "occupied");
-  assert.equal(vm.runInContext("state.floors[0].slots[1].status", context), "occupied");
+  assert.equal(vm.runInContext("state.floors[0].slots[1].status", context), "unknown");
   context.detail.slots[0].status = "empty";
   context.detail.analyzedAt = new Date(Date.now() - 60000).toISOString();
   vm.runInContext("handleCameraSlotResults({detail})", context);
