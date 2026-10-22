@@ -11,7 +11,7 @@
   <link rel="icon" href="data:,">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="stylesheet" href="./styles.css?v=121">
-  <link rel="stylesheet" href="./onboarding.css?v=5">
+  <link rel="stylesheet" href="./onboarding.css?v=4">
 </head>
 <body>
   <main id="app" class="app-shell">
@@ -533,12 +533,24 @@
       </section>
 
     </section>
-    <section id="onboarding" class="onboarding" role="dialog" aria-modal="true" aria-labelledby="onboardingDemoTitle" hidden>
+    <section id="onboarding" class="onboarding" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle" hidden>
       <div class="onboarding-pages">
         <header class="onboarding-header">
           <a class="onboarding-brand" href="#" aria-label="ParkView 처음으로" id="onboardingHome">ParkView</a>
           <button class="onboarding-skip" id="onboardingSkip" type="button">건너뛰기 <i data-lucide="arrow-right"></i></button>
         </header>
+        <div class="onboarding-choice" id="onboardingChoice">
+          <p class="onboarding-eyebrow">주차의 시작, ParkView</p>
+          <h1 id="onboardingTitle" tabindex="-1">어떤 주차가<br>필요하세요?</h1>
+          <p class="onboarding-subtitle">내게 필요한 것부터 만나보세요.</p>
+          <div class="onboarding-options">
+            <button type="button" data-onboarding-purpose="search"><span class="purpose-icon purpose-search"><i data-lucide="map-pin"></i></span><span><small>목적지 가까이</small><strong>주차장 찾기</strong></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" data-onboarding-purpose="availability"><span class="purpose-icon purpose-availability"><i data-lucide="square-parking"></i></span><span><small>도착하기 전에</small><strong>실시간 빈자리 확인</strong></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" data-onboarding-purpose="filters"><span class="purpose-icon purpose-filters"><i data-lucide="sliders-horizontal"></i></span><span><small>내 조건에 맞게</small><strong>요금·운영시간 비교</strong></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" data-onboarding-purpose="manage"><span class="purpose-icon purpose-manage"><i data-lucide="cctv"></i></span><span><small>주차장을 운영한다면</small><strong>CCTV로 주차장 관리</strong></span><i data-lucide="chevron-right"></i></button>
+          </div>
+          <p class="onboarding-choice-footer">찾는 순간부터, 주차하는 순간까지.</p>
+        </div>
         <div class="onboarding-demo" id="onboardingDemo" hidden>
           <div class="onboarding-demo-heading">
             <p class="onboarding-eyebrow" id="onboardingDemoEyebrow">목적지 주변 주차장</p>
@@ -605,15 +617,7 @@
           </div>
           <p class="sr-only" id="onboardingAnimationStatus" role="status">목적지를 검색하고 있어요</p>
           <footer class="onboarding-demo-footer">
-            <div class="onboarding-demo-actions">
-              <div class="onboarding-topics" role="group" aria-label="안내 항목">
-                <button type="button" data-onboarding-purpose="search" aria-pressed="true">검색</button>
-                <button type="button" data-onboarding-purpose="availability" aria-pressed="false">빈자리</button>
-                <button type="button" data-onboarding-purpose="filters" aria-pressed="false">조건</button>
-                <button type="button" data-onboarding-purpose="manage" aria-pressed="false">CCTV</button>
-              </div>
-              <button id="onboardingReplay" class="onboarding-text-button" type="button" aria-label="다시 재생" title="다시 재생" hidden><i data-lucide="rotate-ccw"></i></button>
-            </div>
+            <div class="onboarding-demo-actions"><button id="onboardingBack" class="onboarding-text-button" type="button"><i data-lucide="arrow-left"></i>다른 항목 보기</button><button id="onboardingReplay" class="onboarding-text-button" type="button" hidden><i data-lucide="rotate-ccw"></i>다시 재생</button></div>
             <button id="onboardingStart" class="onboarding-primary" type="button" hidden>확인하고 시작하기 <i data-lucide="arrow-right"></i></button>
             <div class="onboarding-animation-progress" id="onboardingAnimationProgress"><span></span></div>
           </footer>
@@ -639,7 +643,7 @@
     }
   </script>
   <script src="./search-discovery.js?v=2"></script>
-  <script src="./onboarding.js?v=3"></script>
+  <script src="./onboarding.js?v=2"></script>
   <script src="./app.js?v=159"></script>
   <script src="./vendor/onnxruntime/ort.wasm.bundle.js?v=1"></script>
   <script type="module" src="./camera-analysis.js?v=16"></script>
