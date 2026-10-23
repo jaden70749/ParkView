@@ -3,6 +3,30 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
+test("failed or stale CCTV analysis clears prior occupancy instead of keeping red overlays", async () => {
+  const source = await readFile(new URL("../camera-analysis.js", import.meta.url), "utf8");
+  const analysis = source.slice(source.indexOf("async function performCurrentFrame("), source.indexOf("function prepareInput("));
+  for (const failure of ["network", "old", "future", "missing"]) {
+    const updates = [];
+    const state = {runId:1,sourceType:"cctv",slotHistory:new Map([["a","occupied"]]),
+      regions:{lot_id:"lot",floor_id:"1F",occupancy_strategy:"empty_reference_difference",slots:[{id:"a",slot_index:0}]}};
+    const context = vm.createContext({state,AbortSignal,
+      getCameraPreviewUrl:()=>"https://camera.example/api/camera/preview",cameraRequestHeaders:()=>({}),
+      fetch:async()=>{if(failure==="network")throw Error("offline");return {ok:true,json:async()=>({
+        lot_id:"lot",calibration_floor_id:"1F",strategy:"empty_reference_difference",mapping_ready:true,
+        analyzed_at:failure==="missing"?undefined:new Date(Date.now()+(failure==="future"?60000:-60000)).toISOString(),
+        slot_results:[{id:"a",slot_index:0,status:"occupied"}]
+      })};},
+      updateResult:(_elapsed,slots)=>updates.push(slots),drawPreview(){},setStatus(){},setModelState(){}
+    });
+    vm.runInContext(analysis,context);
+    await context.performCurrentFrame(1);
+    assert.equal(updates.length,1);
+    assert.equal(updates[0][0].status,"unknown");
+    assert.equal(state.slotHistory.size,0);
+  }
+});
+
 test("manual demonstration controls and code are removed", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");

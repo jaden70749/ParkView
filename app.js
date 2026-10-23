@@ -5821,8 +5821,14 @@ async function refreshEdgeStatus() {
     const currentFloor = state.floors[state.floorIndex];
     const matchesCurrentFloor = result?.lot_id && String(result.lot_id) === String(state.selectedLot?.id)
       && result.floor_id === currentFloor?.name && result.calibration_floor_id === currentFloor?.name;
+    const resultAge = Date.now() - Date.parse(result?.analyzed_at || "");
+    const resultFresh = Number.isFinite(resultAge) && resultAge >= -5000 && resultAge <= 30000;
 
-    if (cameraConnected && result?.slot_results?.length && matchesCurrentFloor) {
+    if (cameraConnected && result?.slot_results?.length && matchesCurrentFloor && !resultFresh) {
+      applyServerSlotResults(result.slot_results.map(slot => ({ ...slot, status: "unknown", occupied: null })));
+      els.analysisStatus.textContent = "분석 지연";
+      els.objectStatus.textContent = "최신 분석 결과를 기다리고 있습니다.";
+    } else if (cameraConnected && result?.slot_results?.length && matchesCurrentFloor) {
       const counts = applyServerSlotResults(result.slot_results, result.analyzed_at);
       els.analysisStatus.textContent = formatAnalysisTime(result.analyzed_at);
       els.objectStatus.textContent = `현재 가능 ${counts.available}면 · 주차중 ${counts.occupied}면`;
@@ -6114,7 +6120,7 @@ function escapeHtml(value) {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js?v=165", { updateViaCache: "none" }).then((registration) => {
+    navigator.serviceWorker.register("./sw.js?v=166", { updateViaCache: "none" }).then((registration) => {
       const checkForUpdate = () => registration.update().catch(() => {});
       checkForUpdate();
       window.addEventListener("pageshow", checkForUpdate);

@@ -1,17 +1,17 @@
-const CACHE_NAME = "parkview-v176";
+const CACHE_NAME = "parkview-v177";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css?v=122",
   "./config.js?v=4",
   "./native-bridge-source.js?v=100",
-  "./app.js?v=165",
+  "./app.js?v=166",
   "./slot-mapping.js?v=1",
   "./photo-plan.js?v=1",
   "./search-discovery.js?v=2",
   "./onboarding.js?v=4",
   "./onboarding.css?v=6",
-  "./camera-analysis.js?v=18",
+  "./camera-analysis.js?v=19",
   "./camera-analysis-core.js?v=4",
   "./vendor/onnxruntime/ort.wasm.bundle.js?v=1",
   "./manifest.webmanifest"

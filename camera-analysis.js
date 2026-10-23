@@ -286,6 +286,7 @@ async function startCctvCamera() {
     if (state.running && state.runId === runId) scheduleCctvFrame(previewUrl, token, runId, Math.max(0, FRAME_INTERVAL_MS-(performance.now()-started)));
   } catch (error) {
     if (!state.running || state.runId !== runId) return;
+    clearCctvOccupancy();
     setStatus(`CCTV 연결 실패: ${error.message}`, true);
     scheduleCctvFrame(previewUrl, token, runId);
   }
@@ -405,6 +406,7 @@ function scheduleCctvFrame(previewUrl, token, runId, delay = FRAME_INTERVAL_MS) 
       if (!getPublicCameraShare()) await analyzeCurrentFrame();
     } catch (error) {
       if (!state.running || state.runId !== runId) return;
+      clearCctvOccupancy();
       setStatus(`CCTV 수신 오류: ${error.message}`, true);
     }
     if (state.running && state.runId === runId) scheduleCctvFrame(previewUrl, token, runId, Math.max(0, FRAME_INTERVAL_MS-(performance.now()-started)));
@@ -483,6 +485,10 @@ async function performCurrentFrame(runId) {
       if (result.lot_id !== state.regions.lot_id || result.calibration_floor_id !== state.regions.floor_id || result.strategy !== "empty_reference_difference") {
         throw new Error("이 주차장·층의 물체 점유 분석을 기다리고 있습니다.");
       }
+      const age = Date.now() - Date.parse(result.analyzed_at || "");
+      if (!Number.isFinite(age) || age < -5000 || age > 30000) {
+        throw new Error("최신 분석 결과를 기다리고 있습니다.");
+      }
       state.detections = [];
       updateResult(result.elapsed_ms, result.slot_results, result.analyzed_at);
       setModelState("ready", "물체 점유 분석");
@@ -515,12 +521,21 @@ async function performCurrentFrame(runId) {
     }
   } catch (error) {
     if (state.runId !== runId) return;
+    if (state.sourceType === "cctv") clearCctvOccupancy();
     setStatus(`분석 오류: ${error.message}`, true);
     if (state.sourceType !== "cctv") {
       state.running = false;
       els.stopButton.disabled = true;
     }
   }
+}
+
+function clearCctvOccupancy() {
+  if (!state.regions?.slots?.length) return;
+  state.detections = [];
+  state.slotHistory.clear();
+  updateResult(0, state.regions.slots.map(slot => ({ ...slot, status: "unknown", occupied: null })), new Date().toISOString());
+  drawPreview();
 }
 
 function prepareInput(source) {
@@ -704,7 +719,7 @@ function sourceDimensions(source) {
   if (source instanceof HTMLVideoElement) {
     return { width: source.videoWidth, height: source.videoHeight };
   }
-  return { width: source.naturalWidth, height: source.naturalHeight };
+  return { width: source?.naturalWidth || 0, height: source?.naturalHeight || 0 };
 }
 
 function waitForVideo(video) {

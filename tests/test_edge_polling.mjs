@@ -11,11 +11,14 @@ function harness(fetch) {
   const timers = new Map();
   let id = 0;
   const state = { edgeStatusRequest: null, edgeStatusRetryAt: 0, edgeStatusFailures: 0,
-    edgeStatusTimer: null, floors: [{ name: "1F" }], floorIndex: 0 };
+    edgeStatusTimer: null, floors: [{ name: "1F" }], floorIndex: 0, selectedLot: {id:"lot"} };
+  const applied = [];
   const els = Object.fromEntries(["cameraConnectionChip", "cameraStatus", "cameraIntervalStatus", "analysisStatus", "objectStatus"]
     .map(name => [name, { textContent: "", classList: { add() {}, remove() {}, toggle() {} } }]));
   const context = vm.createContext({ state, els, fetch, AbortController,
-    Date: { now: () => now },
+    Date: { now: () => now, parse: Date.parse },
+    applyServerSlotResults(slots) { applied.push(slots); return {available:0,occupied:slots.filter(s=>s.status==="occupied").length}; },
+    formatAnalysisTime:()=>"recent",
     renderDeviceCameraStatus: () => false, renderNativeCctvStatus: () => false,
     isDirectCameraMode: () => false, cameraApiUrl: path => `https://relay.example${path}`,
     cameraApiHeaders: () => ({}),
@@ -26,7 +29,7 @@ function harness(fetch) {
     }
   });
   vm.runInContext(source, context);
-  return { state, els, timers, refresh: () => context.refreshEdgeStatus(), stop: () => context.stopEdgeStatusPolling(),
+  return { state, els, timers, applied, refresh: () => context.refreshEdgeStatus(), stop: () => context.stopEdgeStatusPolling(),
     advance: ms => { now += ms; } };
 }
 
@@ -43,6 +46,26 @@ test("offline health backs off without fetching results or piling up requests", 
   assert.equal(calls, 2);
   assert.equal(h.state.edgeStatusRetryAt, 31000);
   assert.equal(h.timers.size, 0);
+});
+
+test("stale, missing and future server timestamps cannot repaint occupied bays", async () => {
+  for (const stamp of [new Date(-40000).toISOString(), undefined, new Date(60000).toISOString()]) {
+    const h=harness(async url=>({ok:true,json:async()=>url.endsWith("health")
+      ? {camera:{connected:true,configured:true}}
+      : {lot_id:"lot",floor_id:"1F",calibration_floor_id:"1F",analyzed_at:stamp,slot_results:[{slot_index:0,status:"occupied"}]} }));
+    await h.refresh();
+    assert.equal(h.applied.length,1);
+    assert.equal(h.applied[0][0].status,"unknown");
+    assert.equal(h.els.analysisStatus.textContent,"분석 지연");
+  }
+});
+
+test("a fresh result still updates occupancy normally", async () => {
+  const h=harness(async url=>({ok:true,json:async()=>url.endsWith("health")
+    ? {camera:{connected:true,configured:true}}
+    : {lot_id:"lot",floor_id:"1F",calibration_floor_id:"1F",analyzed_at:new Date(1000).toISOString(),slot_results:[{slot_index:0,status:"occupied"}]} }));
+  await h.refresh();
+  assert.equal(h.applied[0][0].status,"occupied");
 });
 
 test("an unauthorized result reports authentication failure", async () => {
