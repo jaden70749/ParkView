@@ -33,7 +33,7 @@ function cameraApiHeaders(url, headers = {}) {
     : { ...headers };
 }
 
-async function loadRuntimeConfig() {
+async function loadRuntimeConfig({ waitForBackend = true } = {}) {
   const staticKey = String(
     window.PARKVIEW_CONFIG?.kakaoJavaScriptKey || ""
   ).trim();
@@ -44,6 +44,13 @@ async function loadRuntimeConfig() {
     geminiConfigured: false,
     backendConnected: false
   };
+
+  if (staticKey && !waitForBackend) {
+    state.runtimeConfig = staticConfig;
+    // Map loading does not depend on the availability of the AI server.
+    void loadRuntimeConfig();
+    return staticConfig;
+  }
 
   // GitHub Pages has no Python API. Its deployment workflow injects only the
   // public Kakao JavaScript key into config.js.
@@ -63,7 +70,7 @@ async function loadRuntimeConfig() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const serverConfig = await response.json();
     const kakaoJavaScriptKey = String(
-      serverConfig.kakaoJavaScriptKey || staticConfig.kakaoJavaScriptKey
+      staticConfig.kakaoJavaScriptKey || serverConfig.kakaoJavaScriptKey || ""
     ).trim();
     state.runtimeConfig = {
       ...staticConfig,
@@ -90,19 +97,28 @@ function loadKakaoMapSdk() {
   const appKey = String(state.runtimeConfig?.kakaoJavaScriptKey || "").trim();
   if (!appKey) return Promise.reject(new Error("KAKAO_JAVASCRIPT_KEY is not configured"));
 
+  const script = document.createElement("script");
   state.kakaoSdkPromise = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
+    const timeout = window.setTimeout(() => fail(new Error("Kakao Maps SDK loading timed out")), 15000);
+    const fail = error => { window.clearTimeout(timeout); reject(error); };
     script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(appKey)}&autoload=false&libraries=services`;
     script.async = true;
     script.addEventListener("load", () => {
       if (!window.kakao?.maps?.load) {
-        reject(new Error("Kakao Maps SDK domain or app key is invalid"));
+        fail(new Error("Kakao Maps SDK domain or app key is invalid"));
         return;
       }
-      window.kakao.maps.load(() => resolve(window.kakao.maps));
+      window.kakao.maps.load(() => {
+        window.clearTimeout(timeout);
+        resolve(window.kakao.maps);
+      });
     }, { once: true });
-    script.addEventListener("error", () => reject(new Error("Kakao Maps SDK could not be loaded")), { once: true });
+    script.addEventListener("error", () => fail(new Error("Kakao Maps SDK could not be loaded")), { once: true });
     document.head.appendChild(script);
+  }).catch(error => {
+    script.remove();
+    state.kakaoSdkPromise = null;
+    throw error;
   });
   return state.kakaoSdkPromise;
 }
@@ -255,7 +271,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   state.floors = state.selectedLot.floors;
   syncFilterControls();
   updateMenuFavoriteCount();
-  await loadRuntimeConfig();
+  await loadRuntimeConfig({ waitForBackend: false });
   await loadKakaoMapSdk().catch((error) => {
     console.warn("Kakao Maps SDK unavailable; using fallback map.", error);
   });
@@ -6120,7 +6136,7 @@ function escapeHtml(value) {
 
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js?v=166", { updateViaCache: "none" }).then((registration) => {
+    navigator.serviceWorker.register("./sw.js?v=167", { updateViaCache: "none" }).then((registration) => {
       const checkForUpdate = () => registration.update().catch(() => {});
       checkForUpdate();
       window.addEventListener("pageshow", checkForUpdate);
